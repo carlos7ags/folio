@@ -1,0 +1,7 @@
+Folio
+Copyright 2026 Carlos Munoz and the Folio Authors
+
+Dependencies:
+
+- golang.org/x/image (BSD-3-Clause)
+- golang.org/x/net (BSD-3-Clause)

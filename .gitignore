@@ -1,0 +1,41 @@
+# Binaries
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Go build output
+/folio
+/samples
+/showcase
+/cmd/*/cmd
+/cmd/example/example
+/cmd/showcase/showcase
+/cmd/samples/samples
+/cmd/folio/folio
+
+# Test binary, built with `go test -c`
+*.test
+
+# Go coverage
+*.out
+coverage.html
+
+# Generated PDFs
+*.pdf
+
+# Dependency directories
+vendor/
+node_modules/
+
+# IDE / editor
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db

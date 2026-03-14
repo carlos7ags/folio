@@ -1,0 +1,138 @@
+// Copyright 2026 Carlos Munoz and the Folio Authors
+// SPDX-License-Identifier: Apache-2.0
+
+package image
+
+import (
+	"bytes"
+	"fmt"
+	goimage "image"
+	"image/color"
+	"image/png"
+	"os"
+)
+
+// NewPNG creates an Image from raw PNG data.
+// Decodes the PNG to extract pixel data, then re-compresses with FlateDecode.
+// Alpha channels are extracted into a separate SMask.
+func NewPNG(data []byte) (*Image, error) {
+	img, err := png.Decode(bytes.NewReader(data))
+	if err != nil {
+		return nil, fmt.Errorf("png: %w", err)
+	}
+
+	bounds := img.Bounds()
+	w := bounds.Dx()
+	h := bounds.Dy()
+
+	hasAlpha := imageHasAlpha(img)
+
+	if hasAlpha {
+		return buildRGBA(img, w, h)
+	}
+	return buildRGB(img, w, h)
+}
+
+// LoadPNG reads a PNG file and creates an Image.
+func LoadPNG(path string) (*Image, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	return NewPNG(data)
+}
+
+// buildRGB extracts RGB pixel data (no alpha).
+func buildRGB(img goimage.Image, w, h int) (*Image, error) {
+	bounds := img.Bounds()
+
+	// Check if the image is grayscale before allocating buffers.
+	if isGrayscale(img) {
+		grayPixels := make([]byte, 0, w*h)
+		for y := bounds.Min.Y; y < bounds.Max.Y; y++ {
+			for x := bounds.Min.X; x < bounds.Max.X; x++ {
+				r, _, _, _ := img.At(x, y).RGBA()
+				grayPixels = append(grayPixels, byte(r>>8))
+			}
+		}
+		return &Image{
+			data:       grayPixels,
+			width:      w,
+			height:     h,
+			colorSpace: "DeviceGray",
+			bpc:        8,
+			filter:     "FlateDecode",
+		}, nil
+	}
+
+	pixels := make([]byte, 0, w*h*3)
+	for y := bounds.Min.Y; y < bounds.Max.Y; y++ {
+		for x := bounds.Min.X; x < bounds.Max.X; x++ {
+			r, g, b, _ := img.At(x, y).RGBA()
+			pixels = append(pixels, byte(r>>8), byte(g>>8), byte(b>>8))
+		}
+	}
+
+	return &Image{
+		data:       pixels,
+		width:      w,
+		height:     h,
+		colorSpace: "DeviceRGB",
+		bpc:        8,
+		filter:     "FlateDecode",
+	}, nil
+}
+
+// buildRGBA extracts RGB pixel data and alpha channel separately.
+func buildRGBA(img goimage.Image, w, h int) (*Image, error) {
+	bounds := img.Bounds()
+	pixels := make([]byte, 0, w*h*3)
+	alpha := make([]byte, 0, w*h)
+
+	for y := bounds.Min.Y; y < bounds.Max.Y; y++ {
+		for x := bounds.Min.X; x < bounds.Max.X; x++ {
+			r, g, b, a := img.At(x, y).RGBA()
+			pixels = append(pixels, byte(r>>8), byte(g>>8), byte(b>>8))
+			alpha = append(alpha, byte(a>>8))
+		}
+	}
+
+	return &Image{
+		data:       pixels,
+		width:      w,
+		height:     h,
+		colorSpace: "DeviceRGB",
+		bpc:        8,
+		filter:     "FlateDecode",
+		smask:      alpha,
+		smaskW:     w,
+		smaskH:     h,
+	}, nil
+}
+
+// imageHasAlpha checks if any pixel has non-opaque alpha.
+func imageHasAlpha(img goimage.Image) bool {
+	switch img.(type) {
+	case *goimage.NRGBA, *goimage.NRGBA64, *goimage.RGBA, *goimage.RGBA64:
+		// These types can have alpha. Check if any pixel is non-opaque.
+		bounds := img.Bounds()
+		for y := bounds.Min.Y; y < bounds.Max.Y; y++ {
+			for x := bounds.Min.X; x < bounds.Max.X; x++ {
+				_, _, _, a := img.At(x, y).RGBA()
+				if a != 0xFFFF {
+					return true
+				}
+			}
+		}
+	}
+	return false
+}
+
+// isGrayscale checks if the image model is grayscale.
+func isGrayscale(img goimage.Image) bool {
+	switch img.ColorModel() {
+	case color.GrayModel, color.Gray16Model:
+		return true
+	}
+	return false
+}
