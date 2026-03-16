@@ -5,6 +5,7 @@ package reader
 
 import (
 	"github.com/carlos7ags/folio/core"
+	"github.com/carlos7ags/folio/font"
 )
 
 // FontEntry holds the decoded character mapping and glyph widths
@@ -42,7 +43,8 @@ func (fe *FontEntry) CharWidth(charCode int) int {
 		return 0
 	}
 
-	// CIDFont widths (Type0).
+	// CIDFont widths (Type0). Check cidWidths explicitly (nil map is safe
+	// for reads in Go, but being explicit about the intent).
 	if fe.cidWidths != nil {
 		if w, ok := fe.cidWidths[charCode]; ok {
 			return w
@@ -53,7 +55,9 @@ func (fe *FontEntry) CharWidth(charCode int) int {
 		return 1000
 	}
 
-	// Simple font widths.
+	// Simple font widths. Explicit nil guard: while len(nil) == 0 in Go
+	// (making the idx check safe), the guard documents that widths may
+	// be absent for fonts that don't declare /Widths.
 	if fe.widths != nil {
 		idx := charCode - fe.firstChar
 		if idx >= 0 && idx < len(fe.widths) {
@@ -62,6 +66,12 @@ func (fe *FontEntry) CharWidth(charCode int) int {
 	}
 
 	return 0
+}
+
+// SpaceWidth returns the width of the space character in text space units (1/1000).
+// Returns 0 if the space glyph width is not available.
+func (fe *FontEntry) SpaceWidth() int {
+	return fe.CharWidth(32)
 }
 
 // TextWidth computes the width of raw character code bytes in 1/1000 units.
@@ -94,6 +104,14 @@ type FontCache map[string]*FontEntry
 // BuildFontCache constructs a FontCache from a page's Resources dictionary.
 // The resolver is used to dereference indirect objects (font dicts, streams).
 func BuildFontCache(resources *core.PdfDictionary, res *resolver) FontCache {
+	return BuildFontCacheWithShared(resources, res, nil)
+}
+
+// BuildFontCacheWithShared constructs a FontCache like BuildFontCache, but
+// reuses parsed FontEntry values from a shared cross-page cache keyed by
+// indirect reference object number. This avoids re-parsing the same font
+// dictionary on every page of a multi-page document.
+func BuildFontCacheWithShared(resources *core.PdfDictionary, res *resolver, shared map[int]*FontEntry) FontCache {
 	if resources == nil {
 		return nil
 	}
@@ -111,6 +129,24 @@ func BuildFontCache(resources *core.PdfDictionary, res *resolver) FontCache {
 	cache := make(FontCache)
 	for _, entry := range fontDict.Entries {
 		name := entry.Key.Value
+
+		// Check if the font value is an indirect reference so we can
+		// look it up in the shared cache by object number.
+		var objNum int
+		var hasObjNum bool
+		if ref, ok := entry.Value.(*core.PdfIndirectReference); ok {
+			objNum = ref.ObjectNumber
+			hasObjNum = true
+		}
+
+		// Try the shared cache first.
+		if hasObjNum && shared != nil {
+			if fe, found := shared[objNum]; found {
+				cache[name] = fe
+				continue
+			}
+		}
+
 		fontVal := resolveWith(res, entry.Value)
 		fd, ok := fontVal.(*core.PdfDictionary)
 		if !ok {
@@ -119,6 +155,10 @@ func BuildFontCache(resources *core.PdfDictionary, res *resolver) FontCache {
 		fe := parseFontEntry(fd, res)
 		if fe != nil {
 			cache[name] = fe
+			// Store in shared cache for reuse by other pages.
+			if hasObjNum && shared != nil {
+				shared[objNum] = fe
+			}
 		}
 	}
 	return cache
@@ -173,9 +213,26 @@ func parseFontEntry(fd *core.PdfDictionary, res *resolver) *FontEntry {
 		}
 	}
 
-	// 3. Type0 with Identity-H but no ToUnicode — can't decode, return nil.
+	// 3. Type0 without ToUnicode — try extracting cmap from embedded font program.
 	if fe.isType0 {
-		return fe // Decode will fall back to raw bytes.
+		if cmap := extractEmbeddedFontCMap(fd, res); cmap != nil {
+			fe.cmap = cmap
+		}
+		return fe
+	}
+
+	// 4. Standard font recognition — if no encoding was declared in the PDF,
+	// standard Type1 fonts (Helvetica, Times, Courier, etc.) use
+	// WinAnsiEncoding by default and have well-known glyph widths.
+	// PDF viewers are required to know these metrics (ISO 32000 §9.6.2.2),
+	// so PDFs typically omit /Widths for standard fonts.
+	if baseName := getBaseFont(fd); baseName != "" {
+		if byteWidths := font.StandardFontByteWidths(baseName); byteWidths != nil {
+			fe.encoding = WinAnsiEncoding
+			fe.firstChar = 0
+			fe.widths = byteWidths
+			return fe
+		}
 	}
 
 	return nil // No useful encoding found.
@@ -343,13 +400,159 @@ func parseCIDWidths(arr *core.PdfArray) map[int]int {
 	return widths
 }
 
-// resolveWith resolves an indirect reference using the resolver, or returns the object as-is.
+// getBaseFont extracts the /BaseFont name from a font dictionary.
+func getBaseFont(fd *core.PdfDictionary) string {
+	if bf, ok := fd.Get("BaseFont").(*core.PdfName); ok {
+		return bf.Value
+	}
+	return ""
+}
+
+// extractEmbeddedFontCMap attempts to extract a GID→Unicode mapping from an
+// embedded font program in a Type0 (composite) font dictionary. It navigates
+// the font hierarchy: Type0 → DescendantFonts → CIDFont → FontDescriptor →
+// FontFile2/FontFile3 to find the embedded TrueType font, then uses its cmap
+// table to build a reverse mapping from glyph IDs to Unicode code points.
+func extractEmbeddedFontCMap(fd *core.PdfDictionary, res *resolver) *CMap {
+	// 1. Get /DescendantFonts → first element → CIDFont dict.
+	dfObj := fd.Get("DescendantFonts")
+	if dfObj == nil {
+		return nil
+	}
+	dfObj = resolveWith(res, dfObj)
+	dfArr, ok := dfObj.(*core.PdfArray)
+	if !ok || dfArr.Len() == 0 {
+		return nil
+	}
+	cidFontObj := resolveWith(res, dfArr.Elements[0])
+	cidFont, ok := cidFontObj.(*core.PdfDictionary)
+	if !ok {
+		return nil
+	}
+
+	// 2. Check /CIDToGIDMap. If it's a stream (not /Identity), parse it
+	//    to apply CID→GID remapping before the GID→Unicode lookup.
+	var cidToGID []uint16
+	if cidToGIDObj := cidFont.Get("CIDToGIDMap"); cidToGIDObj != nil {
+		cidToGIDObj = resolveWith(res, cidToGIDObj)
+		switch v := cidToGIDObj.(type) {
+		case *core.PdfName:
+			// /Identity — CID = GID, no remapping needed.
+		case *core.PdfStream:
+			// Stream of 2-byte big-endian GID entries, one per CID.
+			data := v.Data
+			if len(data) >= 2 {
+				cidToGID = make([]uint16, len(data)/2)
+				for i := 0; i+1 < len(data); i += 2 {
+					cidToGID[i/2] = uint16(data[i])<<8 | uint16(data[i+1])
+				}
+			}
+		}
+	}
+
+	// 3. Get /FontDescriptor.
+	fdescObj := cidFont.Get("FontDescriptor")
+	if fdescObj == nil {
+		return nil
+	}
+	fdescObj = resolveWith(res, fdescObj)
+	fdesc, ok := fdescObj.(*core.PdfDictionary)
+	if !ok {
+		return nil
+	}
+
+	// 4. Try /FontFile2 (TrueType), then /FontFile3 (CFF/OpenType).
+	var fontStream *core.PdfStream
+	for _, key := range []string{"FontFile2", "FontFile3"} {
+		ffObj := fdesc.Get(key)
+		if ffObj == nil {
+			continue
+		}
+		ffObj = resolveWith(res, ffObj)
+		if s, ok := ffObj.(*core.PdfStream); ok && len(s.Data) > 0 {
+			fontStream = s
+			break
+		}
+	}
+	if fontStream == nil {
+		return nil
+	}
+
+	// 5. Build GID→Unicode map from the embedded font's cmap table.
+	gidMap := font.BuildGIDToUnicode(fontStream.Data)
+	if gidMap == nil {
+		return nil
+	}
+
+	// 6. If we have a CIDToGIDMap stream, we need to remap:
+	//    character code (=CID) → GID (via cidToGID) → Unicode (via gidMap).
+	if cidToGID != nil {
+		return buildCMapFromCIDToGID(cidToGID, gidMap)
+	}
+
+	// 7. Identity mapping: character code = CID = GID.
+	return buildCMapFromGIDMap(gidMap)
+}
+
+// buildCMapFromGIDMap creates a CMap that maps 2-byte character codes
+// (treated as glyph IDs under Identity-H encoding) to Unicode using a
+// GID→rune reverse map extracted from an embedded font's cmap table.
+func buildCMapFromGIDMap(gidToUnicode map[uint16]rune) *CMap {
+	if len(gidToUnicode) == 0 {
+		return nil
+	}
+	cm := &CMap{
+		codeSpaceRanges: []codeSpaceRange{
+			{low: 0, high: 0xFFFF, bytes: 2},
+		},
+		bfChars: make(map[uint32]string, len(gidToUnicode)),
+	}
+	for gid, r := range gidToUnicode {
+		cm.bfChars[uint32(gid)] = string(r)
+	}
+	return cm
+}
+
+// buildCMapFromCIDToGID creates a CMap that maps 2-byte character codes (CIDs)
+// to Unicode by first applying a CID→GID mapping, then a GID→rune mapping.
+func buildCMapFromCIDToGID(cidToGID []uint16, gidToUnicode map[uint16]rune) *CMap {
+	cm := &CMap{
+		codeSpaceRanges: []codeSpaceRange{
+			{low: 0, high: 0xFFFF, bytes: 2},
+		},
+		bfChars: make(map[uint32]string),
+	}
+	for cid, gid := range cidToGID {
+		if gid == 0 {
+			continue
+		}
+		if r, ok := gidToUnicode[gid]; ok {
+			cm.bfChars[uint32(cid)] = string(r)
+		}
+	}
+	if len(cm.bfChars) == 0 {
+		return nil
+	}
+	return cm
+}
+
+// resolveWith resolves an indirect reference using the resolver, or returns
+// the object as-is on failure. This is intentional tolerance: PDFs in the
+// wild frequently contain broken or circular references in font dictionaries,
+// encoding arrays, and width tables. Returning the original (unresolved)
+// object lets callers degrade gracefully — they will typically see a type
+// mismatch on the next type-assertion and skip the entry, which is the
+// correct behavior for a reader that prioritises opening documents over
+// strict validation. The error is deliberately not propagated because every
+// call site already handles the "wrong type" case with an ok-check.
 func resolveWith(res *resolver, obj core.PdfObject) core.PdfObject {
 	if res == nil {
 		return obj
 	}
 	resolved, err := res.ResolveDeep(obj)
 	if err != nil {
+		// Resolution failed (broken ref, circular ref, etc.).
+		// Return the original object — callers handle unexpected types gracefully.
 		return obj
 	}
 	return resolved

@@ -85,14 +85,16 @@ func (d *Document) applyWatermark(p *Page) {
 	wmStream.SetFillColorRGB(wm.ColorR, wm.ColorG, wm.ColorB)
 
 	// Compute rotation matrix centered on page.
+	// Offset by half the text width so the text is visually centered.
 	rad := wm.Angle * math.Pi / 180.0
 	cosA := math.Cos(rad)
 	sinA := math.Sin(rad)
-	cx := ps.Width / 2
-	cy := ps.Height / 2
+	textWidth := font.Helvetica.MeasureString(wm.Text, wm.FontSize)
+	cx := ps.Width/2 - (textWidth/2)*cosA
+	cy := ps.Height/2 - (textWidth/2)*sinA
 	wmStream.SetTextMatrix(cosA, sinA, -sinA, cosA, cx, cy)
 
-	wmStream.ShowText(wm.Text)
+	wmStream.ShowText(font.WinAnsiEncode(wm.Text))
 	wmStream.EndText()
 	wmStream.RestoreState()
 

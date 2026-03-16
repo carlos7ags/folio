@@ -21,6 +21,14 @@ type RenderOptions struct {
 	// RegisterFont is called when rendering <text> elements. It returns the
 	// resource name for the given font. If nil, text elements are skipped.
 	RegisterFont func(family, weight, style string, size float64) string
+
+	// MeasureText returns the width of text in PDF points for the given font
+	// and size. Used for text-anchor alignment. If nil, text-anchor is ignored.
+	MeasureText func(family, weight, style string, size float64, text string) float64
+
+	// Defs holds reusable elements indexed by id (from <defs> blocks).
+	// This is set internally during rendering and should not be set by callers.
+	defs map[string]*Node
 }
 
 // Draw renders the SVG into a PDF content stream at position (x, y) bottom-left
@@ -73,6 +81,9 @@ func (s *SVG) DrawWithOptions(stream *content.Stream, x, y, w, h float64, opts R
 	if vb.Valid && (vb.MinX != 0 || vb.MinY != 0) {
 		stream.ConcatMatrix(1, 0, 0, 1, -vb.MinX, -vb.MinY)
 	}
+
+	// Pass defs into opts for <use> resolution.
+	opts.defs = s.defs
 
 	// Walk the tree with the default parent style.
 	parentStyle := DefaultStyle()
@@ -130,12 +141,29 @@ func renderNode(stream *content.Stream, node *Node, parentStyle Style, opts Rend
 		stream.ConcatMatrix(m.A, m.B, m.C, m.D, m.E, m.F)
 	}
 
+	// Resolve gradient references to solid colors for shape rendering.
+	if style.FillRef != "" && style.Fill == nil && opts.defs != nil {
+		if c := resolveGradientColor(opts.defs, style.FillRef); c != nil {
+			style.Fill = c
+		}
+	}
+	if style.StrokeRef != "" && style.Stroke == nil && opts.defs != nil {
+		if c := resolveGradientColor(opts.defs, style.StrokeRef); c != nil {
+			style.Stroke = c
+		}
+	}
+
 	switch node.Tag {
 	case "g", "svg":
 		// Group: just recurse into children.
 		for _, child := range node.Children {
 			renderNode(stream, child, style, opts)
 		}
+	case "defs":
+		// <defs> children are not rendered directly — they are
+		// referenced via <use>. Skip the entire subtree.
+	case "use":
+		renderUse(stream, node, style, opts)
 	case "rect":
 		renderRect(stream, node, style)
 	case "circle":
@@ -154,7 +182,7 @@ func renderNode(stream *content.Stream, node *Node, parentStyle Style, opts Rend
 		renderText(stream, node, style, opts)
 	default:
 		// Unknown element — recurse into children in case there are
-		// renderable descendants (e.g. <a>, <defs> usage, etc.).
+		// renderable descendants (e.g. <a>, etc.).
 		for _, child := range node.Children {
 			renderNode(stream, child, style, opts)
 		}
@@ -426,30 +454,54 @@ func emitPathCommands(stream *content.Stream, cmds []PathCommand) {
 	}
 }
 
-// renderText renders an SVG <text> element (basic single-line).
+// renderText renders an SVG <text> element with tspan, text-anchor,
+// and dominant-baseline support.
 func renderText(stream *content.Stream, node *Node, style Style, opts RenderOptions) {
 	if opts.RegisterFont == nil {
-		return
-	}
-
-	text := node.Text
-	if text == "" {
-		// Collect text from child <tspan> or text nodes.
-		var sb strings.Builder
-		collectText(node, &sb)
-		text = sb.String()
-	}
-	text = strings.TrimSpace(text)
-	if text == "" {
 		return
 	}
 
 	x := attrFloat(node, "x", 0)
 	y := attrFloat(node, "y", 0)
 
+	// Check if we have <tspan> children for multi-run text.
+	hasTspan := false
+	for _, child := range node.Children {
+		if child.Tag == "tspan" {
+			hasTspan = true
+			break
+		}
+	}
+
+	stream.SaveState()
+
+	if hasTspan {
+		renderTextWithTspan(stream, node, style, opts, x, y)
+	} else {
+		// Simple single-run text (original path).
+		text := node.Text
+		if text == "" {
+			var sb strings.Builder
+			collectText(node, &sb)
+			text = sb.String()
+		}
+		text = strings.TrimSpace(text)
+		if text == "" {
+			stream.RestoreState()
+			return
+		}
+		renderTextRun(stream, text, style, opts, x, y)
+	}
+
+	stream.RestoreState()
+}
+
+// renderTextRun renders a single text run at the given position,
+// applying text-anchor and dominant-baseline adjustments.
+func renderTextRun(stream *content.Stream, text string, style Style, opts RenderOptions, x, y float64) {
 	fontSize := style.FontSize
 	if fontSize <= 0 {
-		fontSize = 16 // SVG default
+		fontSize = 16
 	}
 
 	fontName := opts.RegisterFont(style.FontFamily, style.FontWeight, style.FontStyle, fontSize)
@@ -457,20 +509,111 @@ func renderText(stream *content.Stream, node *Node, style Style, opts RenderOpti
 		return
 	}
 
-	stream.SaveState()
+	// Apply text-anchor adjustment.
+	if style.TextAnchor != "start" && opts.MeasureText != nil {
+		tw := opts.MeasureText(style.FontFamily, style.FontWeight, style.FontStyle, fontSize, text)
+		switch style.TextAnchor {
+		case "middle":
+			x -= tw / 2
+		case "end":
+			x -= tw
+		}
+	}
 
-	// Set fill color for text (SVG text is filled by default).
+	// Apply dominant-baseline adjustment.
+	switch style.DominantBaseline {
+	case "middle", "central":
+		y += fontSize * 0.35
+	case "hanging", "text-before-edge":
+		y += fontSize * 0.8
+	}
+
 	if style.Fill != nil {
 		stream.SetFillColorRGB(style.Fill.R, style.Fill.G, style.Fill.B)
 	}
+
+	// The outer SVG renderer applies a Y-flip (ConcatMatrix 1,0,0,-1,0,vbH)
+	// to convert SVG top-down coords to PDF bottom-up. This flips text glyphs
+	// too, making them mirrored. Counter-flip at the text position so glyphs
+	// render right-side up.
+	stream.ConcatMatrix(1, 0, 0, -1, 0, 2*y)
 
 	stream.BeginText()
 	stream.SetFont(fontName, fontSize)
 	stream.MoveText(x, y)
 	stream.ShowText(text)
 	stream.EndText()
+}
 
-	stream.RestoreState()
+// renderTextWithTspan renders a <text> element containing <tspan> children.
+func renderTextWithTspan(stream *content.Stream, node *Node, parentStyle Style, opts RenderOptions, baseX, baseY float64) {
+	curX := baseX
+	curY := baseY
+
+	for _, child := range node.Children {
+		if child.Tag != "tspan" {
+			// Bare text content between tspans.
+			text := strings.TrimSpace(child.Text)
+			if text == "" && child.Tag == "" && node.Text != "" {
+				continue // skip non-element nodes
+			}
+			if text != "" {
+				renderTextRun(stream, text, parentStyle, opts, curX, curY)
+				if opts.MeasureText != nil {
+					fontSize := parentStyle.FontSize
+					if fontSize <= 0 {
+						fontSize = 16
+					}
+					curX += opts.MeasureText(parentStyle.FontFamily, parentStyle.FontWeight, parentStyle.FontStyle, fontSize, text)
+				}
+			}
+			continue
+		}
+
+		childStyle := ResolveStyle(child, parentStyle)
+
+		// Absolute repositioning.
+		if _, ok := child.Attrs["x"]; ok {
+			curX = attrFloat(child, "x", curX)
+		}
+		if _, ok := child.Attrs["y"]; ok {
+			curY = attrFloat(child, "y", curY)
+		}
+
+		// Relative offset.
+		curX += attrFloat(child, "dx", 0)
+		curY += attrFloat(child, "dy", 0)
+
+		text := child.Text
+		if text == "" {
+			var sb strings.Builder
+			collectText(child, &sb)
+			text = sb.String()
+		}
+		text = strings.TrimSpace(text)
+		if text == "" {
+			continue
+		}
+
+		renderTextRun(stream, text, childStyle, opts, curX, curY)
+
+		// Advance cursor past this run.
+		if opts.MeasureText != nil {
+			fontSize := childStyle.FontSize
+			if fontSize <= 0 {
+				fontSize = 16
+			}
+			curX += opts.MeasureText(childStyle.FontFamily, childStyle.FontWeight, childStyle.FontStyle, fontSize, text)
+		}
+	}
+
+	// Handle bare text on the <text> node itself (before any tspan children).
+	if node.Text != "" {
+		text := strings.TrimSpace(node.Text)
+		if text != "" {
+			renderTextRun(stream, text, parentStyle, opts, curX, curY)
+		}
+	}
 }
 
 // collectText recursively gathers text content from a node and its children.
@@ -481,6 +624,93 @@ func collectText(node *Node, sb *strings.Builder) {
 	for _, child := range node.Children {
 		collectText(child, sb)
 	}
+}
+
+// ---------------------------------------------------------------------------
+// <use> element support
+// ---------------------------------------------------------------------------
+
+// renderUse renders an SVG <use> element by looking up the referenced node
+// from <defs> and rendering it at the use site with optional translation.
+func renderUse(stream *content.Stream, node *Node, style Style, opts RenderOptions) {
+	if opts.defs == nil {
+		return
+	}
+
+	// Resolve href: try href first, then xlink:href.
+	href := node.Attrs["href"]
+	if href == "" {
+		href = node.Attrs["xlink:href"]
+	}
+	if href == "" {
+		return
+	}
+
+	// Strip leading '#'.
+	id := strings.TrimPrefix(href, "#")
+	ref, ok := opts.defs[id]
+	if !ok || ref == nil {
+		return
+	}
+
+	// Apply translation from x/y attributes.
+	tx := attrFloat(node, "x", 0)
+	ty := attrFloat(node, "y", 0)
+
+	if tx != 0 || ty != 0 {
+		stream.SaveState()
+		stream.ConcatMatrix(1, 0, 0, 1, tx, ty)
+		defer stream.RestoreState()
+	}
+
+	// Render the referenced node with the use-site's style as parent.
+	renderNode(stream, ref, style, opts)
+}
+
+// ---------------------------------------------------------------------------
+// Gradient support
+// ---------------------------------------------------------------------------
+
+// resolveGradientColor resolves a gradient reference to its first stop color.
+// This is a pragmatic approximation — true gradient rendering would require
+// PDF shading patterns (Type 2 axial). Returns nil if the reference is not
+// a recognized gradient.
+func resolveGradientColor(defs map[string]*Node, id string) *Color {
+	node, ok := defs[id]
+	if !ok || node == nil {
+		return nil
+	}
+	if node.Tag != "linearGradient" && node.Tag != "radialGradient" {
+		return nil
+	}
+
+	// Find the first <stop> child with a valid color.
+	for _, child := range node.Children {
+		if child.Tag != "stop" {
+			continue
+		}
+		colorStr := child.Attrs["stop-color"]
+		if colorStr == "" {
+			// Check inline style.
+			if styleAttr, ok := child.Attrs["style"]; ok {
+				props := parseInlineStyle(styleAttr)
+				colorStr = props["stop-color"]
+			}
+		}
+		if colorStr == "" {
+			continue
+		}
+		if c, ok := ParseColor(colorStr); ok {
+			// Apply stop-opacity if present.
+			if opStr, has := child.Attrs["stop-opacity"]; has {
+				if v, err := strconv.ParseFloat(opStr, 64); err == nil {
+					c.A = clamp01(v)
+				}
+			}
+			return &c
+		}
+	}
+	return nil
 }
 
 // ---------------------------------------------------------------------------
@@ -522,6 +752,7 @@ func applyStrokeStyle(stream *content.Stream, style Style) {
 }
 
 // paintPath decides how to paint the current path based on the resolved style.
+// Gradient references should be resolved to solid colors before calling this.
 func paintPath(stream *content.Stream, style Style) {
 	hasFill := style.Fill != nil
 	hasStroke := style.Stroke != nil && style.StrokeWidth > 0

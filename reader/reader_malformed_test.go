@@ -232,7 +232,7 @@ func TestMalformedResolveInvalidOffset(t *testing.T) {
 		trailer: nil,
 	}
 	mem := newMemoryTracker(MemoryLimits{})
-	res := newResolver(data, xref, mem)
+	res := newResolver(data, xref, mem, StrictnessTolerant)
 
 	_, err := res.Resolve(1)
 	if err == nil {
@@ -249,7 +249,7 @@ func TestMalformedResolveNegativeOffset(t *testing.T) {
 		trailer: nil,
 	}
 	mem := newMemoryTracker(MemoryLimits{})
-	res := newResolver(data, xref, mem)
+	res := newResolver(data, xref, mem, StrictnessTolerant)
 
 	_, err := res.Resolve(1)
 	if err == nil {
@@ -263,7 +263,7 @@ func TestMalformedObjectStreamBadN(t *testing.T) {
 	data := []byte("%PDF-1.7\n")
 	xref := &xrefTable{entries: make(map[int]xrefEntry)}
 	mem := newMemoryTracker(MemoryLimits{})
-	res := newResolver(data, xref, mem)
+	res := newResolver(data, xref, mem, StrictnessTolerant)
 
 	// Manually test: create a mock scenario.
 	// We can't easily inject a full object stream, but we can verify the

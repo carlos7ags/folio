@@ -112,6 +112,7 @@ type TextRun struct {
 	DecorationStyle string  // "solid" (default), "dashed", "dotted", "double", "wavy"
 	LetterSpacing   float64 // extra space between characters (points, from CSS letter-spacing)
 	WordSpacing     float64 // extra space between words (points, from CSS word-spacing)
+	BaselineShift   float64 // vertical offset in points (positive = up for super, negative = down for sub)
 }
 
 // Run creates a TextRun with a standard font.
@@ -219,4 +220,5 @@ type Word struct {
 	SpaceAfter    float64
 	LetterSpacing float64 // extra inter-character space (Tc operator)
 	WordSpacing   float64 // extra inter-word space added to SpaceAfter
+	BaselineShift float64 // vertical offset (positive = up, negative = down)
 }

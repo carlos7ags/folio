@@ -19,6 +19,7 @@ const (
 	ListOrderedRomanUp                  // upper roman: I. II. III. IV.
 	ListOrderedAlpha                    // lower alpha: a. b. c.
 	ListOrderedAlphaUp                  // upper alpha: A. B. C.
+	ListNone                            // no marker
 )
 
 // List is a block-level element that renders ordered or unordered items.
@@ -337,6 +338,8 @@ func wrapListBlocks(blocks []PlacedBlock, width, height float64) []PlacedBlock {
 func (l *List) marker(index int) string {
 	n := index + 1
 	switch l.style {
+	case ListNone:
+		return ""
 	case ListOrdered:
 		return fmt.Sprintf("%d.", n)
 	case ListOrderedRoman:

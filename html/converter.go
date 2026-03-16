@@ -6,9 +6,7 @@ package html
 import (
 	"bytes"
 	"fmt"
-	"io"
 	"math"
-	"net/http"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -33,6 +31,10 @@ type Options struct {
 	PageWidth float64
 	// PageHeight is the page height in points (default 792 = US Letter).
 	PageHeight float64
+	// FallbackFontPath is the path to a Unicode-capable TTF/OTF font used
+	// when text contains characters outside WinAnsiEncoding (e.g. CJK, emoji).
+	// If empty, the converter searches common system font locations.
+	FallbackFontPath string
 }
 
 func (o *Options) defaults() Options {
@@ -71,15 +73,41 @@ type DocMetadata struct {
 	Subject     string // from <meta name="subject">
 }
 
+// PageMargins holds margin values for a page variant.
+// MarginBoxContent holds the parsed content of a CSS margin box (e.g. @top-center).
+type MarginBoxContent struct {
+	Content  string     // resolved content string (after evaluating counter(), string literals, etc.)
+	FontSize float64    // font size in points (0 = use default 9pt)
+	Color    [3]float64 // RGB color (0-1 each; all zero = default gray)
+}
+
+type PageMargins struct {
+	Top, Right, Bottom, Left float64
+	HasMargins               bool                        // true if any margin property was explicitly set (even to 0)
+	MarginBoxes              map[string]MarginBoxContent // e.g. "top-center" → content
+}
+
 // PageConfig holds page dimensions and margins from CSS @page rules.
 type PageConfig struct {
-	Width        float64 // page width in points (0 = use default)
-	Height       float64 // page height in points (0 = use default)
+	Width      float64 // page width in points (0 = use default)
+	Height     float64 // page height in points (0 = use default)
+	AutoHeight bool    // true when @page size has explicit height of 0 (size to content)
+	Landscape  bool
+
+	// Default margins (from @page with no pseudo-selector).
 	MarginTop    float64
 	MarginRight  float64
 	MarginBottom float64
 	MarginLeft   float64
-	Landscape    bool
+	HasMargins   bool // true if any margin property was explicitly set (even to 0)
+
+	// Per-page-type margin overrides (nil = use default).
+	First *PageMargins // @page :first
+	Left  *PageMargins // @page :left (even pages in LTR)
+	Right *PageMargins // @page :right (odd pages in LTR)
+
+	// Default margin boxes (from @page with no pseudo-selector).
+	MarginBoxes map[string]MarginBoxContent // e.g. "top-center" → content
 }
 
 // AbsoluteItem represents an element removed from normal flow via
@@ -105,7 +133,19 @@ func ConvertFull(htmlStr string, opts *Options) (*ConvertResult, error) {
 
 	ss := parseStyleBlocks(doc, o.BasePath)
 
-	c := &converter{opts: o, rootFontSize: o.DefaultFontSize, sheet: ss, embeddedFonts: make(map[string]*font.EmbeddedFont)}
+	c := &converter{opts: o, rootFontSize: o.DefaultFontSize, sheet: ss, embeddedFonts: make(map[string]*font.EmbeddedFont), containerWidth: o.PageWidth}
+
+	// Parse @page config early so containerWidth reflects the actual page size
+	// (e.g. landscape pages have a wider containerWidth).
+	var pageConfig *PageConfig
+	if len(ss.pageRules) > 0 {
+		pageConfig = parsePageConfig(ss.pageRules, o.DefaultFontSize)
+		if pageConfig != nil && pageConfig.Width > 0 {
+			c.containerWidth = pageConfig.Width
+			c.opts.PageWidth = pageConfig.Width
+			c.opts.PageHeight = pageConfig.Height
+		}
+	}
 
 	// Load @font-face fonts.
 	for _, ff := range ss.fontFaces {
@@ -124,11 +164,7 @@ func ConvertFull(htmlStr string, opts *Options) (*ConvertResult, error) {
 
 	elems := c.walkChildren(doc, style)
 	result := &ConvertResult{Elements: elems, Absolutes: c.absolutes, Metadata: c.metadata}
-
-	// Extract @page config if present.
-	if len(ss.pageRules) > 0 {
-		result.PageConfig = parsePageConfig(ss.pageRules, o.DefaultFontSize)
-	}
+	result.PageConfig = pageConfig
 
 	return result, nil
 }
@@ -148,7 +184,16 @@ func Convert(htmlStr string, opts *Options) ([]layout.Element, error) {
 
 	ss := parseStyleBlocks(doc, o.BasePath)
 
-	c := &converter{opts: o, rootFontSize: o.DefaultFontSize, sheet: ss, embeddedFonts: make(map[string]*font.EmbeddedFont)}
+	c := &converter{opts: o, rootFontSize: o.DefaultFontSize, sheet: ss, embeddedFonts: make(map[string]*font.EmbeddedFont), containerWidth: o.PageWidth}
+
+	// Update containerWidth if @page specifies a different page size.
+	if len(ss.pageRules) > 0 {
+		if pc := parsePageConfig(ss.pageRules, o.DefaultFontSize); pc != nil && pc.Width > 0 {
+			c.containerWidth = pc.Width
+			c.opts.PageWidth = pc.Width
+			c.opts.PageHeight = pc.Height
+		}
+	}
 
 	// Load @font-face fonts.
 	for _, ff := range ss.fontFaces {
@@ -169,19 +214,120 @@ func Convert(htmlStr string, opts *Options) ([]layout.Element, error) {
 }
 
 type converter struct {
-	opts          Options
-	rootFontSize  float64
-	sheet         *styleSheet
-	embeddedFonts map[string]*font.EmbeddedFont // family+"|"+weight+"|"+style → embedded font
-	absolutes     []AbsoluteItem
-	metadata      DocMetadata
+	opts           Options
+	rootFontSize   float64
+	sheet          *styleSheet
+	embeddedFonts  map[string]*font.EmbeddedFont // family+"|"+weight+"|"+style → embedded font
+	absolutes      []AbsoluteItem
+	metadata       DocMetadata
+	containerWidth float64 // current container width in points for resolving % widths
+
+	// Unicode fallback: lazily loaded when text contains non-WinAnsi characters.
+	fallbackFont       *font.EmbeddedFont
+	fallbackFontLoaded bool // true after first attempt (even if failed)
+}
+
+// getFallbackFont returns a Unicode-capable embedded font for text that
+// can't be encoded in WinAnsiEncoding. The font is loaded lazily on first
+// use. Returns nil if no suitable font is found.
+func (c *converter) getFallbackFont() *font.EmbeddedFont {
+	if c.fallbackFontLoaded {
+		return c.fallbackFont
+	}
+	c.fallbackFontLoaded = true
+
+	// Try user-specified path first.
+	if c.opts.FallbackFontPath != "" {
+		if face, err := font.LoadTTF(c.opts.FallbackFontPath); err == nil {
+			c.fallbackFont = font.NewEmbeddedFont(face)
+			return c.fallbackFont
+		}
+	}
+
+	// Search common system font locations for a Unicode-capable font.
+	candidates := []string{
+		// macOS
+		"/System/Library/Fonts/Supplemental/Arial Unicode.ttf",
+		"/System/Library/Fonts/Supplemental/Arial.ttf",
+		"/System/Library/Fonts/Helvetica.ttc",
+		// Linux — Noto Sans has excellent Unicode coverage
+		"/usr/share/fonts/truetype/noto/NotoSans-Regular.ttf",
+		"/usr/share/fonts/noto/NotoSans-Regular.ttf",
+		"/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+		"/usr/share/fonts/dejavu/DejaVuSans.ttf",
+		// Windows
+		`C:\Windows\Fonts\arial.ttf`,
+		`C:\Windows\Fonts\segoeui.ttf`,
+	}
+	for _, path := range candidates {
+		if face, err := font.LoadTTF(path); err == nil {
+			c.fallbackFont = font.NewEmbeddedFont(face)
+			return c.fallbackFont
+		}
+	}
+
+	return nil
+}
+
+// resolveFontForText returns the best font for the given text. If the text
+// can be encoded in WinAnsiEncoding, returns the standard font. Otherwise,
+// tries the embedded fonts from @font-face, then the system fallback font.
+func (c *converter) resolveFontForText(style computedStyle, text string) (*font.Standard, *font.EmbeddedFont) {
+	stdFont, embFont := c.resolveFontPair(style)
+
+	// If already using an embedded font (from @font-face), it handles Unicode.
+	if embFont != nil {
+		return nil, embFont
+	}
+
+	// Standard font — check if text fits in WinAnsiEncoding.
+	if font.CanEncodeWinAnsi(text) {
+		return stdFont, nil
+	}
+
+	// Text has non-WinAnsi characters — try fallback.
+	if fb := c.getFallbackFont(); fb != nil {
+		return nil, fb
+	}
+
+	// No fallback available — use standard font (chars will become ?).
+	return stdFont, nil
 }
 
 // walkChildren processes all child nodes and collects layout elements.
+// It applies CSS margin collapsing between adjacent block-level elements:
+// when one element's margin-bottom is followed by the next element's margin-top,
+// the margins collapse to the larger of the two instead of summing.
 func (c *converter) walkChildren(n *html.Node, parentStyle computedStyle) []layout.Element {
 	var elems []layout.Element
+	var prevMarginBottom float64
 	for child := n.FirstChild; child != nil; child = child.NextSibling {
-		elems = append(elems, c.convertNode(child, parentStyle)...)
+		childElems := c.convertNode(child, parentStyle)
+		for _, e := range childElems {
+			// Collapse margins: reduce this element's SpaceBefore if the
+			// previous element's SpaceAfter overlaps.
+			if prevMarginBottom > 0 {
+				if sb, ok := e.(interface{ GetSpaceBefore() float64 }); ok {
+					before := sb.GetSpaceBefore()
+					if before > 0 {
+						// Collapse: use max(prevBottom, thisBefore) instead of sum.
+						collapsed := math.Max(prevMarginBottom, before)
+						reduction := prevMarginBottom + before - collapsed
+						if reduction > 0 {
+							if setter, ok2 := e.(interface{ SetSpaceBefore(float64) }); ok2 {
+								setter.SetSpaceBefore(before - reduction)
+							}
+						}
+					}
+				}
+			}
+			// Track this element's SpaceAfter for next iteration.
+			prevMarginBottom = 0
+			if sa, ok := e.(interface{ GetSpaceAfter() float64 }); ok {
+				prevMarginBottom = sa.GetSpaceAfter()
+			}
+			elems = append(elems, e)
+		}
 	}
 	return elems
 }
@@ -207,13 +353,21 @@ func (c *converter) convertText(n *html.Node, style computedStyle) []layout.Elem
 		return nil
 	}
 	text = applyTextTransform(text, style.TextTransform)
-	stdFont, embFont := c.resolveFontPair(style)
-	var p *layout.Paragraph
-	if embFont != nil {
-		p = layout.NewParagraphEmbedded(text, embFont, style.FontSize)
-	} else {
-		p = layout.NewParagraph(text, stdFont, style.FontSize)
+	stdFont, embFont := c.resolveFontForText(style, text)
+	run := layout.TextRun{
+		Text:            text,
+		Font:            stdFont,
+		Embedded:        embFont,
+		FontSize:        style.FontSize,
+		Color:           style.Color,
+		Decoration:      style.TextDecoration,
+		DecorationColor: style.TextDecorationColor,
+		DecorationStyle: style.TextDecorationStyle,
+		LetterSpacing:   style.LetterSpacing,
+		WordSpacing:     style.WordSpacing,
+		BaselineShift:   baselineShiftFromStyle(style),
 	}
+	p := layout.NewStyledParagraph(run)
 	p.SetAlign(style.TextAlign)
 	p.SetLeading(style.LineHeight)
 	return []layout.Element{p}
@@ -242,12 +396,20 @@ func parsePseudoContent(decls []cssDecl) string {
 // generatePseudoElement creates a text element for ::before or ::after content.
 func (c *converter) generatePseudoElement(text string, style computedStyle) layout.Element {
 	stdFont, embFont := c.resolveFontPair(style)
-	var p *layout.Paragraph
-	if embFont != nil {
-		p = layout.NewParagraphEmbedded(text, embFont, style.FontSize)
-	} else {
-		p = layout.NewParagraph(text, stdFont, style.FontSize)
+	run := layout.TextRun{
+		Text:            text,
+		Font:            stdFont,
+		Embedded:        embFont,
+		FontSize:        style.FontSize,
+		Color:           style.Color,
+		Decoration:      style.TextDecoration,
+		DecorationColor: style.TextDecorationColor,
+		DecorationStyle: style.TextDecorationStyle,
+		LetterSpacing:   style.LetterSpacing,
+		WordSpacing:     style.WordSpacing,
+		BaselineShift:   baselineShiftFromStyle(style),
 	}
+	p := layout.NewStyledParagraph(run)
 	p.SetAlign(style.TextAlign)
 	p.SetLeading(style.LineHeight)
 	return p
@@ -273,12 +435,16 @@ func (c *converter) convertElement(n *html.Node, parentStyle computedStyle) []la
 	}
 
 	// Apply box-sizing: border-box adjustment.
+	// CSS border-box means the declared width/height include padding and border.
+	// Our layout Div treats widthUnit as the OUTER width (it subtracts padding
+	// internally), so we only subtract border widths here — padding is handled
+	// by the Div's own layout logic.
 	if style.BoxSizing == "border-box" {
 		if style.Width != nil {
 			adjusted := *style.Width
 			pts := adjusted.toPoints(0, style.FontSize)
-			sub := style.PaddingLeft + style.PaddingRight + style.BorderLeftWidth + style.BorderRightWidth
-			if pts-sub > 0 {
+			sub := style.BorderLeftWidth + style.BorderRightWidth
+			if sub > 0 && pts-sub > 0 {
 				adjusted = cssLength{Value: pts - sub, Unit: "pt"}
 				style.Width = &adjusted
 			}
@@ -286,8 +452,8 @@ func (c *converter) convertElement(n *html.Node, parentStyle computedStyle) []la
 		if style.Height != nil {
 			adjusted := *style.Height
 			pts := adjusted.toPoints(0, style.FontSize)
-			sub := style.PaddingTop + style.PaddingBottom + style.BorderTopWidth + style.BorderBottomWidth
-			if pts-sub > 0 {
+			sub := style.BorderTopWidth + style.BorderBottomWidth
+			if sub > 0 && pts-sub > 0 {
 				adjusted = cssLength{Value: pts - sub, Unit: "pt"}
 				style.Height = &adjusted
 			}
@@ -359,6 +525,32 @@ func (c *converter) convertElement(n *html.Node, parentStyle computedStyle) []la
 		return nil // don't add to normal flow
 	}
 
+	// Handle position:relative — offset visually without affecting flow.
+	if style.Position == "relative" && (style.Top != nil || style.Left != nil || style.Right != nil || style.Bottom != nil) {
+		dx := 0.0
+		dy := 0.0
+		if style.Left != nil {
+			dx = style.Left.toPoints(c.containerWidth, style.FontSize)
+		} else if style.Right != nil {
+			dx = -style.Right.toPoints(c.containerWidth, style.FontSize)
+		}
+		if style.Top != nil {
+			dy = style.Top.toPoints(0, style.FontSize)
+		} else if style.Bottom != nil {
+			dy = -style.Bottom.toPoints(0, style.FontSize)
+		}
+		if dx != 0 || dy != 0 {
+			var result []layout.Element
+			for _, e := range elems {
+				div := layout.NewDiv()
+				div.Add(e)
+				div.SetRelativeOffset(dx, dy)
+				result = append(result, div)
+			}
+			elems = result
+		}
+	}
+
 	// Page break after.
 	if style.PageBreakAfter == "always" {
 		elems = append(elems, layout.NewAreaBreak())
@@ -380,6 +572,17 @@ func (c *converter) convertElementInner(n *html.Node, style computedStyle) []lay
 	// Grid containers.
 	if style.Display == "grid" {
 		return c.convertGrid(n, style)
+	}
+
+	// CSS table layout: elements with display:table are rendered as tables.
+	if style.Display == "table" {
+		return c.convertCSSTable(n, style)
+	}
+
+	// Inline-block: renders as a block (Div) but participates in inline flow.
+	// For PDF purposes, treat as a block with box-model support.
+	if style.Display == "inline-block" {
+		return c.convertBlock(n, style)
 	}
 
 	switch n.DataAtom {
@@ -441,8 +644,12 @@ func (c *converter) convertElementInner(n *html.Node, style computedStyle) []lay
 		return c.convertInlineContainer(n, style)
 	case atom.Fieldset:
 		return c.convertFieldset(n, style)
-	case atom.Body, atom.Html, atom.Head:
+	case atom.Html, atom.Head:
 		return c.walkChildren(n, style)
+	case atom.Body:
+		// Body is a normal block element (per CSS spec).
+		// Its padding/border/background are additive with @page margins.
+		return c.convertBlock(n, style)
 	case atom.Title:
 		c.metadata.Title = textContent(n)
 		return nil
@@ -466,13 +673,39 @@ func (c *converter) convertHeading(n *html.Node, style computedStyle, level layo
 	text = applyTextTransform(text, style.TextTransform)
 
 	stdFont, embFont := c.resolveFontPair(style)
+	run := layout.TextRun{
+		Text:            text,
+		Font:            stdFont,
+		Embedded:        embFont,
+		FontSize:        style.FontSize,
+		Color:           style.Color,
+		Decoration:      style.TextDecoration,
+		DecorationColor: style.TextDecorationColor,
+		DecorationStyle: style.TextDecorationStyle,
+		LetterSpacing:   style.LetterSpacing,
+		WordSpacing:     style.WordSpacing,
+		BaselineShift:   baselineShiftFromStyle(style),
+	}
 	var h *layout.Heading
 	if embFont != nil {
 		h = layout.NewHeadingEmbedded(text, level, embFont)
 	} else {
 		h = layout.NewHeadingWithFont(text, level, stdFont, style.FontSize)
 	}
+	// Replace the default run with the fully styled one.
+	h.SetRuns([]layout.TextRun{run})
 	h.SetAlign(style.TextAlign)
+
+	// Wrap in a Div if the heading has box-model properties.
+	needsWrapper := style.hasBorder() || style.hasPadding() || style.hasMargin() ||
+		style.BackgroundColor != nil || style.Width != nil || style.MaxWidth != nil
+	if needsWrapper {
+		div := layout.NewDiv()
+		div.Add(h)
+		applyDivStyles(div, style, c.containerWidth)
+		return []layout.Element{div}
+	}
+
 	return []layout.Element{h}
 }
 
@@ -483,15 +716,65 @@ func (c *converter) convertParagraph(n *html.Node, style computedStyle) []layout
 		return nil
 	}
 
-	var p *layout.Paragraph
-	if len(runs) == 1 {
-		stdFont, embFont := c.resolveFontPair(style)
-		if runs[0].Color != (layout.Color{}) || embFont != nil {
-			p = layout.NewStyledParagraph(runs[0])
-		} else {
-			p = layout.NewParagraph(runs[0].Text, stdFont, style.FontSize)
+	// Split runs at <br> markers (TextRun with "\n") into line groups.
+	groups := splitRunsAtBr(runs)
+
+	var elems []layout.Element
+	for i, group := range groups {
+		if len(group) == 0 {
+			continue
 		}
+		p := c.buildParagraphFromRuns(group, style)
+		// Only apply top margin to first paragraph, bottom margin to last.
+		if i == 0 && style.MarginTop > 0 {
+			p.SetSpaceBefore(style.MarginTop)
+		}
+		if i == len(groups)-1 && style.MarginBottom > 0 {
+			p.SetSpaceAfter(style.MarginBottom)
+		}
+		elems = append(elems, p)
+	}
+
+	// Wrap in a Div if the paragraph has box-model properties.
+	needsWrapper := style.hasBorder() || style.hasPadding() || style.BackgroundColor != nil ||
+		style.Width != nil || style.MaxWidth != nil
+	if needsWrapper {
+		div := layout.NewDiv()
+		for _, e := range elems {
+			div.Add(e)
+		}
+		applyDivStyles(div, style, c.containerWidth)
+		return []layout.Element{div}
+	}
+
+	return elems
+}
+
+// splitRunsAtBr splits a flat slice of TextRuns into groups separated by
+// newline markers (from <br> tags). Each group becomes a separate paragraph.
+func splitRunsAtBr(runs []layout.TextRun) [][]layout.TextRun {
+	var groups [][]layout.TextRun
+	var current []layout.TextRun
+	for _, r := range runs {
+		if r.Text == "\n" && r.Font == nil && r.Embedded == nil {
+			groups = append(groups, current)
+			current = nil
+			continue
+		}
+		current = append(current, r)
+	}
+	groups = append(groups, current)
+	return groups
+}
+
+// buildParagraphFromRuns creates a styled paragraph from a slice of TextRuns.
+func (c *converter) buildParagraphFromRuns(runs []layout.TextRun, style computedStyle) *layout.Paragraph {
+	var p *layout.Paragraph
+	if len(runs) == 1 && runs[0].Embedded == nil && runs[0].Color == (layout.Color{}) {
+		// Simple case: single run, standard font, default color.
+		p = layout.NewParagraph(runs[0].Text, runs[0].Font, runs[0].FontSize)
 	} else {
+		// Styled: multiple runs, embedded font, or custom color.
 		p = layout.NewStyledParagraph(runs...)
 	}
 
@@ -500,17 +783,14 @@ func (c *converter) convertParagraph(n *html.Node, style computedStyle) []layout
 	if style.TextIndent != 0 {
 		p.SetFirstLineIndent(style.TextIndent)
 	}
-	if style.MarginTop > 0 {
-		p.SetSpaceBefore(style.MarginTop)
-	}
-	if style.MarginBottom > 0 {
-		p.SetSpaceAfter(style.MarginBottom)
-	}
 	if style.BackgroundColor != nil {
 		p.SetBackground(*style.BackgroundColor)
 	}
 	if style.TextOverflow == "ellipsis" && style.Overflow == "hidden" {
 		p.SetEllipsis(true)
+	}
+	if style.WordBreak == "break-all" || style.WordBreak == "break-word" {
+		p.SetWordBreak(style.WordBreak)
 	}
 	if style.Orphans > 0 {
 		p.SetOrphans(style.Orphans)
@@ -518,8 +798,12 @@ func (c *converter) convertParagraph(n *html.Node, style computedStyle) []layout
 	if style.Widows > 0 {
 		p.SetWidows(style.Widows)
 	}
-
-	return []layout.Element{p}
+	if style.Hyphens == "auto" {
+		p.SetHyphens("auto")
+	} else if style.Hyphens == "none" {
+		p.SetHyphens("none")
+	}
+	return p
 }
 
 // convertBr produces a small empty paragraph to create a line break.
@@ -785,66 +1069,8 @@ func isURL(s string) bool {
 	return strings.HasPrefix(s, "http://") || strings.HasPrefix(s, "https://")
 }
 
-// fetchImage downloads an image from a URL and returns a folio Image.
-// Supports JPEG, PNG, and TIFF. Detects format from Content-Type header
-// or file extension, falling back to content sniffing.
-func fetchImage(url string) (*folioimage.Image, error) {
-	resp, err := http.Get(url)
-	if err != nil {
-		return nil, fmt.Errorf("fetch image %s: %w", url, err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != 200 {
-		return nil, fmt.Errorf("fetch image %s: HTTP %d", url, resp.StatusCode)
-	}
-
-	// Limit download size to 50MB.
-	data, err := io.ReadAll(io.LimitReader(resp.Body, 50<<20))
-	if err != nil {
-		return nil, fmt.Errorf("fetch image %s: %w", url, err)
-	}
-
-	// Detect format from Content-Type or URL extension.
-	ct := resp.Header.Get("Content-Type")
-	switch {
-	case strings.Contains(ct, "jpeg") || strings.Contains(ct, "jpg"):
-		return folioimage.NewJPEG(data)
-	case strings.Contains(ct, "png"):
-		return folioimage.NewPNG(data)
-	case strings.Contains(ct, "tiff"):
-		return folioimage.NewTIFF(data)
-	}
-
-	// Fallback: try by URL extension.
-	ext := strings.ToLower(filepath.Ext(url))
-	// Strip query string from extension.
-	if idx := strings.IndexByte(ext, '?'); idx >= 0 {
-		ext = ext[:idx]
-	}
-	switch ext {
-	case ".jpg", ".jpeg":
-		return folioimage.NewJPEG(data)
-	case ".png":
-		return folioimage.NewPNG(data)
-	case ".tif", ".tiff":
-		return folioimage.NewTIFF(data)
-	}
-
-	// Last resort: content sniffing.
-	if len(data) >= 2 && data[0] == 0xFF && data[1] == 0xD8 {
-		return folioimage.NewJPEG(data)
-	}
-	if len(data) >= 8 && string(data[:4]) == "\x89PNG" {
-		return folioimage.NewPNG(data)
-	}
-
-	// Try JPEG then PNG.
-	if img, err := folioimage.NewJPEG(data); err == nil {
-		return img, nil
-	}
-	return folioimage.NewPNG(data)
-}
+// fetchImage is implemented in fetch_image.go (with net/http)
+// and fetch_image_wasm.go (stub for WASM builds).
 
 // loadImage attempts to load an image file (JPEG, PNG, or TIFF).
 func loadImage(path string) (*folioimage.Image, error) {
@@ -870,21 +1096,78 @@ func loadImage(path string) (*folioimage.Image, error) {
 	}
 }
 
+// baselineShiftFromStyle computes the vertical baseline offset for
+// CSS vertical-align values like "super", "sub", "text-top", "text-bottom".
+func baselineShiftFromStyle(style computedStyle) float64 {
+	switch style.VerticalAlign {
+	case "super":
+		return style.FontSize * 0.35 // raise by ~35% of font size
+	case "sub":
+		return -style.FontSize * 0.2 // lower by ~20% of font size
+	case "text-top":
+		return style.FontSize * 0.25
+	case "text-bottom":
+		return -style.FontSize * 0.15
+	default:
+		return 0
+	}
+}
+
+// cssLengthToUnitValue converts a cssLength to a layout.UnitValue.
+// Percentage values are stored lazily (resolved at layout time).
+// Absolute values are resolved immediately to points.
+func cssLengthToUnitValue(l *cssLength, containerWidth, fontSize float64) layout.UnitValue {
+	if l == nil {
+		return layout.Pt(0)
+	}
+	if l.Unit == "%" {
+		return layout.Pct(l.Value)
+	}
+	return layout.Pt(l.toPoints(containerWidth, fontSize))
+}
+
+// narrowContainerWidth saves the current containerWidth, narrows it based on
+// the element's padding/border/width, and returns a restore function.
+func (c *converter) narrowContainerWidth(style computedStyle) func() {
+	prev := c.containerWidth
+	if style.Width != nil {
+		if w := style.Width.toPoints(c.containerWidth, style.FontSize); w > 0 {
+			c.containerWidth = w
+		}
+	}
+	if style.hasPadding() {
+		c.containerWidth -= style.PaddingLeft + style.PaddingRight
+	}
+	if style.hasBorder() {
+		c.containerWidth -= style.BorderLeftWidth + style.BorderRightWidth
+	}
+	if c.containerWidth < 0 {
+		c.containerWidth = 0
+	}
+	return func() { c.containerWidth = prev }
+}
+
 // convertBlock wraps children in a Div container.
 func (c *converter) convertBlock(n *html.Node, style computedStyle) []layout.Element {
+	restore := c.narrowContainerWidth(style)
 	children := c.walkChildren(n, style)
-	if len(children) == 0 {
+	restore()
+
+	// Allow empty divs that have visual properties (height, background, border).
+	hasVisualBox := style.Height != nil || style.BackgroundColor != nil ||
+		style.hasBorder() || style.hasPadding()
+	if len(children) == 0 && !hasVisualBox {
 		return nil
 	}
 
 	// If column-count > 1, distribute children across columns.
-	if style.ColumnCount > 1 {
+	if style.ColumnCount > 1 && len(children) > 0 {
 		return c.buildColumns(children, style)
 	}
 
 	// If no box-model properties, skip the Div wrapper.
-	hasWidthConstraints := style.MaxWidth != nil || style.MinWidth != nil
-	hasHeightConstraints := style.MinHeight != nil || style.MaxHeight != nil
+	hasWidthConstraints := style.Width != nil || style.MaxWidth != nil || style.MinWidth != nil
+	hasHeightConstraints := style.Height != nil || style.MinHeight != nil || style.MaxHeight != nil
 	hasVisualEffects := style.BorderRadius > 0 || (style.Opacity > 0 && style.Opacity < 1) || style.Overflow == "hidden"
 	hasBoxShadow := style.BoxShadow != nil
 	hasOutline := style.OutlineWidth > 0
@@ -898,7 +1181,7 @@ func (c *converter) convertBlock(n *html.Node, style computedStyle) []layout.Ele
 	for _, child := range children {
 		div.Add(child)
 	}
-	applyDivStyles(div, style)
+	applyDivStyles(div, style, c.containerWidth)
 
 	// Apply background image if set.
 	if bgImg := c.resolveBackgroundImage(style); bgImg != nil {
@@ -909,7 +1192,8 @@ func (c *converter) convertBlock(n *html.Node, style computedStyle) []layout.Ele
 }
 
 // applyDivStyles applies common computed style properties to a layout.Div.
-func applyDivStyles(div *layout.Div, style computedStyle) {
+// containerWidth is the available width in points, used to resolve percentage values.
+func applyDivStyles(div *layout.Div, style computedStyle, containerWidth float64) {
 	if style.hasPadding() {
 		div.SetPaddingAll(layout.Padding{
 			Top:    style.PaddingTop,
@@ -927,20 +1211,30 @@ func applyDivStyles(div *layout.Div, style computedStyle) {
 	if style.MarginBottom > 0 {
 		div.SetSpaceAfter(style.MarginBottom)
 	}
+	// Horizontal centering: margin-left: auto + margin-right: auto.
+	if style.MarginLeftAuto && style.MarginRightAuto {
+		div.SetHCenter(true)
+	}
 	if style.BackgroundColor != nil {
 		div.SetBackground(*style.BackgroundColor)
 	}
+	if style.Width != nil {
+		div.SetWidthUnit(cssLengthToUnitValue(style.Width, containerWidth, style.FontSize))
+	}
 	if style.MaxWidth != nil {
-		div.SetMaxWidth(style.MaxWidth.toPoints(0, style.FontSize))
+		div.SetMaxWidthUnit(cssLengthToUnitValue(style.MaxWidth, containerWidth, style.FontSize))
 	}
 	if style.MinWidth != nil {
-		div.SetMinWidth(style.MinWidth.toPoints(0, style.FontSize))
+		div.SetMinWidthUnit(cssLengthToUnitValue(style.MinWidth, containerWidth, style.FontSize))
+	}
+	if style.Height != nil {
+		div.SetHeightUnit(cssLengthToUnitValue(style.Height, containerWidth, style.FontSize))
 	}
 	if style.MinHeight != nil {
-		div.SetMinHeight(style.MinHeight.toPoints(0, style.FontSize))
+		div.SetMinHeightUnit(cssLengthToUnitValue(style.MinHeight, containerWidth, style.FontSize))
 	}
 	if style.MaxHeight != nil {
-		div.SetMaxHeight(style.MaxHeight.toPoints(0, style.FontSize))
+		div.SetMaxHeightUnit(cssLengthToUnitValue(style.MaxHeight, containerWidth, style.FontSize))
 	}
 	if style.BorderRadius > 0 {
 		div.SetBorderRadius(style.BorderRadius)
@@ -969,15 +1263,15 @@ func applyDivStyles(div *layout.Div, style computedStyle) {
 		// Use maxWidth/width hint if available; otherwise use a default.
 		w := 0.0
 		if style.Width != nil {
-			w = style.Width.toPoints(0, style.FontSize)
+			w = style.Width.toPoints(containerWidth, style.FontSize)
 		} else if style.MaxWidth != nil {
-			w = style.MaxWidth.toPoints(0, style.FontSize)
+			w = style.MaxWidth.toPoints(containerWidth, style.FontSize)
 		}
 		h := 0.0
 		if style.Height != nil {
-			h = style.Height.toPoints(0, style.FontSize)
+			h = style.Height.toPoints(containerWidth, style.FontSize)
 		} else if style.MinHeight != nil {
-			h = style.MinHeight.toPoints(0, style.FontSize)
+			h = style.MinHeight.toPoints(containerWidth, style.FontSize)
 		}
 		ox, oy := parseTransformOrigin(style.TransformOrigin, w, h, style.FontSize)
 		div.SetTransformOrigin(ox, oy)
@@ -1050,8 +1344,32 @@ func (c *converter) convertList(n *html.Node, style computedStyle, ordered bool)
 	}
 	list.SetLeading(style.LineHeight)
 
-	if ordered {
+	// Apply list-style-type from CSS, with fallback to ordered/unordered default.
+	switch style.ListStyleType {
+	case "disc", "":
+		if ordered {
+			list.SetStyle(layout.ListOrdered)
+		} else {
+			list.SetStyle(layout.ListUnordered)
+		}
+	case "circle", "square":
+		list.SetStyle(layout.ListUnordered)
+	case "decimal", "decimal-leading-zero":
 		list.SetStyle(layout.ListOrdered)
+	case "lower-roman":
+		list.SetStyle(layout.ListOrderedRoman)
+	case "upper-roman":
+		list.SetStyle(layout.ListOrderedRomanUp)
+	case "lower-alpha", "lower-latin":
+		list.SetStyle(layout.ListOrderedAlpha)
+	case "upper-alpha", "upper-latin":
+		list.SetStyle(layout.ListOrderedAlphaUp)
+	case "none":
+		list.SetStyle(layout.ListNone)
+	default:
+		if ordered {
+			list.SetStyle(layout.ListOrdered)
+		}
 	}
 
 	c.populateList(n, list, style)
@@ -1239,7 +1557,101 @@ func (c *converter) convertFigure(n *html.Node, style computedStyle) []layout.El
 }
 
 // convertTable converts a <table> element into a layout.Table.
+// convertCSSTable handles elements with display:table — builds a layout.Table
+// from children with display:table-row and display:table-cell.
+func (c *converter) convertCSSTable(n *html.Node, style computedStyle) []layout.Element {
+	tbl := layout.NewTable()
+	tbl.SetAutoColumnWidths()
+
+	if style.BorderCollapse == "collapse" {
+		tbl.SetBorderCollapse(true)
+	}
+
+	// Apply CSS width as table minimum width.
+	if style.Width != nil {
+		tbl.SetMinWidthUnit(cssLengthToUnitValue(style.Width, c.containerWidth, style.FontSize))
+	}
+
+	for child := n.FirstChild; child != nil; child = child.NextSibling {
+		if child.Type != html.ElementNode {
+			continue
+		}
+		childStyle := c.computeElementStyle(child, style)
+
+		if childStyle.Display == "table-row" {
+			row := tbl.AddRow()
+			for cell := child.FirstChild; cell != nil; cell = cell.NextSibling {
+				if cell.Type != html.ElementNode {
+					continue
+				}
+				cellStyle := c.computeElementStyle(cell, childStyle)
+				cellElems := c.walkChildren(cell, cellStyle)
+
+				var layoutCell *layout.Cell
+				if len(cellElems) == 0 {
+					f := resolveFont(cellStyle)
+					layoutCell = row.AddCell(" ", f, cellStyle.FontSize)
+				} else if len(cellElems) == 1 {
+					layoutCell = row.AddCellElement(cellElems[0])
+				} else {
+					div := layout.NewDiv()
+					for _, e := range cellElems {
+						div.Add(e)
+					}
+					layoutCell = row.AddCellElement(div)
+				}
+				layoutCell.SetAlign(cellStyle.TextAlign)
+				if cellStyle.hasPadding() {
+					layoutCell.SetPaddingSides(layout.Padding{
+						Top:    cellStyle.PaddingTop,
+						Right:  cellStyle.PaddingRight,
+						Bottom: cellStyle.PaddingBottom,
+						Left:   cellStyle.PaddingLeft,
+					})
+				}
+				if cellStyle.BackgroundColor != nil {
+					layoutCell.SetBackground(*cellStyle.BackgroundColor)
+				}
+				if cellStyle.hasBorder() {
+					layoutCell.SetBorders(buildCellBorders(cellStyle))
+				}
+			}
+		} else {
+			// Non-row children — treat as a single-cell row.
+			childElems := c.convertNode(child, style)
+			if len(childElems) > 0 {
+				row := tbl.AddRow()
+				div := layout.NewDiv()
+				for _, e := range childElems {
+					div.Add(e)
+				}
+				row.AddCellElement(div)
+			}
+		}
+	}
+
+	// Wrap in Div for margin.
+	if style.MarginTop > 0 || style.MarginBottom > 0 {
+		div := layout.NewDiv()
+		div.Add(tbl)
+		if style.MarginTop > 0 {
+			div.SetSpaceBefore(style.MarginTop)
+		}
+		if style.MarginBottom > 0 {
+			div.SetSpaceAfter(style.MarginBottom)
+		}
+		return []layout.Element{div}
+	}
+
+	return []layout.Element{tbl}
+}
+
 func (c *converter) convertTable(n *html.Node, style computedStyle) []layout.Element {
+	// Save parent containerWidth for resolving the table's own width properties.
+	parentContainerWidth := c.containerWidth
+	restore := c.narrowContainerWidth(style)
+	defer restore()
+
 	var elems []layout.Element
 	tbl := layout.NewTable()
 
@@ -1306,9 +1718,15 @@ func (c *converter) convertTable(n *html.Node, style computedStyle) []layout.Ele
 	} else {
 		tbl.SetAutoColumnWidths()
 	}
+	// Apply CSS width as table minimum width so auto-sizing expands to fill.
+	// Use lazy UnitValue so percentages resolve at layout time against area.Width.
+	if style.Width != nil {
+		tbl.SetMinWidthUnit(cssLengthToUnitValue(style.Width, parentContainerWidth, style.FontSize))
+	}
+
 	// Apply table-level margin/background/width via Div wrapper.
 	hasTableMargin := style.MarginTop > 0 || style.MarginBottom > 0
-	hasTableWidth := style.Width != nil || style.MaxWidth != nil
+	hasTableWidth := style.MaxWidth != nil
 	if hasTableMargin || style.BackgroundColor != nil || hasTableWidth {
 		div := layout.NewDiv()
 		div.Add(tbl)
@@ -1322,7 +1740,7 @@ func (c *converter) convertTable(n *html.Node, style computedStyle) []layout.Ele
 			div.SetBackground(*style.BackgroundColor)
 		}
 		if style.MaxWidth != nil {
-			div.SetMaxWidth(style.MaxWidth.toPoints(0, style.FontSize))
+			div.SetMaxWidth(style.MaxWidth.toPoints(parentContainerWidth, style.FontSize))
 		}
 		// Caption elements come before the table wrapper.
 		elems = append(elems, div)
@@ -1476,11 +1894,15 @@ func (c *converter) convertTableRowKind(n *html.Node, tbl *layout.Table, parentS
 			cell.SetBackground(*rowStyle.BackgroundColor)
 		}
 
-		// Cell borders: prefer per-cell CSS borders, fall back to table border.
+		// Cell borders: prefer per-cell CSS borders, fall back to table border,
+		// or remove default borders if table has no border.
 		if cellStyle.hasBorder() {
 			cell.SetBorders(buildCellBorders(cellStyle))
 		} else if borderWidth > 0 {
 			cell.SetBorders(layout.AllBorders(layout.SolidBorder(borderWidth, layout.ColorBlack)))
+		} else {
+			// No cell border and no table border — clear the default borders.
+			cell.SetBorders(layout.CellBorders{})
 		}
 
 		if cs := getAttr(child, "colspan"); cs != "" {
@@ -1491,6 +1913,14 @@ func (c *converter) convertTableRowKind(n *html.Node, tbl *layout.Table, parentS
 		if rs := getAttr(child, "rowspan"); rs != "" {
 			if v := parseInt(rs); v > 1 {
 				cell.SetRowspan(v)
+			}
+		}
+
+		// CSS width on the cell → column width hint for auto-sizing.
+		if cellStyle.Width != nil {
+			w := cellStyle.Width.toPoints(c.containerWidth, cellStyle.FontSize)
+			if w > 0 {
+				cell.SetWidthHint(w)
 			}
 		}
 	}
@@ -1793,6 +2223,9 @@ func hasAttr(n *html.Node, key string) bool {
 
 // convertFlex converts a display:flex container into a layout.Flex.
 func (c *converter) convertFlex(n *html.Node, style computedStyle) []layout.Element {
+	restore := c.narrowContainerWidth(style)
+	defer restore()
+
 	flex := layout.NewFlex()
 
 	// Map direction.
@@ -1842,6 +2275,9 @@ func (c *converter) convertFlex(n *html.Node, style computedStyle) []layout.Elem
 	if style.Gap > 0 {
 		flex.SetGap(style.Gap)
 	}
+	if style.ColumnGap > 0 && style.Gap == 0 {
+		flex.SetColumnGap(style.ColumnGap)
+	}
 
 	if style.hasPadding() {
 		flex.SetPaddingAll(layout.Padding{
@@ -1857,32 +2293,139 @@ func (c *converter) convertFlex(n *html.Node, style computedStyle) []layout.Elem
 	if style.BackgroundColor != nil {
 		flex.SetBackground(*style.BackgroundColor)
 	}
+	if style.MarginTop > 0 {
+		flex.SetSpaceBefore(style.MarginTop)
+	}
+	if style.MarginBottom > 0 {
+		flex.SetSpaceAfter(style.MarginBottom)
+	}
 
 	// Add children as flex items.
+	// Each direct HTML child becomes exactly one flex item, even if
+	// convertNode returns multiple layout elements (e.g. text with <br>).
 	for child := n.FirstChild; child != nil; child = child.NextSibling {
-		childElems := c.convertNode(child, style)
-		for _, elem := range childElems {
-			childStyle := style // default
-			if child.Type == html.ElementNode {
-				childStyle = c.computeElementStyle(child, style)
-			}
-
-			if childStyle.FlexGrow > 0 || childStyle.FlexShrink != 1 || childStyle.FlexBasis != nil {
-				item := layout.NewFlexItem(elem)
-				if childStyle.FlexGrow > 0 {
-					item.SetGrow(childStyle.FlexGrow)
-				}
-				if childStyle.FlexShrink != 1 {
-					item.SetShrink(childStyle.FlexShrink)
-				}
-				if childStyle.FlexBasis != nil {
-					item.SetBasis(childStyle.FlexBasis.toPoints(0, childStyle.FontSize))
-				}
-				flex.AddItem(item)
-			} else {
-				flex.Add(elem)
+		// Skip whitespace-only text nodes inside flex containers (CSS spec:
+		// whitespace-only text in flex containers does not generate flex items).
+		if child.Type == html.TextNode {
+			if strings.TrimSpace(child.Data) == "" {
+				continue
 			}
 		}
+
+		childElems := c.convertNode(child, style)
+		if len(childElems) == 0 {
+			continue
+		}
+
+		// Wrap multiple elements from a single HTML child into a Div
+		// so they form one flex item (matching CSS flex behavior).
+		var elem layout.Element
+		if len(childElems) == 1 {
+			elem = childElems[0]
+		} else {
+			wrapper := layout.NewDiv()
+			for _, ce := range childElems {
+				wrapper.Add(ce)
+			}
+			elem = wrapper
+		}
+
+		childStyle := style // default
+		if child.Type == html.ElementNode {
+			childStyle = c.computeElementStyle(child, style)
+		}
+
+		// CSS width on a flex child acts as flex-basis (when flex-basis is not set).
+		effectiveBasis := childStyle.FlexBasis
+		if effectiveBasis == nil && childStyle.Width != nil {
+			effectiveBasis = childStyle.Width
+		}
+
+		// Check if child has any margin (including negative) that needs FlexItem handling.
+		hasMargins := childStyle.MarginTop != 0 || childStyle.MarginBottom != 0 ||
+			childStyle.MarginLeft != 0 || childStyle.MarginRight != 0
+
+		needsItem := childStyle.FlexGrow > 0 || childStyle.FlexShrink != 1 ||
+			effectiveBasis != nil || (childStyle.AlignSelf != "" && childStyle.AlignSelf != "auto") ||
+			childStyle.MarginTopAuto || childStyle.MarginLeftAuto || hasMargins
+		if needsItem {
+			item := layout.NewFlexItem(elem)
+			if childStyle.FlexGrow > 0 {
+				item.SetGrow(childStyle.FlexGrow)
+			}
+			if childStyle.FlexShrink != 1 {
+				item.SetShrink(childStyle.FlexShrink)
+			}
+			if effectiveBasis != nil {
+				item.SetBasisUnit(cssLengthToUnitValue(effectiveBasis, c.containerWidth, childStyle.FontSize))
+			}
+			switch childStyle.AlignSelf {
+			case "flex-start", "start":
+				item.SetAlignSelf(layout.CrossAlignStart)
+			case "flex-end", "end":
+				item.SetAlignSelf(layout.CrossAlignEnd)
+			case "center":
+				item.SetAlignSelf(layout.CrossAlignCenter)
+			case "stretch":
+				item.SetAlignSelf(layout.CrossAlignStretch)
+			}
+			if childStyle.MarginTopAuto {
+				item.SetMarginTopAuto()
+			}
+			if childStyle.MarginLeftAuto {
+				item.SetMarginLeftAuto()
+			}
+			if hasMargins {
+				item.SetMargins(childStyle.MarginTop, childStyle.MarginRight,
+					childStyle.MarginBottom, childStyle.MarginLeft)
+				// Clear SpaceBefore/SpaceAfter on the element since the FlexItem's
+				// margins handle vertical spacing — otherwise margins are doubled.
+				if f, ok := elem.(*layout.Flex); ok {
+					f.SetSpaceBefore(0)
+					f.SetSpaceAfter(0)
+				} else if d, ok := elem.(*layout.Div); ok {
+					d.SetSpaceBefore(0)
+					d.SetSpaceAfter(0)
+				} else if p, ok := elem.(*layout.Paragraph); ok {
+					p.SetSpaceBefore(0)
+					p.SetSpaceAfter(0)
+				}
+			}
+			flex.AddItem(item)
+		} else {
+			flex.Add(elem)
+		}
+	}
+
+	// Wrap in a Div if the flex container has box-model properties
+	// that the Flex type doesn't support (border-radius, opacity, etc.).
+	hasExtraVisuals := style.BorderRadius > 0 ||
+		(style.Opacity > 0 && style.Opacity < 1) ||
+		style.Overflow == "hidden" ||
+		style.BoxShadow != nil ||
+		style.Width != nil || style.MaxWidth != nil || style.MinWidth != nil ||
+		style.Height != nil || style.MinHeight != nil || style.MaxHeight != nil
+	if hasExtraVisuals {
+		div := layout.NewDiv()
+		// Clear layout properties from the Flex — they'll be applied to the
+		// wrapper Div instead. Without this, padding/borders/margins would be
+		// applied twice (once on the Flex, once on the Div).
+		// Background is kept on BOTH: the Div's background fills the full
+		// height/min-height area, while the Flex's background covers content.
+		// Since they're the same color, this ensures min-height backgrounds
+		// work correctly (matching CSS behavior).
+		flex.SetPaddingAll(layout.Padding{})
+		flex.SetBorders(layout.CellBorders{})
+		flex.SetSpaceBefore(0)
+		flex.SetSpaceAfter(0)
+		// If the wrapper Div has explicit height, tell the Flex its cross-axis
+		// is definite so cross-axis stretching works correctly.
+		if style.Height != nil {
+			flex.SetDefiniteCrossSize(true)
+		}
+		div.Add(flex)
+		applyDivStyles(div, style, c.containerWidth)
+		return []layout.Element{div}
 	}
 
 	return []layout.Element{flex}
@@ -1899,7 +2442,7 @@ func (c *converter) collectRuns(n *html.Node, style computedStyle) []layout.Text
 				continue
 			}
 			text = applyTextTransform(text, style.TextTransform)
-			stdFont, embFont := c.resolveFontPair(style)
+			stdFont, embFont := c.resolveFontForText(style, text)
 			run := layout.TextRun{
 				Text:            text,
 				Font:            stdFont,
@@ -1911,9 +2454,15 @@ func (c *converter) collectRuns(n *html.Node, style computedStyle) []layout.Text
 				DecorationStyle: style.TextDecorationStyle,
 				LetterSpacing:   style.LetterSpacing,
 				WordSpacing:     style.WordSpacing,
+				BaselineShift:   baselineShiftFromStyle(style),
 			}
 			runs = append(runs, run)
 		case html.ElementNode:
+			if child.DataAtom == atom.Br {
+				// Insert a newline marker that convertParagraph splits on.
+				runs = append(runs, layout.TextRun{Text: "\n"})
+				continue
+			}
 			childStyle := c.computeElementStyle(child, style)
 			childRuns := c.collectRuns(child, childStyle)
 			runs = append(runs, childRuns...)
@@ -2010,6 +2559,7 @@ func (c *converter) applyTagDefaults(n *html.Node, style *computedStyle) {
 	case atom.Table:
 		style.MarginTop = 12
 		style.MarginBottom = 12
+		style.BorderCollapse = "collapse"
 	case atom.Ul, atom.Ol:
 		style.MarginTop = 12
 		style.MarginBottom = 12
@@ -2103,6 +2653,16 @@ func (c *converter) applyProperty(prop, val string, style *computedStyle) {
 		if v == "normal" || v == "nowrap" || v == "pre" || v == "pre-wrap" || v == "pre-line" {
 			style.WhiteSpace = v
 		}
+	case "word-break":
+		v := strings.TrimSpace(strings.ToLower(val))
+		if v == "normal" || v == "break-all" || v == "keep-all" || v == "break-word" {
+			style.WordBreak = v
+		}
+	case "hyphens", "-webkit-hyphens":
+		v := strings.TrimSpace(strings.ToLower(val))
+		if v == "none" || v == "manual" || v == "auto" {
+			style.Hyphens = v
+		}
 	case "letter-spacing":
 		if l := parseLength(val); l != nil {
 			style.LetterSpacing = l.toPoints(0, style.FontSize)
@@ -2126,14 +2686,66 @@ func (c *converter) applyProperty(prop, val string, style *computedStyle) {
 	case "margin":
 		style.MarginTop, style.MarginRight, style.MarginBottom, style.MarginLeft =
 			parseMarginShorthand(val, style.FontSize)
+		// Detect auto keywords in margin shorthand.
+		parts := strings.Fields(val)
+		autoFlags := make([]bool, len(parts))
+		for i, p := range parts {
+			autoFlags[i] = strings.ToLower(p) == "auto"
+		}
+		switch len(parts) {
+		case 1:
+			if autoFlags[0] {
+				style.MarginTopAuto = true
+				style.MarginLeftAuto = true
+				style.MarginRightAuto = true
+			}
+		case 2:
+			if autoFlags[0] {
+				style.MarginTopAuto = true
+			}
+			if autoFlags[1] {
+				style.MarginLeftAuto = true
+				style.MarginRightAuto = true
+			}
+		case 3:
+			if autoFlags[0] {
+				style.MarginTopAuto = true
+			}
+			if autoFlags[1] {
+				style.MarginLeftAuto = true
+				style.MarginRightAuto = true
+			}
+		case 4:
+			if autoFlags[0] {
+				style.MarginTopAuto = true
+			}
+			if autoFlags[1] {
+				style.MarginRightAuto = true
+			}
+			if autoFlags[3] {
+				style.MarginLeftAuto = true
+			}
+		}
 	case "margin-top":
-		style.MarginTop = parseBoxSide(val, style.FontSize)
+		if strings.TrimSpace(strings.ToLower(val)) == "auto" {
+			style.MarginTopAuto = true
+		} else {
+			style.MarginTop = parseBoxSide(val, style.FontSize)
+		}
 	case "margin-right":
-		style.MarginRight = parseBoxSide(val, style.FontSize)
+		if strings.TrimSpace(strings.ToLower(val)) == "auto" {
+			style.MarginRightAuto = true
+		} else {
+			style.MarginRight = parseBoxSide(val, style.FontSize)
+		}
 	case "margin-bottom":
 		style.MarginBottom = parseBoxSide(val, style.FontSize)
 	case "margin-left":
-		style.MarginLeft = parseBoxSide(val, style.FontSize)
+		if strings.TrimSpace(strings.ToLower(val)) == "auto" {
+			style.MarginLeftAuto = true
+		} else {
+			style.MarginLeft = parseBoxSide(val, style.FontSize)
+		}
 	case "padding":
 		style.PaddingTop, style.PaddingRight, style.PaddingBottom, style.PaddingLeft =
 			parseMarginShorthand(val, style.FontSize)
@@ -2199,8 +2811,14 @@ func (c *converter) applyProperty(prop, val string, style *computedStyle) {
 		style.JustifyContent = strings.TrimSpace(strings.ToLower(val))
 	case "align-items":
 		style.AlignItems = strings.TrimSpace(strings.ToLower(val))
+	case "align-self":
+		style.AlignSelf = strings.TrimSpace(strings.ToLower(val))
 	case "flex-wrap":
 		style.FlexWrap = strings.TrimSpace(strings.ToLower(val))
+	case "flex":
+		parseFlexShorthand(val, style)
+	case "flex-flow":
+		parseFlexFlowShorthand(val, style)
 	case "flex-grow":
 		if v, err := strconv.ParseFloat(strings.TrimSpace(val), 64); err == nil {
 			style.FlexGrow = v
@@ -2292,7 +2910,7 @@ func (c *converter) applyProperty(prop, val string, style *computedStyle) {
 		}
 	case "vertical-align":
 		v := strings.TrimSpace(strings.ToLower(val))
-		if v == "top" || v == "middle" || v == "bottom" {
+		if v == "top" || v == "middle" || v == "bottom" || v == "super" || v == "sub" || v == "baseline" || v == "text-top" || v == "text-bottom" {
 			style.VerticalAlign = v
 		}
 	case "border-top":

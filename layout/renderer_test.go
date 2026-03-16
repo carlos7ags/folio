@@ -191,13 +191,20 @@ func TestRendererWithList(t *testing.T) {
 	if len(pages[0].Fonts) == 0 {
 		t.Error("expected at least 1 font registered")
 	}
-	// Content stream should contain the bullet character
-	streamBytes := string(pages[0].Stream.Bytes())
-	if !strings.Contains(streamBytes, "\u2022") {
+	// Content stream should contain the bullet character (WinAnsi byte 149).
+	streamBytes := pages[0].Stream.Bytes()
+	hasBullet := false
+	for _, b := range streamBytes {
+		if b == 149 { // WinAnsi encoding of U+2022 BULLET
+			hasBullet = true
+			break
+		}
+	}
+	if !hasBullet {
 		t.Error("content stream should contain bullet character")
 	}
 	// Should contain the item text
-	if !strings.Contains(streamBytes, "First") {
+	if !strings.Contains(string(streamBytes), "First") {
 		t.Error("content stream should contain list item text")
 	}
 }

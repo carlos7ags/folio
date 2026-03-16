@@ -9,15 +9,17 @@ import "math"
 // It carries full rendering context: position, size, font, color, and
 // the current transformation matrix at the time of rendering.
 type TextSpan struct {
-	Text    string     // decoded Unicode text
-	X, Y    float64    // baseline position in user space (after CTM)
-	Width   float64    // text width in user space (from glyph metrics or estimate)
-	Height  float64    // font size in user space
-	Font    string     // font resource name (e.g. "F1")
-	Color   [3]float64 // fill color (RGB, 0-1)
-	Matrix  [6]float64 // full CTM at time of rendering [a b c d e f]
-	Tag     string     // innermost marked content tag (e.g. "P", "H1", "Span"), empty if untagged
-	Visible bool       // false if text rendering mode is invisible (Tr=3)
+	Text       string     // decoded Unicode text
+	X, Y       float64    // baseline position in user space (after CTM)
+	Width      float64    // text width in user space (from glyph metrics or estimate)
+	Height     float64    // font size in user space
+	Font       string     // font resource name (e.g. "F1")
+	Color      [3]float64 // fill color (RGB, 0-1)
+	Matrix     [6]float64 // full CTM at time of rendering [a b c d e f]
+	Tag        string     // innermost marked content tag (e.g. "P", "H1", "Span"), empty if untagged
+	Visible    bool       // false if text rendering mode is invisible (Tr=3)
+	SpaceWidth float64    // width of space character in user space (0 if unavailable)
+	MCID       int        // marked content identifier (-1 if not inside marked content)
 }
 
 // PathOp represents a graphics path operation extracted from a content stream.
@@ -80,13 +82,17 @@ type graphicsState struct {
 	fontSize  float64
 
 	// Text state (within BT...ET)
-	tmX, tmY       float64 // text matrix translation
-	lineX, lineY   float64 // line start position
+	textMatrix     [6]float64 // current text matrix (Tm)
+	textLineMatrix [6]float64 // line start matrix (set by Td/TD/Tm, used by T*)
 	leading        float64
 	textRenderMode int // Tr: 0=fill, 1=stroke, 2=fill+stroke, 3=invisible, 4-7=clip variants
 
 	// Marked content tag stack (BMC/BDC ... EMC).
 	tagStack []string // current tag nesting, e.g. ["Document", "P"]
+
+	// Marked content identifier from BDC properties (/MCID).
+	currentMCID int   // -1 if not inside marked content with MCID
+	mcidStack   []int // stack of MCID values for nested BDC/BMC...EMC
 
 	// Clipping (simplified: bounding rect)
 	clipX, clipY, clipW, clipH float64
@@ -96,8 +102,9 @@ type graphicsState struct {
 // newGraphicsState returns the default graphics state.
 func newGraphicsState() graphicsState {
 	return graphicsState{
-		ctm:      [6]float64{1, 0, 0, 1, 0, 0}, // identity
-		fontSize: 12,
+		ctm:         [6]float64{1, 0, 0, 1, 0, 0}, // identity
+		fontSize:    12,
+		currentMCID: -1,
 	}
 }
 
@@ -182,6 +189,11 @@ func (p *ContentProcessor) Process(ops []ContentOp) []TextSpan {
 		p.glyphs = nil
 		p.curPath = nil
 	}
+	// Guard against excessive recursion from circular Form XObject references.
+	const maxFormDepth = 50
+	if p.depth >= maxFormDepth {
+		return p.spans
+	}
 	p.depth++
 	defer func() { p.depth-- }()
 
@@ -228,13 +240,36 @@ func (p *ContentProcessor) Process(ops []ContentOp) []TextSpan {
 				k := tokenFloat(op.Operands[3])
 				p.state.fillColor = cmykToRGB(c, m, y, k)
 			}
-		case "cs", "CS", "sc", "SC", "scn", "SCN":
-			// Advanced color spaces — ignore for now (keep previous color).
+		case "cs", "CS":
+			// Set color space — we don't track color space state, but the
+			// subsequent sc/SC/scn/SCN operators may carry color values we
+			// can interpret as DeviceRGB when 3 operands are given.
+
+		case "sc", "scn":
+			// Set fill color in current color space. When 3 operands are
+			// given, interpret as DeviceRGB (the most common case).
+			if len(op.Operands) == 3 {
+				p.state.fillColor = [3]float64{
+					tokenFloat(op.Operands[0]),
+					tokenFloat(op.Operands[1]),
+					tokenFloat(op.Operands[2]),
+				}
+			}
+		case "SC", "SCN":
+			// Set stroke color in current color space. When 3 operands are
+			// given, interpret as DeviceRGB.
+			if len(op.Operands) == 3 {
+				p.strokeColor = [3]float64{
+					tokenFloat(op.Operands[0]),
+					tokenFloat(op.Operands[1]),
+					tokenFloat(op.Operands[2]),
+				}
+			}
 
 		// --- Text state ---
 		case "BT":
-			p.state.tmX, p.state.tmY = 0, 0
-			p.state.lineX, p.state.lineY = 0, 0
+			p.state.textMatrix = identityMatrix
+			p.state.textLineMatrix = identityMatrix
 		case "ET":
 			// End text — nothing to do.
 
@@ -259,47 +294,64 @@ func (p *ContentProcessor) Process(ops []ContentOp) []TextSpan {
 			if len(op.Operands) >= 1 && op.Operands[0].Type == TokenName {
 				p.state.tagStack = append(p.state.tagStack, op.Operands[0].Value)
 			}
+			// BMC has no properties dict, so push -1 for MCID.
+			p.state.mcidStack = append(p.state.mcidStack, p.state.currentMCID)
+			// currentMCID stays unchanged (no MCID in BMC).
 		case "BDC":
 			if len(op.Operands) >= 1 && op.Operands[0].Type == TokenName {
 				p.state.tagStack = append(p.state.tagStack, op.Operands[0].Value)
+			}
+			// Save the current MCID on the stack.
+			p.state.mcidStack = append(p.state.mcidStack, p.state.currentMCID)
+			// Extract /MCID from the inline properties dictionary.
+			// BDC operands: /Tag <<dict>> or /Tag /PropertiesName
+			// When inline, the dict tokens appear as:
+			//   TokenDictOpen, /MCID, number, ..., TokenDictClose
+			mcid := extractMCIDFromOperands(op.Operands)
+			if mcid >= 0 {
+				p.state.currentMCID = mcid
 			}
 		case "EMC":
 			if len(p.state.tagStack) > 0 {
 				p.state.tagStack = p.state.tagStack[:len(p.state.tagStack)-1]
 			}
+			// Restore the previous MCID from the stack.
+			if len(p.state.mcidStack) > 0 {
+				p.state.currentMCID = p.state.mcidStack[len(p.state.mcidStack)-1]
+				p.state.mcidStack = p.state.mcidStack[:len(p.state.mcidStack)-1]
+			} else {
+				p.state.currentMCID = -1
+			}
 
 		// --- Text positioning ---
 		case "Tm":
 			if len(op.Operands) >= 6 {
-				p.state.tmX = tokenFloat(op.Operands[4])
-				p.state.tmY = tokenFloat(op.Operands[5])
-				p.state.lineX = p.state.tmX
-				p.state.lineY = p.state.tmY
+				m := [6]float64{
+					tokenFloat(op.Operands[0]), tokenFloat(op.Operands[1]),
+					tokenFloat(op.Operands[2]), tokenFloat(op.Operands[3]),
+					tokenFloat(op.Operands[4]), tokenFloat(op.Operands[5]),
+				}
+				p.state.textMatrix = m
+				p.state.textLineMatrix = m
 			}
 		case "Td":
 			if len(op.Operands) >= 2 {
 				tx := tokenFloat(op.Operands[0])
 				ty := tokenFloat(op.Operands[1])
-				p.state.tmX = p.state.lineX + tx
-				p.state.tmY = p.state.lineY + ty
-				p.state.lineX = p.state.tmX
-				p.state.lineY = p.state.tmY
+				p.state.textLineMatrix = multiplyMatrix([6]float64{1, 0, 0, 1, tx, ty}, p.state.textLineMatrix)
+				p.state.textMatrix = p.state.textLineMatrix
 			}
 		case "TD":
 			if len(op.Operands) >= 2 {
 				tx := tokenFloat(op.Operands[0])
 				ty := tokenFloat(op.Operands[1])
 				p.state.leading = -ty
-				p.state.tmX = p.state.lineX + tx
-				p.state.tmY = p.state.lineY + ty
-				p.state.lineX = p.state.tmX
-				p.state.lineY = p.state.tmY
+				p.state.textLineMatrix = multiplyMatrix([6]float64{1, 0, 0, 1, tx, ty}, p.state.textLineMatrix)
+				p.state.textMatrix = p.state.textLineMatrix
 			}
 		case "T*":
-			p.state.tmX = p.state.lineX
-			p.state.tmY = p.state.lineY - p.state.leading
-			p.state.lineX = p.state.tmX
-			p.state.lineY = p.state.tmY
+			p.state.textLineMatrix = multiplyMatrix([6]float64{1, 0, 0, 1, 0, -p.state.leading}, p.state.textLineMatrix)
+			p.state.textMatrix = p.state.textLineMatrix
 
 		// --- Text showing ---
 		case "Tj":
@@ -307,19 +359,15 @@ func (p *ContentProcessor) Process(ops []ContentOp) []TextSpan {
 				p.emitText(op.Operands[0])
 			}
 		case "'":
-			p.state.tmX = p.state.lineX
-			p.state.tmY = p.state.lineY - p.state.leading
-			p.state.lineX = p.state.tmX
-			p.state.lineY = p.state.tmY
+			p.state.textLineMatrix = multiplyMatrix([6]float64{1, 0, 0, 1, 0, -p.state.leading}, p.state.textLineMatrix)
+			p.state.textMatrix = p.state.textLineMatrix
 			if len(op.Operands) > 0 {
 				p.emitText(op.Operands[0])
 			}
 		case "\"":
 			if len(op.Operands) >= 3 {
-				p.state.tmX = p.state.lineX
-				p.state.tmY = p.state.lineY - p.state.leading
-				p.state.lineX = p.state.tmX
-				p.state.lineY = p.state.tmY
+				p.state.textLineMatrix = multiplyMatrix([6]float64{1, 0, 0, 1, 0, -p.state.leading}, p.state.textLineMatrix)
+				p.state.textMatrix = p.state.textLineMatrix
 				p.emitText(op.Operands[2])
 			}
 		case "TJ":
@@ -328,7 +376,7 @@ func (p *ContentProcessor) Process(ops []ContentOp) []TextSpan {
 					p.emitText(operand)
 				} else if operand.Type == TokenNumber {
 					adj := tokenFloat(operand)
-					p.state.tmX -= adj / 1000 * p.state.fontSize
+					p.state.textMatrix[4] -= adj / 1000 * p.state.fontSize
 				}
 			}
 
@@ -457,7 +505,6 @@ func (p *ContentProcessor) emitText(tok Token) {
 	}
 
 	// Compute text width from font metrics or estimation.
-	scale := matrixScale(p.state.ctm)
 	var widthTextSpace float64
 
 	if fe != nil {
@@ -473,9 +520,11 @@ func (p *ContentProcessor) emitText(tok Token) {
 		widthTextSpace = float64(charCount) * p.state.fontSize * 0.6
 	}
 
-	// Transform text position through CTM.
-	ux, uy := transformPoint(p.state.ctm, p.state.tmX, p.state.tmY)
-	widthUserSpace := widthTextSpace * scale
+	// Compute render matrix: textMatrix x CTM.
+	rm := multiplyMatrix(p.state.textMatrix, p.state.ctm)
+	ux, uy := rm[4], rm[5]
+	rmScale := matrixScale(rm)
+	widthUserSpace := widthTextSpace * matrixScale(p.state.textMatrix) * matrixScale(p.state.ctm)
 
 	// Determine visibility and tag.
 	visible := p.state.textRenderMode != 3 // mode 3 = invisible
@@ -484,17 +533,28 @@ func (p *ContentProcessor) emitText(tok Token) {
 		tag = p.state.tagStack[len(p.state.tagStack)-1]
 	}
 
+	// Compute space width in user space from font metrics.
+	var spaceWidth float64
+	if fe != nil {
+		sw := fe.SpaceWidth()
+		if sw > 0 {
+			spaceWidth = float64(sw) / 1000.0 * p.state.fontSize * rmScale
+		}
+	}
+
 	span := TextSpan{
-		Text:    text,
-		X:       ux,
-		Y:       uy,
-		Width:   widthUserSpace,
-		Height:  p.state.fontSize * scale,
-		Font:    p.state.fontName,
-		Color:   p.state.fillColor,
-		Matrix:  p.state.ctm,
-		Tag:     tag,
-		Visible: visible,
+		Text:       text,
+		X:          ux,
+		Y:          uy,
+		Width:      widthUserSpace,
+		Height:     p.state.fontSize * rmScale,
+		Font:       p.state.fontName,
+		Color:      p.state.fillColor,
+		Matrix:     p.state.ctm,
+		Tag:        tag,
+		Visible:    visible,
+		SpaceWidth: spaceWidth,
+		MCID:       p.state.currentMCID,
 	}
 
 	p.spans = append(p.spans, span)
@@ -502,8 +562,8 @@ func (p *ContentProcessor) emitText(tok Token) {
 	// Emit per-glyph spans if enabled.
 	p.emitGlyphs(text, ux, uy, p.state.fontSize)
 
-	// Advance text position in text space.
-	p.state.tmX += widthTextSpace
+	// Advance text matrix in text space.
+	p.state.textMatrix[4] += widthTextSpace
 }
 
 // emitGlyphs produces per-glyph GlyphSpans from a text string.
@@ -565,7 +625,30 @@ func (p *ContentProcessor) fontEntry() *FontEntry {
 	return p.fonts[p.state.fontName]
 }
 
+// extractMCIDFromOperands scans BDC operands for an /MCID integer value.
+// Returns -1 if no MCID is found.
+//
+// In a content stream, BDC operands appear as flat tokens:
+//
+//	/Tag << /MCID 0 >> BDC
+//
+// The tokenizer produces: [TokenName("Tag"), TokenDictOpen, TokenName("MCID"),
+// TokenNumber(0), TokenDictClose]. We scan for the /MCID name followed by a number.
+func extractMCIDFromOperands(operands []Token) int {
+	for i := 0; i < len(operands)-1; i++ {
+		if operands[i].Type == TokenName && operands[i].Value == "MCID" {
+			if operands[i+1].Type == TokenNumber {
+				return int(operands[i+1].Int)
+			}
+		}
+	}
+	return -1
+}
+
 // --- Matrix math ---
+
+// identityMatrix is the 2D affine identity matrix [1 0 0 1 0 0].
+var identityMatrix = [6]float64{1, 0, 0, 1, 0, 0}
 
 // multiplyMatrix multiplies two 3x3 matrices stored as [a b c d e f]
 // where the matrix is:  [a b 0]

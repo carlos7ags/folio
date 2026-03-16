@@ -49,7 +49,11 @@ func (s *SimpleStrategy) ProcessSpan(span TextSpan) {
 		} else {
 			// Same line — check for word gap.
 			gap := span.X - s.prevX
-			if gap > lineH*0.25 {
+			threshold := lineH * 0.25
+			if span.SpaceWidth > 0 {
+				threshold = span.SpaceWidth * 0.5
+			}
+			if gap > threshold {
 				s.appendSpace()
 			}
 		}
@@ -136,10 +140,16 @@ func (l *LocationStrategy) Result() string {
 				result = append(result, '\n')
 			}
 			prevEndX = 0
-		} else if span.X-prevEndX > lineH*0.25 {
-			// Word gap on same line.
-			if len(result) > 0 && result[len(result)-1] != ' ' {
-				result = append(result, ' ')
+		} else {
+			threshold := lineH * 0.25
+			if span.SpaceWidth > 0 {
+				threshold = span.SpaceWidth * 0.5
+			}
+			if span.X-prevEndX > threshold {
+				// Word gap on same line.
+				if len(result) > 0 && result[len(result)-1] != ' ' {
+					result = append(result, ' ')
+				}
 			}
 		}
 
@@ -181,6 +191,119 @@ func (r *RegionStrategy) ProcessSpan(span TextSpan) {
 
 func (r *RegionStrategy) Result() string {
 	return r.inner.Result()
+}
+
+// --- TaggedStrategy ---
+
+// TaggedStrategy extracts text in logical reading order using the PDF
+// structure tree. Falls back to position-based ordering for untagged content.
+type TaggedStrategy struct {
+	tree    *StructureTree
+	spans   []TextSpan
+	pageNum int // 0-based page index for filtering spans
+}
+
+// NewTaggedStrategy creates a strategy that uses the structure tree to
+// determine reading order. pageNum is the 0-based page index.
+func NewTaggedStrategy(tree *StructureTree, pageNum int) *TaggedStrategy {
+	return &TaggedStrategy{tree: tree, pageNum: pageNum}
+}
+
+func (s *TaggedStrategy) ProcessSpan(span TextSpan) {
+	if !span.Visible {
+		return
+	}
+	s.spans = append(s.spans, span)
+}
+
+// blockLevelTags contains structure types that should produce line breaks
+// between them in the output text.
+var blockLevelTags = map[string]bool{
+	"P": true, "H": true, "H1": true, "H2": true, "H3": true,
+	"H4": true, "H5": true, "H6": true, "Div": true,
+	"Table": true, "TR": true, "TBody": true, "THead": true, "TFoot": true,
+	"L": true, "LI": true, "LBody": true,
+	"BlockQuote": true, "Caption": true, "TOC": true, "TOCI": true,
+	"Part": true, "Sect": true, "Art": true,
+}
+
+func (s *TaggedStrategy) Result() string {
+	if len(s.spans) == 0 {
+		return ""
+	}
+
+	// Group spans by MCID.
+	mcidSpans := map[int][]TextSpan{}
+	var untagged []TextSpan
+	for _, span := range s.spans {
+		if span.MCID < 0 {
+			untagged = append(untagged, span)
+		} else {
+			mcidSpans[span.MCID] = append(mcidSpans[span.MCID], span)
+		}
+	}
+
+	var result []byte
+	prevIsBlock := false
+
+	// Walk the structure tree in document order and collect text.
+	if s.tree != nil && s.tree.Root != nil {
+		s.walkNode(s.tree.Root, mcidSpans, &result, &prevIsBlock)
+	}
+
+	// Append untagged spans at the end.
+	if len(untagged) > 0 {
+		if len(result) > 0 && result[len(result)-1] != '\n' {
+			result = append(result, '\n')
+		}
+		for _, span := range untagged {
+			result = append(result, span.Text...)
+		}
+	}
+
+	return string(result)
+}
+
+// walkNode recursively walks the structure tree and appends text for
+// leaf nodes (those with MCID >= 0) in document order.
+func (s *TaggedStrategy) walkNode(node *StructNode, mcidSpans map[int][]TextSpan, result *[]byte, prevIsBlock *bool) {
+	isBlock := blockLevelTags[node.Tag]
+
+	// If this is a leaf node with an MCID, emit its text.
+	if node.MCID >= 0 {
+		spans, ok := mcidSpans[node.MCID]
+		if ok && len(spans) > 0 {
+			if isBlock && len(*result) > 0 && (*result)[len(*result)-1] != '\n' {
+				*result = append(*result, '\n')
+			} else if !isBlock && *prevIsBlock && len(*result) > 0 && (*result)[len(*result)-1] != '\n' {
+				*result = append(*result, '\n')
+			} else if !isBlock && len(*result) > 0 && (*result)[len(*result)-1] != '\n' && (*result)[len(*result)-1] != ' ' {
+				*result = append(*result, ' ')
+			}
+			for _, span := range spans {
+				*result = append(*result, span.Text...)
+			}
+			*prevIsBlock = isBlock
+		}
+		return
+	}
+
+	// Insert block separator before block-level elements.
+	if isBlock && len(node.Children) > 0 && len(*result) > 0 && (*result)[len(*result)-1] != '\n' {
+		*result = append(*result, '\n')
+	}
+
+	// Recurse into children.
+	for _, child := range node.Children {
+		s.walkNode(child, mcidSpans, result, prevIsBlock)
+	}
+
+	// Insert newline after block-level elements.
+	if isBlock && len(*result) > 0 && (*result)[len(*result)-1] != '\n' {
+		*result = append(*result, '\n')
+	}
+
+	*prevIsBlock = isBlock
 }
 
 // --- Convenience functions ---

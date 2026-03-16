@@ -93,7 +93,15 @@ func (c *Copier) copyIndirectRef(ref *core.PdfIndirectReference) (core.PdfObject
 	// Resolve the original object.
 	resolved, err := c.reader.resolver.Resolve(ref.ObjectNumber)
 	if err != nil {
-		return core.NewPdfNull(), nil // tolerant: return null for unresolvable refs
+		// Intentional tolerance: return null for references that cannot be
+		// resolved (broken xref, missing object, etc.). This is acceptable
+		// for a merge/copy tool because:
+		// 1. Real-world PDFs often contain dangling references.
+		// 2. Failing the entire page copy for one broken ref is worse than
+		//    substituting null (the PDF spec treats missing objects as null).
+		// 3. The reference may point to optional data (metadata, thumbnails)
+		//    that doesn't affect rendering.
+		return core.NewPdfNull(), nil
 	}
 
 	// Allocate a placeholder reference first (handles circular refs).

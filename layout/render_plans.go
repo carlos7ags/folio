@@ -4,6 +4,8 @@
 package layout
 
 import (
+	"math"
+
 	"github.com/carlos7ags/folio/content"
 )
 
@@ -11,8 +13,25 @@ import (
 // Each Element computes a height-aware LayoutPlan that supports
 // content splitting across pages via Overflow.
 func (r *Renderer) renderWithPlans() []PageResult {
-	maxWidth := r.pageWidth - r.margins.Left - r.margins.Right
-	usableHeight := r.pageHeight - r.margins.Top - r.margins.Bottom
+	autoHeight := r.pageHeight == 0
+
+	// Compute margins/dimensions for the current page.
+	pageMarginsFor := func(idx int) (maxW, usableH float64, m Margins) {
+		m = r.marginsForPage(idx)
+		maxW = r.pageWidth - m.Left - m.Right
+		usableH = r.pageHeight - m.Top - m.Bottom
+		if autoHeight {
+			usableH = math.MaxFloat64
+		}
+		return
+	}
+
+	curMargins := r.marginsForPage(0)
+	maxWidth := r.pageWidth - curMargins.Left - curMargins.Right
+	usableHeight := r.pageHeight - curMargins.Top - curMargins.Bottom
+	if autoHeight {
+		usableHeight = math.MaxFloat64
+	}
 
 	var pages []PageResult
 
@@ -26,6 +45,7 @@ func (r *Renderer) renderWithPlans() []PageResult {
 	curImages := []ImageEntry{}
 	curLinks := []LinkArea{}
 	remainingHeight := usableHeight
+	curY := 0.0
 	pageIdx := 0
 	atPageTop := true
 
@@ -41,8 +61,13 @@ func (r *Renderer) renderWithPlans() []PageResult {
 			},
 		}
 		for _, block := range curBlocks {
-			drawBlock(block, r.margins.Left, r.pageHeight-r.margins.Top, &ctx, r.tagged, &r.structTags, pageIdx)
+			drawBlock(block, curMargins.Left, r.pageHeight-curMargins.Top, &ctx, r.tagged, &r.structTags, pageIdx)
 		}
+
+		// Draw margin boxes (headers/footers from @page CSS).
+		totalPages := len(queue) // approximate; will be corrected in second pass
+		_ = totalPages
+		r.drawMarginBoxes(&ctx, pageIdx, curMargins)
 
 		pages = append(pages, PageResult{
 			Stream:     curPageStream,
@@ -63,8 +88,11 @@ func (r *Renderer) renderWithPlans() []PageResult {
 		curFonts = nil
 		curImages = nil
 		curLinks = nil
-		remainingHeight = usableHeight
 		pageIdx++
+		// Recalculate margins for the new page.
+		maxWidth, usableHeight, curMargins = pageMarginsFor(pageIdx)
+		remainingHeight = usableHeight
+		curY = 0
 		atPageTop = true
 	}
 
@@ -120,6 +148,7 @@ func (r *Renderer) renderWithPlans() []PageResult {
 			curImages = nil
 			curLinks = nil
 			remainingHeight = usableHeight
+			curY = 0
 			floats = nil
 			pageIdx++
 			atPageTop = true
@@ -159,7 +188,11 @@ func (r *Renderer) renderWithPlans() []PageResult {
 			if atPageTop && len(plan.Blocks) > 0 {
 				plan.Blocks[0].Y = 0
 			}
+			for i := range plan.Blocks {
+				plan.Blocks[i].Y += curY
+			}
 			curBlocks = append(curBlocks, plan.Blocks...)
+			curY += plan.Consumed
 			remainingHeight -= plan.Consumed
 			if !isFloat {
 				consumeFloatHeight(plan.Consumed)
@@ -169,6 +202,9 @@ func (r *Renderer) renderWithPlans() []PageResult {
 		case LayoutPartial:
 			if atPageTop && len(plan.Blocks) > 0 {
 				plan.Blocks[0].Y = 0
+			}
+			for i := range plan.Blocks {
+				plan.Blocks[i].Y += curY
 			}
 			curBlocks = append(curBlocks, plan.Blocks...)
 
@@ -185,7 +221,11 @@ func (r *Renderer) renderWithPlans() []PageResult {
 				queue = append([]Element{elem}, queue...)
 			} else {
 				forcePlan := elem.PlanLayout(LayoutArea{Width: availWidth, Height: 1e9})
+				for i := range forcePlan.Blocks {
+					forcePlan.Blocks[i].Y += curY
+				}
 				curBlocks = append(curBlocks, forcePlan.Blocks...)
+				curY += forcePlan.Consumed
 				remainingHeight = 0
 				atPageTop = false
 				if forcePlan.Overflow != nil {
@@ -195,12 +235,27 @@ func (r *Renderer) renderWithPlans() []PageResult {
 		}
 	}
 
+	// For auto-height pages, compute the actual page height from content.
+	if autoHeight && len(curBlocks) > 0 {
+		r.pageHeight = curY + r.margins.Top + r.margins.Bottom
+	}
+
 	// Flush the last page.
 	if len(curBlocks) > 0 {
 		flushPage()
 	} else if len(pages) == 0 {
 		// Ensure at least one page.
+		if autoHeight {
+			r.pageHeight = r.margins.Top + r.margins.Bottom
+		}
 		pages = append(pages, PageResult{Stream: content.NewStream()})
+	}
+
+	// Tag auto-height pages with their computed height.
+	if autoHeight {
+		for i := range pages {
+			pages[i].PageHeight = r.pageHeight
+		}
 	}
 
 	// Render absolutely positioned elements.

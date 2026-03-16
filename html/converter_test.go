@@ -1132,6 +1132,57 @@ func TestConvertTableBorderCollapse(t *testing.T) {
 	}
 }
 
+func findTable(elems []layout.Element) *layout.Table {
+	for _, e := range elems {
+		if tbl, ok := e.(*layout.Table); ok {
+			return tbl
+		}
+		if div, ok := e.(*layout.Div); ok {
+			if tbl := findTable(div.Children()); tbl != nil {
+				return tbl
+			}
+		}
+	}
+	return nil
+}
+
+func TestConvertTableBorderCollapseDefault(t *testing.T) {
+	// Tables should default to border-collapse: collapse without explicit CSS.
+	html := `<table border="1">
+<tr><td>A</td><td>B</td></tr>
+<tr><td>C</td><td>D</td></tr>
+</table>`
+	elems, err := Convert(html, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tbl := findTable(elems)
+	if tbl == nil {
+		t.Fatal("expected a Table element")
+	}
+	if !tbl.BorderCollapse() {
+		t.Error("table should default to border-collapse: collapse")
+	}
+}
+
+func TestConvertTableBorderCollapseSeparateOverride(t *testing.T) {
+	// Explicit border-collapse: separate should override the default.
+	html := `<table style="border-collapse: separate; border: 1px solid black">
+<tr><td>A</td><td>B</td></tr>
+</table>`
+	elems, err := Convert(html, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tbl := findTable(elems)
+	if tbl == nil {
+		t.Fatal("expected a Table element")
+	}
+	if tbl.BorderCollapse() {
+		t.Error("table with explicit border-collapse: separate should not collapse")
+	}
+}
+
 // --- Font shorthand ---
 
 func TestCSSFontShorthand(t *testing.T) {

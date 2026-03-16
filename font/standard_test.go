@@ -36,11 +36,11 @@ func TestStandardFontDict(t *testing.T) {
 		font     *Standard
 		expected string
 	}{
-		{Helvetica, "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>"},
-		{TimesBold, "<< /Type /Font /Subtype /Type1 /BaseFont /Times-Bold >>"},
-		{CourierOblique, "<< /Type /Font /Subtype /Type1 /BaseFont /Courier-Oblique >>"},
-		{Symbol, "<< /Type /Font /Subtype /Type1 /BaseFont /Symbol >>"},
-		{ZapfDingbats, "<< /Type /Font /Subtype /Type1 /BaseFont /ZapfDingbats >>"},
+		{Helvetica, "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>"},
+		{TimesBold, "<< /Type /Font /Subtype /Type1 /BaseFont /Times-Bold /Encoding /WinAnsiEncoding >>"},
+		{CourierOblique, "<< /Type /Font /Subtype /Type1 /BaseFont /Courier-Oblique /Encoding /WinAnsiEncoding >>"},
+		{Symbol, "<< /Type /Font /Subtype /Type1 /BaseFont /Symbol /Encoding /WinAnsiEncoding >>"},
+		{ZapfDingbats, "<< /Type /Font /Subtype /Type1 /BaseFont /ZapfDingbats /Encoding /WinAnsiEncoding >>"},
 	}
 
 	for _, tc := range tests {

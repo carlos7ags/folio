@@ -48,19 +48,32 @@ type Div struct {
 	background    *Color
 	spaceBefore   float64
 	spaceAfter    float64
-	maxWidth      float64 // maximum outer width (0 = no limit)
-	minWidth      float64 // minimum outer width (0 = no minimum)
-	minHeight     float64 // minimum outer height (0 = no minimum)
-	maxHeight     float64 // maximum outer height (0 = no limit)
-	borderRadius  float64 // corner radius (points, 0 = sharp corners)
-	opacity       float64 // 0..1 (0 = default/opaque, meaning "not set")
-	overflow      string  // "visible" (default), "hidden"
+	width         float64    // explicit outer width in points (0 = auto/fill available)
+	widthPct      float64    // explicit outer width as fraction 0..1 (0 = not set)
+	maxWidth      float64    // maximum outer width (0 = no limit)
+	minWidth      float64    // minimum outer width (0 = no minimum)
+	minHeight     float64    // minimum outer height (0 = no minimum)
+	maxHeight     float64    // maximum outer height (0 = no limit)
+	widthUnit     *UnitValue // lazy-resolved width (overrides width/widthPct when set)
+	maxWidthUnit  *UnitValue // lazy-resolved max-width
+	minWidthUnit  *UnitValue // lazy-resolved min-width
+	minHeightUnit *UnitValue // lazy-resolved min-height
+	maxHeightUnit *UnitValue // lazy-resolved max-height
+	heightUnit    *UnitValue // lazy-resolved explicit height (forces exact height)
+	hCenter       bool       // true = horizontally center within parent (margin: auto)
+	borderRadius  float64    // corner radius (points, 0 = sharp corners)
+	opacity       float64    // 0..1 (0 = default/opaque, meaning "not set")
+	overflow      string     // "visible" (default), "hidden"
 	boxShadow     *BoxShadow
 	outlineWidth  float64
 	outlineStyle  string
 	outlineColor  Color
 	outlineOffset float64
 	bgImage       *BackgroundImage
+
+	// CSS position:relative offsets (visual only, don't affect layout flow).
+	relOffsetX float64
+	relOffsetY float64
 
 	// CSS transform support.
 	transforms       []TransformOp
@@ -71,6 +84,11 @@ type Div struct {
 // NewDiv creates an empty Div container.
 func NewDiv() *Div {
 	return &Div{}
+}
+
+// Children returns the child elements of the Div.
+func (d *Div) Children() []Element {
+	return d.elements
 }
 
 // Add appends a child element to the Div.
@@ -121,6 +139,26 @@ func (d *Div) SetSpaceAfter(pts float64) *Div {
 	return d
 }
 
+// GetSpaceBefore returns the extra vertical space before the Div.
+func (d *Div) GetSpaceBefore() float64 { return d.spaceBefore }
+
+// GetSpaceAfter returns the extra vertical space after the Div.
+func (d *Div) GetSpaceAfter() float64 { return d.spaceAfter }
+
+// SetWidth sets an explicit outer width for the Div (in points).
+// When set, the Div will use exactly this width (clamped by maxWidth).
+func (d *Div) SetWidth(pts float64) *Div {
+	d.width = pts
+	return d
+}
+
+// SetWidthPercent sets the outer width as a fraction of the available area width.
+// pct is a value between 0 and 1 (e.g. 0.5 = 50%). Resolved at layout time.
+func (d *Div) SetWidthPercent(pct float64) *Div {
+	d.widthPct = pct
+	return d
+}
+
 // SetMaxWidth sets the maximum outer width of the Div (in points).
 // The Div will not exceed this width even if more space is available.
 func (d *Div) SetMaxWidth(pts float64) *Div {
@@ -143,6 +181,69 @@ func (d *Div) SetMinHeight(pts float64) *Div {
 // SetMaxHeight sets the maximum outer height of the Div (in points).
 func (d *Div) SetMaxHeight(pts float64) *Div {
 	d.maxHeight = pts
+	return d
+}
+
+// SetWidthUnit sets the width as a UnitValue, resolved lazily at layout time.
+// Use Pt(v) for absolute points or Pct(v) for percentage of available width.
+func (d *Div) SetWidthUnit(u UnitValue) *Div {
+	d.widthUnit = &u
+	return d
+}
+
+// SetMaxWidthUnit sets the max-width as a UnitValue, resolved at layout time.
+func (d *Div) SetMaxWidthUnit(u UnitValue) *Div {
+	d.maxWidthUnit = &u
+	return d
+}
+
+// SetMinWidthUnit sets the min-width as a UnitValue, resolved at layout time.
+func (d *Div) SetMinWidthUnit(u UnitValue) *Div {
+	d.minWidthUnit = &u
+	return d
+}
+
+// SetMinHeightUnit sets the min-height as a UnitValue, resolved at layout time.
+func (d *Div) SetMinHeightUnit(u UnitValue) *Div {
+	d.minHeightUnit = &u
+	return d
+}
+
+// SetHeightUnit sets an explicit height as a UnitValue, resolved at layout time.
+// Forces the Div to this exact height (used for CSS height property).
+func (d *Div) SetHeightUnit(u UnitValue) *Div {
+	d.heightUnit = &u
+	return d
+}
+
+// SetMaxHeightUnit sets the max-height as a UnitValue, resolved at layout time.
+func (d *Div) SetMaxHeightUnit(u UnitValue) *Div {
+	d.maxHeightUnit = &u
+	return d
+}
+
+// ForceHeight implements HeightSettable. Sets explicit height for cross-axis stretch.
+func (d *Div) ForceHeight(u UnitValue) { d.heightUnit = &u }
+
+// ClearHeightUnit removes the explicit height, reverting to content-based sizing.
+func (d *Div) ClearHeightUnit() {
+	d.heightUnit = nil
+}
+
+// HasExplicitHeight returns true if the Div has an explicit CSS height set.
+func (d *Div) HasExplicitHeight() bool { return d.heightUnit != nil }
+
+// SetHCenter enables horizontal centering (margin: 0 auto behavior).
+func (d *Div) SetHCenter(enabled bool) *Div {
+	d.hCenter = enabled
+	return d
+}
+
+// SetRelativeOffset sets position:relative offsets. The element is visually
+// shifted by (dx, dy) without affecting layout flow.
+func (d *Div) SetRelativeOffset(dx, dy float64) *Div {
+	d.relOffsetX = dx
+	d.relOffsetY = dy
 	return d
 }
 
@@ -230,8 +331,19 @@ func (d *Div) Layout(maxWidth float64) []Line {
 	}}
 }
 
-// MinWidth implements Measurable. Returns padding + max child MinWidth.
+// MinWidth implements Measurable. Returns padding + max child MinWidth,
+// or the div's own explicit width if set.
 func (d *Div) MinWidth() float64 {
+	// UnitValue width (only absolute values are intrinsic; percentages return 0).
+	if d.widthUnit != nil && d.widthUnit.Unit == UnitPoint {
+		return d.widthUnit.Value
+	}
+	if d.width > 0 {
+		return d.width
+	}
+	if d.minWidth > 0 {
+		return d.minWidth
+	}
 	maxW := 0.0
 	for _, elem := range d.elements {
 		if m, ok := elem.(Measurable); ok {
@@ -243,8 +355,15 @@ func (d *Div) MinWidth() float64 {
 	return maxW + d.padding.Left + d.padding.Right
 }
 
-// MaxWidth implements Measurable. Returns padding + max child MaxWidth.
+// MaxWidth implements Measurable. Returns padding + max child MaxWidth,
+// or the div's own explicit width if set.
 func (d *Div) MaxWidth() float64 {
+	if d.widthUnit != nil && d.widthUnit.Unit == UnitPoint {
+		return d.widthUnit.Value
+	}
+	if d.width > 0 {
+		return d.width
+	}
 	maxW := 0.0
 	for _, elem := range d.elements {
 		if m, ok := elem.(Measurable); ok {
@@ -259,16 +378,48 @@ func (d *Div) MaxWidth() float64 {
 // PlanLayout implements Element. A Div splits its children across pages.
 func (d *Div) PlanLayout(area LayoutArea) LayoutPlan {
 	effectiveWidth := area.Width
-	if d.maxWidth > 0 && effectiveWidth > d.maxWidth {
-		effectiveWidth = d.maxWidth
+
+	// Resolve width: prefer UnitValue (lazy), fall back to legacy fields.
+	if d.widthUnit != nil {
+		effectiveWidth = d.widthUnit.Resolve(area.Width)
+	} else if d.widthPct > 0 {
+		effectiveWidth = area.Width * d.widthPct
+	} else if d.width > 0 {
+		effectiveWidth = d.width
 	}
-	if d.minWidth > 0 && effectiveWidth < d.minWidth {
-		effectiveWidth = d.minWidth
+
+	// Resolve max-width.
+	maxW := d.maxWidth
+	if d.maxWidthUnit != nil {
+		maxW = d.maxWidthUnit.Resolve(area.Width)
+	}
+	if maxW > 0 && effectiveWidth > maxW {
+		effectiveWidth = maxW
+	}
+
+	// Resolve min-width.
+	minW := d.minWidth
+	if d.minWidthUnit != nil {
+		minW = d.minWidthUnit.Resolve(area.Width)
+	}
+	if minW > 0 && effectiveWidth < minW {
+		effectiveWidth = minW
 	}
 	innerWidth := effectiveWidth - d.padding.Left - d.padding.Right
 	innerHeight := area.Height - d.padding.Top - d.padding.Bottom
 	if innerHeight < 0 {
 		innerHeight = 0
+	}
+
+	// If the div has an explicit height, use it to constrain children
+	// so that percentage heights resolve against the container, not the
+	// remaining page height.
+	if d.heightUnit != nil {
+		resolvedH := d.heightUnit.Resolve(area.Height)
+		innerHeight = resolvedH - d.padding.Top - d.padding.Bottom
+		if innerHeight < 0 {
+			innerHeight = 0
+		}
 	}
 
 	// Lay out children within the inner area.
@@ -337,12 +488,25 @@ func (d *Div) PlanLayout(area LayoutArea) LayoutPlan {
 
 	totalH := curY + d.padding.Bottom
 
-	// Apply min-height / max-height constraints.
-	if d.minHeight > 0 && totalH < d.minHeight {
-		totalH = d.minHeight
+	// Apply explicit height if set (CSS height property).
+	if d.heightUnit != nil {
+		totalH = d.heightUnit.Resolve(area.Height)
 	}
-	if d.maxHeight > 0 && totalH > d.maxHeight {
-		totalH = d.maxHeight
+
+	// Apply min-height / max-height constraints (prefer UnitValue).
+	mh := d.minHeight
+	if d.minHeightUnit != nil {
+		mh = d.minHeightUnit.Resolve(area.Height)
+	}
+	if mh > 0 && totalH < mh {
+		totalH = mh
+	}
+	xh := d.maxHeight
+	if d.maxHeightUnit != nil {
+		xh = d.maxHeightUnit.Resolve(area.Height)
+	}
+	if xh > 0 && totalH > xh {
+		totalH = xh
 	}
 
 	// Wrap fitted content in a container block with background + borders.
@@ -350,8 +514,14 @@ func (d *Div) PlanLayout(area LayoutArea) LayoutPlan {
 	capturedTotalH := totalH
 	capturedOuterW := effectiveWidth
 
+	// Horizontal centering (margin: 0 auto): offset X to center within parent.
+	xPos := d.relOffsetX
+	if d.hCenter && effectiveWidth < area.Width {
+		xPos += (area.Width - effectiveWidth) / 2
+	}
+
 	containerBlock := PlacedBlock{
-		X: 0, Y: d.spaceBefore, Width: effectiveWidth, Height: totalH,
+		X: xPos, Y: d.spaceBefore + d.relOffsetY, Width: effectiveWidth, Height: totalH,
 		Tag: "Div",
 		Draw: func(ctx DrawContext, absX, absTopY float64) {
 			bottomY := absTopY - capturedTotalH

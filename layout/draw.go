@@ -62,7 +62,8 @@ func drawTextLine(ctx DrawContext, words []Word, x, baselineY, maxWidth float64,
 		if word.LetterSpacing != 0 {
 			ctx.Stream.SetCharSpacing(word.LetterSpacing)
 		}
-		ctx.Stream.MoveText(curX, baselineY)
+		wordY := baselineY + word.BaselineShift
+		ctx.Stream.MoveText(curX, wordY)
 
 		if word.Embedded != nil {
 			drawWordEmbedded(ctx.Stream, word)
@@ -94,13 +95,14 @@ func drawTextLine(ctx DrawContext, words []Word, x, baselineY, maxWidth float64,
 }
 
 // drawWordStandard emits a standard-font word with optional TJ kerning.
+// Text is encoded to WinAnsiEncoding for standard PDF fonts.
 func drawWordStandard(stream *content.Stream, word Word) {
 	if word.Font == nil {
 		return
 	}
 	runes := []rune(word.Text)
 	if len(runes) < 2 {
-		stream.ShowText(word.Text)
+		stream.ShowText(font.WinAnsiEncode(word.Text))
 		return
 	}
 
@@ -112,19 +114,19 @@ func drawWordStandard(stream *content.Stream, word Word) {
 		kern := word.Font.Kern(runes[i-1], runes[i])
 		if kern != 0 {
 			hasKerning = true
-			elements = append(elements, content.TextArrayElement{Text: string(runes[start:i])})
+			elements = append(elements, content.TextArrayElement{Text: font.WinAnsiEncode(string(runes[start:i]))})
 			elements = append(elements, content.TextArrayElement{Adjustment: -kern, IsAdjustment: true})
 			start = i
 		}
 	}
 
 	if !hasKerning {
-		stream.ShowText(word.Text)
+		stream.ShowText(font.WinAnsiEncode(word.Text))
 		return
 	}
 
 	if start < len(runes) {
-		elements = append(elements, content.TextArrayElement{Text: string(runes[start:])})
+		elements = append(elements, content.TextArrayElement{Text: font.WinAnsiEncode(string(runes[start:]))})
 	}
 	stream.ShowTextArray(elements)
 }

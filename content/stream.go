@@ -482,6 +482,14 @@ func (s *Stream) PrependBytes(data []byte) {
 	}
 }
 
+// ReplaceInBytes performs a byte-level replacement in the content stream.
+// Used for second-pass substitutions like total page count placeholders.
+func (s *Stream) ReplaceInBytes(old, new string) {
+	data := bytes.ReplaceAll(s.buf.Bytes(), []byte(old), []byte(new))
+	s.buf.Reset()
+	s.buf.Write(data)
+}
+
 // Bytes returns the content stream as raw bytes, suitable for
 // embedding in a PdfStream.
 func (s *Stream) Bytes() []byte {

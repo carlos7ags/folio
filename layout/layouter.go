@@ -117,6 +117,14 @@ func maxBlockWidth(blocks []PlacedBlock) float64 {
 
 // Measurable is an optional interface that elements can implement
 // to report their intrinsic width constraints. This enables features
+// HeightSettable is implemented by elements that can have their height
+// forced before layout (used by flex cross-axis stretching).
+type HeightSettable interface {
+	ForceHeight(u UnitValue)
+	ClearHeightUnit()
+	HasExplicitHeight() bool // true if element has a CSS height set
+}
+
 // like auto-sizing table columns based on cell content.
 type Measurable interface {
 	// MinWidth returns the narrowest width this element can be rendered

@@ -11,9 +11,11 @@ import (
 // Style holds resolved visual properties for an SVG node.
 type Style struct {
 	Fill             *Color    // nil means default (black for shapes)
+	FillRef          string    // url(#id) reference (e.g. gradient id)
 	FillOpacity      float64   // 0-1, default 1
 	FillRule         string    // "nonzero" or "evenodd"
 	Stroke           *Color    // nil means none
+	StrokeRef        string    // url(#id) reference for stroke
 	StrokeOpacity    float64   // 0-1, default 1
 	StrokeWidth      float64   // default 1
 	StrokeLineCap    string    // "butt", "round", "square"
@@ -28,6 +30,8 @@ type Style struct {
 	FontSize         float64
 	FontWeight       string // "bold", "normal", etc.
 	FontStyle        string // "italic", "normal"
+	TextAnchor       string // "start", "middle", "end"
+	DominantBaseline string // "auto", "middle", "hanging", "central"
 }
 
 // DefaultStyle returns a Style with default values.
@@ -47,6 +51,8 @@ func DefaultStyle() Style {
 		FontSize:         16,
 		FontWeight:       "normal",
 		FontStyle:        "normal",
+		TextAnchor:       "start",
+		DominantBaseline: "auto",
 	}
 }
 
@@ -61,9 +67,11 @@ func ResolveStyle(node *Node, parent Style) Style {
 	// Start with inherited properties from parent.
 	s := Style{
 		Fill:             parent.Fill,
+		FillRef:          parent.FillRef,
 		FillOpacity:      parent.FillOpacity,
 		FillRule:         parent.FillRule,
 		Stroke:           parent.Stroke,
+		StrokeRef:        parent.StrokeRef,
 		StrokeOpacity:    parent.StrokeOpacity,
 		StrokeWidth:      parent.StrokeWidth,
 		StrokeLineCap:    parent.StrokeLineCap,
@@ -74,6 +82,8 @@ func ResolveStyle(node *Node, parent Style) Style {
 		FontSize:         parent.FontSize,
 		FontWeight:       parent.FontWeight,
 		FontStyle:        parent.FontStyle,
+		TextAnchor:       parent.TextAnchor,
+		DominantBaseline: parent.DominantBaseline,
 	}
 
 	// Non-inherited properties get defaults.
@@ -105,11 +115,14 @@ func applyProperties(s *Style, props map[string]string) {
 		switch key {
 		case "fill":
 			if val == "none" {
-				// explicit none: no fill
 				s.Fill = nil
+				s.FillRef = ""
+			} else if ref := parseURLRef(val); ref != "" {
+				s.FillRef = ref
 			} else if c, ok := ParseColor(val); ok {
 				cp := c
 				s.Fill = &cp
+				s.FillRef = ""
 			}
 		case "fill-opacity":
 			if v, err := strconv.ParseFloat(val, 64); err == nil {
@@ -122,9 +135,13 @@ func applyProperties(s *Style, props map[string]string) {
 		case "stroke":
 			if val == "none" {
 				s.Stroke = nil
+				s.StrokeRef = ""
+			} else if ref := parseURLRef(val); ref != "" {
+				s.StrokeRef = ref
 			} else if c, ok := ParseColor(val); ok {
 				cp := c
 				s.Stroke = &cp
+				s.StrokeRef = ""
 			}
 		case "stroke-opacity":
 			if v, err := strconv.ParseFloat(val, 64); err == nil {
@@ -176,6 +193,15 @@ func applyProperties(s *Style, props map[string]string) {
 			s.FontWeight = val
 		case "font-style":
 			s.FontStyle = val
+		case "text-anchor":
+			if val == "start" || val == "middle" || val == "end" {
+				s.TextAnchor = val
+			}
+		case "dominant-baseline":
+			if val == "auto" || val == "middle" || val == "hanging" || val == "central" ||
+				val == "alphabetic" || val == "text-before-edge" || val == "text-after-edge" {
+				s.DominantBaseline = val
+			}
 		}
 	}
 }
@@ -201,6 +227,20 @@ func parseInlineStyle(s string) map[string]string {
 		}
 	}
 	return result
+}
+
+// parseURLRef extracts the id from a url(#id) reference.
+// Returns "" if the value is not a url() reference.
+func parseURLRef(s string) string {
+	s = strings.TrimSpace(s)
+	if !strings.HasPrefix(s, "url(") {
+		return ""
+	}
+	s = strings.TrimPrefix(s, "url(")
+	s = strings.TrimSuffix(s, ")")
+	s = strings.TrimSpace(s)
+	s = strings.Trim(s, "'\"")
+	return strings.TrimPrefix(s, "#")
 }
 
 // parseDashArray parses a stroke-dasharray value like "5,3,2" or "5 3 2".

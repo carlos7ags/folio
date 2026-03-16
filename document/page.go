@@ -188,7 +188,7 @@ func (p *Page) AddText(text string, f *font.Standard, size, x, y float64) {
 	p.stream.BeginText()
 	p.stream.SetFont(resName, size)
 	p.stream.MoveText(x, y)
-	p.stream.ShowText(text)
+	p.stream.ShowText(font.WinAnsiEncode(text))
 	p.stream.EndText()
 }
 

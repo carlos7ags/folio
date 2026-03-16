@@ -25,6 +25,8 @@ type Paragraph struct {
 	orphans     int     // min lines at bottom of page before break (0 = disabled)
 	widows      int     // min lines at top of page after break (0 = disabled)
 	ellipsis    bool    // if true, truncate overflowing text with "..."
+	wordBreak   string  // "normal" (default), "break-all" (allow break within words)
+	hyphens     string  // "none", "manual" (default), "auto" (automatic hyphenation)
 }
 
 // NewParagraph creates a paragraph with a single run using a standard PDF font.
@@ -109,6 +111,12 @@ func (p *Paragraph) SetSpaceAfter(pts float64) *Paragraph {
 	return p
 }
 
+// GetSpaceBefore returns the extra vertical space before the paragraph.
+func (p *Paragraph) GetSpaceBefore() float64 { return p.spaceBefore }
+
+// GetSpaceAfter returns the extra vertical space after the paragraph.
+func (p *Paragraph) GetSpaceAfter() float64 { return p.spaceAfter }
+
 // SetBackground sets a background fill color for the paragraph.
 func (p *Paragraph) SetBackground(c Color) *Paragraph {
 	p.background = &c
@@ -128,6 +136,21 @@ func (p *Paragraph) SetFirstLineIndent(pts float64) *Paragraph {
 // Default is 0 (disabled). Typical value: 2.
 func (p *Paragraph) SetOrphans(n int) *Paragraph {
 	p.orphans = n
+	return p
+}
+
+// SetWordBreak sets the word-break behavior. "break-all" allows breaking
+// within any word at character boundaries. Default is "normal" (break at spaces only).
+func (p *Paragraph) SetWordBreak(wb string) *Paragraph {
+	p.wordBreak = wb
+	return p
+}
+
+// SetHyphens sets the hyphenation mode. "auto" enables automatic hyphenation
+// at syllable boundaries. "none" disables all hyphenation. "manual" (default)
+// only breaks at soft hyphens (&shy;).
+func (p *Paragraph) SetHyphens(h string) *Paragraph {
+	p.hyphens = h
 	return p
 }
 
@@ -181,6 +204,7 @@ func (p *Paragraph) Layout(maxWidth float64) []Line {
 				SpaceAfter:      spaceW,
 				LetterSpacing:   run.LetterSpacing,
 				WordSpacing:     run.WordSpacing,
+				BaselineShift:   run.BaselineShift,
 			})
 		}
 		if run.FontSize > maxFontSize {
@@ -201,8 +225,13 @@ func (p *Paragraph) Layout(maxWidth float64) []Line {
 		return nil
 	}
 
-	// Break any single word that exceeds maxWidth into character-level chunks.
-	measured = breakLongWords(measured, maxWidth)
+	// Break words that don't fit. With word-break:break-all, break ALL words
+	// at character boundaries to fill lines maximally.
+	if p.wordBreak == "break-all" {
+		measured = breakAllWords(measured, maxWidth)
+	} else {
+		measured = breakLongWords(measured, maxWidth)
+	}
 
 	lineHeight := maxFontSize * p.leading
 
@@ -220,6 +249,24 @@ func (p *Paragraph) Layout(maxWidth float64) []Line {
 		spaceW := measured[i-1].SpaceAfter
 		candidate := lineWidth + spaceW + measured[i].Width
 		if candidate > effectiveMax && lineStart < i {
+			// Try hyphenation: if enabled, attempt to break the next word
+			// and fit part of it on this line with a hyphen.
+			if p.hyphens == "auto" {
+				remaining := effectiveMax - lineWidth - spaceW
+				if part, rest, ok := hyphenateWord(measured[i], remaining); ok {
+					// Fit the first part on this line.
+					lineWords := make([]Word, i-lineStart+1)
+					copy(lineWords, measured[lineStart:i])
+					lineWords[len(lineWords)-1] = part
+					lw := lineWidth + spaceW + part.Width
+					lines = append(lines, buildLine(lineWords, lw, lineHeight, p.align, false))
+					measured[i] = rest
+					lineStart = i
+					lineWidth = rest.Width
+					effectiveMax = maxWidth
+					continue
+				}
+			}
 			lines = append(lines, buildLine(measured[lineStart:i], lineWidth, lineHeight, p.align, false))
 			lineStart = i
 			lineWidth = measured[i].Width
@@ -359,6 +406,101 @@ func breakLongWords(words []Word, maxWidth float64) []Word {
 	return result
 }
 
+// hyphenateWord attempts to split a word to fit within `available` points.
+// Returns the first part (with trailing hyphen) and the remainder.
+// Returns ok=false if no valid split point is found (word must be at least 4 chars,
+// split at least 2 chars from each end).
+func hyphenateWord(w Word, available float64) (part, rest Word, ok bool) {
+	runes := []rune(w.Text)
+	if len(runes) < 4 {
+		return Word{}, Word{}, false
+	}
+
+	var measure func(string) float64
+	if w.Embedded != nil {
+		measure = func(s string) float64 { return w.Embedded.MeasureString(s, w.FontSize) }
+	} else if w.Font != nil {
+		measure = func(s string) float64 { return w.Font.MeasureString(s, w.FontSize) }
+	} else {
+		return Word{}, Word{}, false
+	}
+
+	hyphenW := measure("-")
+
+	// Try splitting from longest prefix down to minimum 2 chars.
+	bestSplit := -1
+	for i := len(runes) - 2; i >= 2; i-- {
+		prefix := string(runes[:i])
+		pw := measure(prefix) + hyphenW
+		if pw <= available {
+			bestSplit = i
+			break
+		}
+	}
+	if bestSplit < 0 {
+		return Word{}, Word{}, false
+	}
+
+	prefixText := string(runes[:bestSplit]) + "-"
+	suffixText := string(runes[bestSplit:])
+
+	part = w
+	part.Text = prefixText
+	part.Width = measure(prefixText)
+	part.SpaceAfter = 0
+
+	rest = w
+	rest.Text = suffixText
+	rest.Width = measure(suffixText)
+
+	return part, rest, true
+}
+
+// breakAllWords breaks every word into individual characters, allowing
+// the word-wrap algorithm to break within any word (word-break: break-all).
+func breakAllWords(words []Word, maxWidth float64) []Word {
+	var result []Word
+	for _, w := range words {
+		runes := []rune(w.Text)
+		if len(runes) <= 1 {
+			result = append(result, w)
+			continue
+		}
+		measurer := w.Font
+		emb := w.Embedded
+		var measure func(string) float64
+		if emb != nil {
+			measure = func(s string) float64 { return emb.MeasureString(s, w.FontSize) }
+		} else if measurer != nil {
+			measure = func(s string) float64 { return measurer.MeasureString(s, w.FontSize) }
+		} else {
+			result = append(result, w)
+			continue
+		}
+		// Split into individual characters as separate "words".
+		for j, r := range runes {
+			ch := string(r)
+			cw := Word{
+				Text:          ch,
+				Width:         measure(ch),
+				Font:          w.Font,
+				Embedded:      w.Embedded,
+				FontSize:      w.FontSize,
+				Color:         w.Color,
+				Decoration:    w.Decoration,
+				LetterSpacing: w.LetterSpacing,
+				WordSpacing:   w.WordSpacing,
+				SpaceAfter:    0, // no space between characters of same word
+			}
+			if j == len(runes)-1 {
+				cw.SpaceAfter = w.SpaceAfter // preserve inter-word space on last char
+			}
+			result = append(result, cw)
+		}
+	}
+	return result
+}
+
 // MinWidth implements Measurable. Returns the width of the longest word
 // (the narrowest the paragraph can be without clipping).
 func (p *Paragraph) MinWidth() float64 {
@@ -367,6 +509,9 @@ func (p *Paragraph) MinWidth() float64 {
 		measurer := runMeasurer(run)
 		for _, w := range splitWords(run.Text) {
 			ww := measurer.MeasureString(w, run.FontSize)
+			if run.LetterSpacing != 0 && len([]rune(w)) > 1 {
+				ww += run.LetterSpacing * float64(len([]rune(w))-1)
+			}
 			if ww > maxWordW {
 				maxWordW = ww
 			}
@@ -384,7 +529,11 @@ func (p *Paragraph) MaxWidth() float64 {
 		words := splitWords(run.Text)
 		spaceW := measurer.MeasureString(" ", run.FontSize)
 		for i, w := range words {
-			total += measurer.MeasureString(w, run.FontSize)
+			ww := measurer.MeasureString(w, run.FontSize)
+			if run.LetterSpacing != 0 && len([]rune(w)) > 1 {
+				ww += run.LetterSpacing * float64(len([]rune(w))-1)
+			}
+			total += ww
 			if i < len(words)-1 {
 				total += spaceW
 			}
@@ -573,6 +722,7 @@ func (p *Paragraph) measureWords(maxWidth float64) ([]Word, float64) {
 				SpaceAfter:      spaceW,
 				LetterSpacing:   run.LetterSpacing,
 				WordSpacing:     run.WordSpacing,
+				BaselineShift:   run.BaselineShift,
 			})
 		}
 		if run.FontSize > maxFontSize {

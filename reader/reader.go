@@ -11,6 +11,14 @@ import (
 )
 
 // Strictness controls how the reader handles malformed PDFs.
+//
+// The strictness level affects behavior throughout the reader pipeline:
+//   - XRef parsing: tolerant mode falls back to xref repair on parse errors;
+//     strict mode fails immediately.
+//   - Object resolution: tolerant mode may return null for unparseable objects;
+//     strict mode returns an error.
+//   - Stream decompression: tolerant mode ignores unknown filters and returns
+//     raw data; strict mode rejects unknown filters.
 type Strictness int
 
 const (
@@ -30,6 +38,7 @@ type PdfReader struct {
 	catalog    *core.PdfDictionary
 	pages      []*PageInfo
 	strictness Strictness
+	fontCache  map[int]*FontEntry // shared font cache keyed by indirect ref object number
 }
 
 // Box represents a PDF rectangle: [x1, y1, x2, y2] in points.
@@ -135,7 +144,7 @@ func ParseWithOptions(data []byte, opts ReadOptions) (*PdfReader, error) {
 			ErrMemoryLimitExceeded, len(xref.entries), maxObj)
 	}
 
-	res := newResolver(data, xref, mem)
+	res := newResolver(data, xref, mem, opts.Strictness)
 	if opts.MaxCache > 0 {
 		res.SetMaxCache(opts.MaxCache)
 	}
@@ -596,7 +605,7 @@ func (p *PageInfo) ExtractText() (string, error) {
 	if p.reader != nil {
 		res, resErr := p.Resources()
 		if resErr == nil && res != nil {
-			fonts = BuildFontCache(res, p.reader.resolver)
+			fonts = BuildFontCacheWithShared(res, p.reader.resolver, p.reader.getFontCache())
 		}
 	}
 
@@ -630,13 +639,64 @@ func (p *PageInfo) TextSpans() ([]TextSpan, error) {
 	if p.reader != nil {
 		res, resErr := p.Resources()
 		if resErr == nil && res != nil {
-			fonts = BuildFontCache(res, p.reader.resolver)
+			fonts = BuildFontCacheWithShared(res, p.reader.resolver, p.reader.getFontCache())
 		}
 	}
 
 	ops := ParseContentStream(data)
 	proc := NewContentProcessor(fonts)
+
+	// Set up form resolver so text inside Form XObjects is included.
+	if p.reader != nil {
+		proc.SetFormResolver(func(name string) []ContentOp {
+			return p.resolveFormXObject(name)
+		})
+	}
+
 	return proc.Process(ops), nil
+}
+
+// ExtractTaggedText extracts text using the structure tree for logical
+// reading order. If the document is not tagged, falls back to LocationStrategy.
+func (p *PageInfo) ExtractTaggedText() (string, error) {
+	if p.reader == nil {
+		return p.ExtractText()
+	}
+
+	// Parse structure tree from the reader's catalog.
+	tree := ParseStructureTree(p.reader.catalog, p.reader.resolver)
+	if tree == nil {
+		// Not a tagged PDF — fall back to LocationStrategy.
+		return p.ExtractTextWithStrategy(&LocationStrategy{})
+	}
+
+	// Get content stream and process it.
+	data, err := p.ContentStream()
+	if err != nil {
+		return "", err
+	}
+	if data == nil {
+		return "", nil
+	}
+
+	// Build font cache.
+	var fonts FontCache
+	res, resErr := p.Resources()
+	if resErr == nil && res != nil {
+		fonts = BuildFontCacheWithShared(res, p.reader.resolver, p.reader.getFontCache())
+	}
+
+	// Process content stream to get spans with MCID.
+	ops := ParseContentStream(data)
+	proc := NewContentProcessor(fonts)
+	spans := proc.Process(ops)
+
+	// Use TaggedStrategy to assemble text in structure tree order.
+	strategy := NewTaggedStrategy(tree, p.Number-1)
+	for _, span := range spans {
+		strategy.ProcessSpan(span)
+	}
+	return strategy.Result(), nil
 }
 
 // ExtractTextWithStrategy extracts text using a pluggable strategy.
@@ -649,6 +709,55 @@ func (p *PageInfo) ExtractTextWithStrategy(strategy ExtractionStrategy) (string,
 		strategy.ProcessSpan(span)
 	}
 	return strategy.Result(), nil
+}
+
+// resolveFormXObject looks up a Form XObject by resource name from the page's
+// resources, decompresses its content stream, and returns the parsed ops.
+// Returns nil if the name does not refer to a Form XObject.
+func (p *PageInfo) resolveFormXObject(name string) []ContentOp {
+	res, err := p.Resources()
+	if err != nil || res == nil {
+		return nil
+	}
+
+	xobjObj := res.Get("XObject")
+	if xobjObj == nil {
+		return nil
+	}
+	xobjDict, ok := resolveWith(p.reader.resolver, xobjObj).(*core.PdfDictionary)
+	if !ok {
+		return nil
+	}
+
+	formObj := xobjDict.Get(name)
+	if formObj == nil {
+		return nil
+	}
+	formObj = resolveWith(p.reader.resolver, formObj)
+
+	stream, ok := formObj.(*core.PdfStream)
+	if !ok {
+		return nil
+	}
+
+	// Check /Subtype is /Form.
+	subtype, _ := stream.Dict.Get("Subtype").(*core.PdfName)
+	if subtype == nil || subtype.Value != "Form" {
+		return nil
+	}
+
+	if len(stream.Data) == 0 {
+		return nil
+	}
+	return ParseContentStream(stream.Data)
+}
+
+// getFontCache returns the shared font cache, initializing it lazily.
+func (r *PdfReader) getFontCache() map[int]*FontEntry {
+	if r.fontCache == nil {
+		r.fontCache = make(map[int]*FontEntry)
+	}
+	return r.fontCache
 }
 
 // pdfNumValue extracts a float64 from a PdfNumber or PdfObject.

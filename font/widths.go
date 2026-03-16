@@ -43,6 +43,8 @@ var helveticaWidths = map[rune]int{
 	'\u201d': 333,  // right double quote
 	'\u2022': 350,  // bullet
 	'\u2026': 1000, // ellipsis
+	'\u20AC': 556,  // euro sign
+	'\u2212': 584,  // minus sign
 }
 
 // helveticaBoldWidths — Helvetica-Bold (and Helvetica-BoldOblique) widths.

@@ -503,3 +503,76 @@ func parseLineHeight(value string, fontSize float64) float64 {
 	}
 	return 1.2
 }
+
+// parseFlexShorthand parses the CSS flex shorthand property.
+// Syntax: flex: none | [ <flex-grow> <flex-shrink>? || <flex-basis> ]
+// Common values: flex: 1, flex: none, flex: 0 1 auto, flex: 1 0 0
+func parseFlexShorthand(val string, style *computedStyle) {
+	val = strings.TrimSpace(strings.ToLower(val))
+
+	switch val {
+	case "none":
+		// flex: none → flex: 0 0 auto
+		style.FlexGrow = 0
+		style.FlexShrink = 0
+		return
+	case "auto":
+		// flex: auto → flex: 1 1 auto
+		style.FlexGrow = 1
+		style.FlexShrink = 1
+		return
+	case "initial":
+		// flex: initial → flex: 0 1 auto
+		style.FlexGrow = 0
+		style.FlexShrink = 1
+		return
+	}
+
+	parts := strings.Fields(val)
+
+	switch len(parts) {
+	case 1:
+		// Single value: if numeric, it's flex-grow (with shrink=1, basis=0).
+		if v, err := strconv.ParseFloat(parts[0], 64); err == nil {
+			style.FlexGrow = v
+			style.FlexShrink = 1
+			style.FlexBasis = &cssLength{Value: 0, Unit: "px"}
+		} else {
+			// Must be flex-basis.
+			style.FlexBasis = parseLength(parts[0])
+		}
+	case 2:
+		// Two values: <flex-grow> <flex-shrink> or <flex-grow> <flex-basis>
+		if grow, err := strconv.ParseFloat(parts[0], 64); err == nil {
+			style.FlexGrow = grow
+			if shrink, err2 := strconv.ParseFloat(parts[1], 64); err2 == nil {
+				style.FlexShrink = shrink
+			} else {
+				style.FlexBasis = parseLength(parts[1])
+			}
+		}
+	case 3:
+		// Three values: <flex-grow> <flex-shrink> <flex-basis>
+		if grow, err := strconv.ParseFloat(parts[0], 64); err == nil {
+			style.FlexGrow = grow
+		}
+		if shrink, err := strconv.ParseFloat(parts[1], 64); err == nil {
+			style.FlexShrink = shrink
+		}
+		style.FlexBasis = parseLength(parts[2])
+	}
+}
+
+// parseFlexFlowShorthand parses the CSS flex-flow shorthand.
+// Syntax: flex-flow: <flex-direction> || <flex-wrap>
+func parseFlexFlowShorthand(val string, style *computedStyle) {
+	parts := strings.Fields(strings.TrimSpace(strings.ToLower(val)))
+	for _, p := range parts {
+		switch p {
+		case "row", "row-reverse", "column", "column-reverse":
+			style.FlexDirection = p
+		case "nowrap", "wrap", "wrap-reverse":
+			style.FlexWrap = p
+		}
+	}
+}

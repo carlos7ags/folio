@@ -75,15 +75,21 @@ func parseXrefTable(data []byte) (*xrefTable, error) {
 	}
 
 	// Follow the chain of xref sections (linked by /Prev in trailer).
+	// Track visited offsets to detect circular /Prev references.
+	visited := map[int64]bool{}
 	offset := startOffset
 	for offset >= 0 {
+		if visited[offset] {
+			break
+		}
+		visited[offset] = true
 		tok := NewTokenizer(data)
 		tok.SetPos(int(offset))
 
 		// Check if this is a classic xref or an xref stream.
 		firstTok := tok.Peek()
 		if firstTok.Type == TokenKeyword && firstTok.Value == "xref" {
-			trailer, prevOffset, err := parseOneXrefSection(tok, table)
+			trailer, prevOffset, err := parseOneXrefSection(tok, table, data)
 			if err != nil {
 				return nil, err
 			}
@@ -329,7 +335,8 @@ func pdfIntValue(obj core.PdfObject) int {
 
 // parseOneXrefSection reads one xref section and its trailer.
 // Returns the trailer dict and the /Prev offset (-1 if none).
-func parseOneXrefSection(tok *Tokenizer, table *xrefTable) (*core.PdfDictionary, int64, error) {
+// data is the full file content, needed for hybrid xref support (/XRefStm).
+func parseOneXrefSection(tok *Tokenizer, table *xrefTable, data []byte) (*core.PdfDictionary, int64, error) {
 	// Skip "xref" keyword.
 	line := tok.ReadLine()
 	if strings.TrimSpace(line) != "xref" {
@@ -405,6 +412,23 @@ func parseOneXrefSection(tok *Tokenizer, table *xrefTable) (*core.PdfDictionary,
 		return nil, -1, fmt.Errorf("reader: trailer is not a dictionary")
 	}
 
+	// Hybrid xref: if /XRefStm is present, merge entries from the xref stream.
+	// In a hybrid-reference file (ISO 32000 §7.5.8.4), a classic xref section
+	// includes an /XRefStm entry pointing to an xref stream that contains
+	// entries for objects stored in object streams. The classic table entries
+	// take precedence (the existing "if !exists" guard in parseXrefStream
+	// prevents stream entries from overwriting table entries already present).
+	if xrefStm := trailer.Get("XRefStm"); xrefStm != nil {
+		if num, ok := xrefStm.(*core.PdfNumber); ok {
+			stmOffset := int64(num.IntValue())
+			if stmOffset >= 0 && int(stmOffset) < len(data) {
+				// Errors from the supplemental stream are non-fatal; the
+				// classic table entries are sufficient for non-compressed objects.
+				_, _, _ = parseXrefStream(data, int(stmOffset), table)
+			}
+		}
+	}
+
 	// Check for /Prev (previous xref section offset).
 	prevOffset := int64(-1)
 	if prev := trailer.Get("Prev"); prev != nil {
@@ -422,11 +446,23 @@ func parseOneXrefSection(tok *Tokenizer, table *xrefTable) (*core.PdfDictionary,
 func parseXrefEntry(line string) (xrefEntry, error) {
 	line = strings.TrimRight(line, "\r\n ")
 	if len(line) < 18 {
-		return xrefEntry{}, fmt.Errorf("xref entry too short: %q", line)
+		return xrefEntry{}, fmt.Errorf("xref entry too short (%d chars): %q", len(line), line)
 	}
 
+	// Bounds are guaranteed by the len(line) >= 18 check above, but we
+	// validate explicitly to guard against future changes and make the
+	// invariant clear to readers.
+	if len(line) < 10 {
+		return xrefEntry{}, fmt.Errorf("xref entry too short for offset field: %q", line)
+	}
 	offsetStr := strings.TrimSpace(line[0:10])
+	if len(line) < 16 {
+		return xrefEntry{}, fmt.Errorf("xref entry too short for generation field: %q", line)
+	}
 	genStr := strings.TrimSpace(line[11:16])
+	if len(line) < 18 {
+		return xrefEntry{}, fmt.Errorf("xref entry too short for type field: %q", line)
+	}
 	typeChar := line[17]
 
 	offset, err := strconv.ParseInt(offsetStr, 10, 64)

@@ -4,6 +4,9 @@
 package layout
 
 import (
+	"fmt"
+	"strings"
+
 	"github.com/carlos7ags/folio/content"
 	"github.com/carlos7ags/folio/font"
 	folioimage "github.com/carlos7ags/folio/image"
@@ -25,6 +28,7 @@ type PageResult struct {
 	Links      []LinkArea       // clickable link annotations produced by Link elements
 	ExtGStates []ExtGStateEntry // graphics state dictionaries (opacity, etc.)
 	Headings   []HeadingInfo    // headings found on this page (for auto-bookmarks)
+	PageHeight float64          // actual page height (non-zero only for auto-sized pages)
 }
 
 // HeadingInfo records a heading found during rendering.
@@ -81,14 +85,59 @@ type StructTagInfo struct {
 // Renderer lays out a sequence of elements into pages,
 // handling page breaks automatically.
 type Renderer struct {
-	pageWidth  float64
-	pageHeight float64
-	margins    Margins
-	elements   []Element
-	absolutes  []absoluteItem
-	tagged     bool            // if true, emit BDC/EMC marked content
-	structTags []StructTagInfo // collected during rendering
-	mcidCount  []int           // per-page MCID counter
+	pageWidth        float64
+	pageHeight       float64
+	margins          Margins
+	firstMargins     *Margins             // @page :first margins (nil = use default)
+	leftMargins      *Margins             // @page :left margins for even pages (nil = use default)
+	rightMargins     *Margins             // @page :right margins for odd pages (nil = use default)
+	marginBoxes      map[string]MarginBox // default margin boxes
+	firstMarginBoxes map[string]MarginBox // first-page margin boxes
+	elements         []Element
+	absolutes        []absoluteItem
+	tagged           bool            // if true, emit BDC/EMC marked content
+	structTags       []StructTagInfo // collected during rendering
+	mcidCount        []int           // per-page MCID counter
+}
+
+// MarginBox holds the content template for a CSS margin box.
+// Content may contain placeholders like {counter(page)} and {counter(pages)}.
+type MarginBox struct {
+	Content  string     // template string with placeholders
+	FontSize float64    // font size in points (0 = default 9pt)
+	Color    [3]float64 // RGB color (0-1 each; all zero = default gray)
+}
+
+// MarginBoxSet holds margin boxes for a page variant.
+type MarginBoxSet struct {
+	Boxes map[string]MarginBox // e.g. "top-center" → content
+}
+
+// SetMarginBoxes sets default margin box content.
+func (r *Renderer) SetMarginBoxes(boxes map[string]MarginBox) {
+	r.marginBoxes = boxes
+}
+
+// SetFirstMarginBoxes sets margin boxes for the first page only.
+func (r *Renderer) SetFirstMarginBoxes(boxes map[string]MarginBox) {
+	r.firstMarginBoxes = boxes
+}
+
+// marginsForPage returns the margins to use for the given page index (0-based).
+// Priority: :first (page 0) > :left/:right > default.
+func (r *Renderer) marginsForPage(pageIdx int) Margins {
+	if pageIdx == 0 && r.firstMargins != nil {
+		return *r.firstMargins
+	}
+	if pageIdx%2 == 0 && r.rightMargins != nil {
+		// Page 0 = first right page (odd page number 1), page 2 = page number 3, etc.
+		return *r.rightMargins
+	}
+	if pageIdx%2 == 1 && r.leftMargins != nil {
+		// Page 1 = page number 2 (left/even), page 3 = page number 4, etc.
+		return *r.leftMargins
+	}
+	return r.margins
 }
 
 // NewRenderer creates a renderer for the given page dimensions and margins.
@@ -97,6 +146,100 @@ func NewRenderer(pageWidth, pageHeight float64, margins Margins) *Renderer {
 		pageWidth:  pageWidth,
 		pageHeight: pageHeight,
 		margins:    margins,
+	}
+}
+
+// SetFirstMargins sets margins for the first page only (@page :first).
+func (r *Renderer) SetFirstMargins(m Margins) {
+	r.firstMargins = &m
+}
+
+// SetLeftMargins sets margins for left (even-numbered) pages (@page :left).
+func (r *Renderer) SetLeftMargins(m Margins) {
+	r.leftMargins = &m
+}
+
+// SetRightMargins sets margins for right (odd-numbered) pages (@page :right).
+func (r *Renderer) SetRightMargins(m Margins) {
+	r.rightMargins = &m
+}
+
+// drawMarginBoxes renders margin box content (headers/footers) on the current page.
+func (r *Renderer) drawMarginBoxes(ctx *DrawContext, pageIdx int, margins Margins) {
+	// Select margin boxes for this page.
+	boxes := r.marginBoxes
+	if pageIdx == 0 && r.firstMarginBoxes != nil {
+		// Merge: first-page boxes override defaults.
+		merged := make(map[string]MarginBox)
+		for k, v := range r.marginBoxes {
+			merged[k] = v
+		}
+		for k, v := range r.firstMarginBoxes {
+			merged[k] = v
+		}
+		boxes = merged
+	}
+	if len(boxes) == 0 {
+		return
+	}
+
+	f := font.Helvetica
+	contentWidth := r.pageWidth - margins.Left - margins.Right
+
+	for name, box := range boxes {
+		text := box.Content
+		if text == "" {
+			continue
+		}
+		// Resolve {counter(page)} and {counter(pages)} placeholders.
+		text = strings.ReplaceAll(text, "{counter(page)}", fmt.Sprintf("%d", pageIdx+1))
+		text = strings.ReplaceAll(text, "{counter(pages)}", "##TOTAL_PAGES##")
+
+		// Use box-specific font size, or default to 9pt.
+		fontSize := box.FontSize
+		if fontSize <= 0 {
+			fontSize = 9.0
+		}
+
+		// Use box-specific color, or default to gray.
+		textColor := Color{R: 0.4, G: 0.4, B: 0.4}
+		if box.Color != [3]float64{0, 0, 0} {
+			textColor = Color{R: box.Color[0], G: box.Color[1], B: box.Color[2]}
+		}
+
+		resName := registerFont(ctx.Page, Word{Font: f, FontSize: fontSize})
+		textWidth := f.MeasureString(text, fontSize)
+
+		var x, y float64
+		switch name {
+		case "top-left":
+			x = margins.Left
+			y = r.pageHeight - margins.Top/2 - fontSize/2
+		case "top-center":
+			x = margins.Left + (contentWidth-textWidth)/2
+			y = r.pageHeight - margins.Top/2 - fontSize/2
+		case "top-right":
+			x = r.pageWidth - margins.Right - textWidth
+			y = r.pageHeight - margins.Top/2 - fontSize/2
+		case "bottom-left":
+			x = margins.Left
+			y = margins.Bottom/2 - fontSize/2
+		case "bottom-center":
+			x = margins.Left + (contentWidth-textWidth)/2
+			y = margins.Bottom/2 - fontSize/2
+		case "bottom-right":
+			x = r.pageWidth - margins.Right - textWidth
+			y = margins.Bottom/2 - fontSize/2
+		default:
+			continue
+		}
+
+		setFillColor(ctx.Stream, textColor)
+		ctx.Stream.BeginText()
+		ctx.Stream.SetFont(resName, fontSize)
+		ctx.Stream.MoveText(x, y)
+		ctx.Stream.ShowText(text)
+		ctx.Stream.EndText()
 	}
 }
 

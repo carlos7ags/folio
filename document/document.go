@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"slices"
+	"strconv"
 
 	"github.com/carlos7ags/folio/core"
 	"github.com/carlos7ags/folio/layout"
@@ -45,21 +46,26 @@ type absoluteElement struct {
 
 // Document is the top-level API for building a PDF.
 type Document struct {
-	pages      []*Page
-	pageSize   PageSize
-	margins    layout.Margins
-	elements   []layout.Element
-	absolutes  []absoluteElement
-	Info       Info        // document metadata (Title, Author, etc.)
-	outlines   []Outline   // bookmarks / outline tree
-	namedDests []NamedDest // named destinations
-	header     PageDecorator
-	footer     PageDecorator
-	watermark  *WatermarkConfig
-	encryption *EncryptionConfig
-	tagged     bool        // if true, produce tagged PDF with structure tree
-	pdfA       *PdfAConfig // if non-nil, produce PDF/A conformant output
-	acroForm   interface {
+	pages            []*Page
+	pageSize         PageSize
+	margins          layout.Margins
+	firstMargins     *layout.Margins             // @page :first
+	leftMargins      *layout.Margins             // @page :left
+	rightMargins     *layout.Margins             // @page :right
+	marginBoxes      map[string]layout.MarginBox // default margin boxes
+	firstMarginBoxes map[string]layout.MarginBox // first-page margin boxes
+	elements         []layout.Element
+	absolutes        []absoluteElement
+	Info             Info        // document metadata (Title, Author, etc.)
+	outlines         []Outline   // bookmarks / outline tree
+	namedDests       []NamedDest // named destinations
+	header           PageDecorator
+	footer           PageDecorator
+	watermark        *WatermarkConfig
+	encryption       *EncryptionConfig
+	tagged           bool        // if true, produce tagged PDF with structure tree
+	pdfA             *PdfAConfig // if non-nil, produce PDF/A conformant output
+	acroForm         interface {
 		Build(func(core.PdfObject) *core.PdfIndirectReference, []*core.PdfIndirectReference) (*core.PdfIndirectReference, map[int][]*core.PdfIndirectReference)
 	}
 	viewerPrefs   *ViewerPreferences
@@ -104,6 +110,31 @@ func (d *Document) SetAutoBookmarks(enabled bool) {
 // Default is 72pt (1 inch) on all sides.
 func (d *Document) SetMargins(m layout.Margins) {
 	d.margins = m
+}
+
+// SetFirstMargins sets margins for the first page only (@page :first).
+func (d *Document) SetFirstMargins(m layout.Margins) {
+	d.firstMargins = &m
+}
+
+// SetLeftMargins sets margins for left (even) pages (@page :left).
+func (d *Document) SetLeftMargins(m layout.Margins) {
+	d.leftMargins = &m
+}
+
+// SetRightMargins sets margins for right (odd) pages (@page :right).
+func (d *Document) SetRightMargins(m layout.Margins) {
+	d.rightMargins = &m
+}
+
+// SetMarginBoxes sets default margin box content for all pages.
+func (d *Document) SetMarginBoxes(boxes map[string]layout.MarginBox) {
+	d.marginBoxes = boxes
+}
+
+// SetFirstMarginBoxes sets margin box content for the first page only.
+func (d *Document) SetFirstMarginBoxes(boxes map[string]layout.MarginBox) {
+	d.firstMarginBoxes = boxes
 }
 
 // SetHeader sets a decorator that draws on every page (e.g. title, logo).
@@ -192,6 +223,21 @@ func (d *Document) buildAllPages() (all []*Page, structTags []layout.StructTagIn
 	// Run layout engine if there are elements.
 	if len(d.elements) > 0 || len(d.absolutes) > 0 {
 		r := layout.NewRenderer(d.pageSize.Width, d.pageSize.Height, d.margins)
+		if d.firstMargins != nil {
+			r.SetFirstMargins(*d.firstMargins)
+		}
+		if d.leftMargins != nil {
+			r.SetLeftMargins(*d.leftMargins)
+		}
+		if d.rightMargins != nil {
+			r.SetRightMargins(*d.rightMargins)
+		}
+		if d.marginBoxes != nil {
+			r.SetMarginBoxes(d.marginBoxes)
+		}
+		if d.firstMarginBoxes != nil {
+			r.SetFirstMarginBoxes(d.firstMarginBoxes)
+		}
 		if d.tagged {
 			r.SetTagged(true)
 		}
@@ -207,7 +253,11 @@ func (d *Document) buildAllPages() (all []*Page, structTags []layout.StructTagIn
 		}
 		results := r.Render()
 		for _, res := range results {
-			p := &Page{size: d.pageSize, stream: res.Stream}
+			ps := d.pageSize
+			if res.PageHeight > 0 {
+				ps.Height = res.PageHeight
+			}
+			p := &Page{size: ps, stream: res.Stream}
 			for _, f := range res.Fonts {
 				p.fonts = append(p.fonts, fontResource{
 					name:     f.Name,
@@ -333,6 +383,14 @@ func (d *Document) Save(path string) error {
 // WriteTo serializes the complete PDF document to w.
 func (d *Document) WriteTo(w io.Writer) (int64, error) {
 	allPages, structTags := d.buildAllPages()
+
+	// Second pass: replace ##TOTAL_PAGES## placeholder with actual count.
+	totalStr := strconv.Itoa(len(allPages))
+	for _, p := range allPages {
+		if p.stream != nil {
+			p.stream.ReplaceInBytes("##TOTAL_PAGES##", totalStr)
+		}
+	}
 
 	writer := NewWriter("1.7")
 

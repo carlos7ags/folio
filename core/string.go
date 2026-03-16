@@ -57,25 +57,27 @@ func (s *PdfString) WriteTo(w io.Writer) (int64, error) {
 func EscapeLiteralString(s string) string {
 	var b strings.Builder
 	b.Grow(len(s))
-	for _, r := range s {
+	for i := 0; i < len(s); i++ {
+		c := s[i]
 		switch {
-		case r == '\\':
+		case c == '\\':
 			b.WriteString(`\\`)
-		case r == '(':
+		case c == '(':
 			b.WriteString(`\(`)
-		case r == ')':
+		case c == ')':
 			b.WriteString(`\)`)
-		case r == '\n':
+		case c == '\n':
 			b.WriteString(`\n`)
-		case r == '\r':
+		case c == '\r':
 			b.WriteString(`\r`)
-		case r == '\t':
+		case c == '\t':
 			b.WriteString(`\t`)
-		case r >= 0 && r <= 0x1F:
-			// Other control characters: escape as octal.
-			fmt.Fprintf(&b, `\%03o`, r)
+		case c <= 0x1F:
+			// Control characters: escape as octal.
+			fmt.Fprintf(&b, `\%03o`, c)
 		default:
-			b.WriteRune(r)
+			// Write raw byte — preserves WinAnsiEncoding values (128-255).
+			b.WriteByte(c)
 		}
 	}
 	return b.String()

@@ -985,3 +985,282 @@ func TestRender_PathElement(t *testing.T) {
 		t.Error("path rendering with Z should contain \"h\" (closePath)")
 	}
 }
+
+// ---------------------------------------------------------------------------
+// text-anchor and dominant-baseline tests
+// ---------------------------------------------------------------------------
+
+func TestTextAnchorStyleParsing(t *testing.T) {
+	node := &Node{
+		Tag:   "text",
+		Attrs: map[string]string{"text-anchor": "middle"},
+	}
+	style := ResolveStyle(node, DefaultStyle())
+	if style.TextAnchor != "middle" {
+		t.Errorf("expected TextAnchor=middle, got %q", style.TextAnchor)
+	}
+}
+
+func TestTextAnchorInheritance(t *testing.T) {
+	parent := DefaultStyle()
+	parent.TextAnchor = "end"
+	child := &Node{Tag: "tspan", Attrs: map[string]string{}}
+	style := ResolveStyle(child, parent)
+	if style.TextAnchor != "end" {
+		t.Errorf("expected TextAnchor inherited as end, got %q", style.TextAnchor)
+	}
+}
+
+func TestDominantBaselineParsing(t *testing.T) {
+	node := &Node{
+		Tag:   "text",
+		Attrs: map[string]string{"dominant-baseline": "middle"},
+	}
+	style := ResolveStyle(node, DefaultStyle())
+	if style.DominantBaseline != "middle" {
+		t.Errorf("expected DominantBaseline=middle, got %q", style.DominantBaseline)
+	}
+}
+
+func TestTextAnchorRendering(t *testing.T) {
+	svgXML := `<svg viewBox="0 0 200 100">
+		<text x="100" y="50" text-anchor="middle" font-size="12">Hello</text>
+	</svg>`
+	s, err := Parse(svgXML)
+	if err != nil {
+		t.Fatalf("Parse error: %v", err)
+	}
+	stream := content.NewStream()
+	s.DrawWithOptions(stream, 0, 0, 200, 100, RenderOptions{
+		RegisterFont: func(family, weight, style string, size float64) string {
+			return "F1"
+		},
+		MeasureText: func(family, weight, style string, size float64, text string) float64 {
+			return 30.0 // mock: "Hello" is 30pt wide
+		},
+	})
+	out := string(stream.Bytes())
+	// With text-anchor=middle and width=30, x should be 100-15=85
+	if !strings.Contains(out, "BT") {
+		t.Error("expected text rendering output")
+	}
+	// The Td should show adjusted x (85, not 100).
+	if !strings.Contains(out, "85 50 Td") {
+		t.Errorf("text-anchor=middle should offset x to 85, got:\n%s", out)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// <tspan> tests
+// ---------------------------------------------------------------------------
+
+func TestTspanRendering(t *testing.T) {
+	svgXML := `<svg viewBox="0 0 200 100">
+		<text x="10" y="50" font-size="12">
+			<tspan>Hello </tspan>
+			<tspan font-weight="bold">World</tspan>
+		</text>
+	</svg>`
+	s, err := Parse(svgXML)
+	if err != nil {
+		t.Fatalf("Parse error: %v", err)
+	}
+	stream := content.NewStream()
+	s.DrawWithOptions(stream, 0, 0, 200, 100, RenderOptions{
+		RegisterFont: func(family, weight, style string, size float64) string {
+			return "F1"
+		},
+		MeasureText: func(family, weight, style string, size float64, text string) float64 {
+			return float64(len(text)) * 6.0
+		},
+	})
+	out := string(stream.Bytes())
+	// Should have two separate Tj calls for each tspan.
+	if strings.Count(out, "Tj") < 2 {
+		t.Errorf("expected at least 2 Tj operators for tspan children, got %d", strings.Count(out, "Tj"))
+	}
+}
+
+func TestTspanAbsolutePosition(t *testing.T) {
+	svgXML := `<svg viewBox="0 0 200 100">
+		<text x="10" y="50" font-size="12">
+			<tspan>First</tspan>
+			<tspan x="100" y="80">Moved</tspan>
+		</text>
+	</svg>`
+	s, err := Parse(svgXML)
+	if err != nil {
+		t.Fatalf("Parse error: %v", err)
+	}
+	stream := content.NewStream()
+	s.DrawWithOptions(stream, 0, 0, 200, 100, RenderOptions{
+		RegisterFont: func(family, weight, style string, size float64) string {
+			return "F1"
+		},
+		MeasureText: func(family, weight, style string, size float64, text string) float64 {
+			return float64(len(text)) * 6.0
+		},
+	})
+	out := string(stream.Bytes())
+	if strings.Count(out, "Td") < 2 {
+		t.Errorf("expected at least 2 Td operators for repositioned tspan, got %d", strings.Count(out, "Td"))
+	}
+}
+
+// ---------------------------------------------------------------------------
+// <defs> and <use> tests
+// ---------------------------------------------------------------------------
+
+func TestDefsNotRendered(t *testing.T) {
+	svgXML := `<svg viewBox="0 0 100 100">
+		<defs>
+			<rect id="myRect" width="50" height="30" fill="red"/>
+		</defs>
+	</svg>`
+	s, err := Parse(svgXML)
+	if err != nil {
+		t.Fatalf("Parse error: %v", err)
+	}
+	stream := content.NewStream()
+	s.Draw(stream, 0, 0, 100, 100)
+	out := string(stream.Bytes())
+	// The rect inside defs should NOT be rendered.
+	if strings.Contains(out, "re") {
+		t.Error("defs children should not be rendered directly")
+	}
+}
+
+func TestDefsIndexed(t *testing.T) {
+	svgXML := `<svg viewBox="0 0 100 100">
+		<defs>
+			<rect id="myRect" width="50" height="30" fill="red"/>
+			<circle id="myCircle" cx="25" cy="25" r="10"/>
+		</defs>
+	</svg>`
+	s, err := Parse(svgXML)
+	if err != nil {
+		t.Fatalf("Parse error: %v", err)
+	}
+	defs := s.Defs()
+	if defs["myRect"] == nil {
+		t.Error("expected myRect in defs")
+	}
+	if defs["myCircle"] == nil {
+		t.Error("expected myCircle in defs")
+	}
+}
+
+func TestUseRendersReferencedElement(t *testing.T) {
+	svgXML := `<svg viewBox="0 0 200 100">
+		<defs>
+			<rect id="box" width="50" height="30" fill="blue"/>
+		</defs>
+		<use href="#box" x="10" y="20"/>
+		<use href="#box" x="80" y="20"/>
+	</svg>`
+	s, err := Parse(svgXML)
+	if err != nil {
+		t.Fatalf("Parse error: %v", err)
+	}
+	stream := content.NewStream()
+	s.Draw(stream, 0, 0, 200, 100)
+	out := string(stream.Bytes())
+	// Should render the rect twice (two re operators).
+	if strings.Count(out, "re\n") < 2 {
+		t.Errorf("expected 2 rect renders from <use>, got %d", strings.Count(out, "re\n"))
+	}
+}
+
+func TestUseXlinkHref(t *testing.T) {
+	svgXML := `<svg viewBox="0 0 100 100">
+		<defs>
+			<circle id="dot" cx="0" cy="0" r="5" fill="red"/>
+		</defs>
+		<use xlink:href="#dot" x="50" y="50"/>
+	</svg>`
+	s, err := Parse(svgXML)
+	if err != nil {
+		t.Fatalf("Parse error: %v", err)
+	}
+	stream := content.NewStream()
+	s.Draw(stream, 0, 0, 100, 100)
+	out := string(stream.Bytes())
+	// Should render the circle (cubic Bezier approximation).
+	if !strings.Contains(out, "c") {
+		t.Error("expected circle rendering from <use xlink:href>")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// <linearGradient> tests
+// ---------------------------------------------------------------------------
+
+func TestLinearGradientFallback(t *testing.T) {
+	svgXML := `<svg viewBox="0 0 200 100">
+		<defs>
+			<linearGradient id="grad1">
+				<stop offset="0%" stop-color="#ff0000"/>
+				<stop offset="100%" stop-color="#0000ff"/>
+			</linearGradient>
+		</defs>
+		<rect width="200" height="100" fill="url(#grad1)"/>
+	</svg>`
+	s, err := Parse(svgXML)
+	if err != nil {
+		t.Fatalf("Parse error: %v", err)
+	}
+	stream := content.NewStream()
+	s.Draw(stream, 0, 0, 200, 100)
+	out := string(stream.Bytes())
+	// Should render the rect with the first stop color (red).
+	if !strings.Contains(out, "re") {
+		t.Error("expected rect rendering")
+	}
+	// Should have a fill color set (1 0 0 rg = red).
+	if !strings.Contains(out, "1 0 0 rg") {
+		t.Errorf("expected red fill from gradient first stop, got:\n%s", out)
+	}
+}
+
+func TestURLRefParsing(t *testing.T) {
+	tests := []struct {
+		input string
+		want  string
+	}{
+		{"url(#grad1)", "grad1"},
+		{"url('#grad1')", "grad1"},
+		{`url("#grad1")`, "grad1"},
+		{"url( #grad1 )", "grad1"},
+		{"red", ""},
+		{"none", ""},
+		{"", ""},
+	}
+	for _, tt := range tests {
+		got := parseURLRef(tt.input)
+		if got != tt.want {
+			t.Errorf("parseURLRef(%q) = %q, want %q", tt.input, got, tt.want)
+		}
+	}
+}
+
+func TestGradientStroke(t *testing.T) {
+	svgXML := `<svg viewBox="0 0 100 100">
+		<defs>
+			<linearGradient id="sg">
+				<stop offset="0" stop-color="green"/>
+			</linearGradient>
+		</defs>
+		<line x1="0" y1="50" x2="100" y2="50" stroke="url(#sg)" stroke-width="2"/>
+	</svg>`
+	s, err := Parse(svgXML)
+	if err != nil {
+		t.Fatalf("Parse error: %v", err)
+	}
+	stream := content.NewStream()
+	s.Draw(stream, 0, 0, 100, 100)
+	out := string(stream.Bytes())
+	// Should render the line with green stroke.
+	if !strings.Contains(out, "RG") {
+		t.Error("expected stroke color from gradient")
+	}
+}

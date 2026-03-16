@@ -21,12 +21,17 @@ type computedStyle struct {
 	LetterSpacing  float64 // extra space between characters (points)
 	WordSpacing    float64 // extra space between words (points)
 	TextIndent     float64 // first-line indent (points)
+	WordBreak      string  // "normal", "break-all"
+	Hyphens        string  // "none", "manual", "auto"
 
 	// Box model
-	MarginTop    float64
-	MarginRight  float64
-	MarginBottom float64
-	MarginLeft   float64
+	MarginTopAuto   bool // true if margin-top: auto (for flex layout)
+	MarginLeftAuto  bool // true if margin-left: auto (for centering)
+	MarginRightAuto bool // true if margin-right: auto (for centering)
+	MarginTop       float64
+	MarginRight     float64
+	MarginBottom    float64
+	MarginLeft      float64
 
 	PaddingTop    float64
 	PaddingRight  float64
@@ -79,6 +84,7 @@ type computedStyle struct {
 	FlexGrow       float64
 	FlexShrink     float64
 	FlexBasis      *cssLength
+	AlignSelf      string // "auto", "flex-start", "flex-end", "center", "stretch"
 	Gap            float64
 
 	// Grid
@@ -289,6 +295,8 @@ func (s *computedStyle) inherit() computedStyle {
 		FlexShrink:     1,
 		ListStyleType:  s.ListStyleType,
 		Visibility:     s.Visibility,
+		WordBreak:      s.WordBreak,
+		Hyphens:        s.Hyphens,
 	}
 }
 

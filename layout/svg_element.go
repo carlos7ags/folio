@@ -124,6 +124,10 @@ func (se *SVGElement) PlanLayout(area LayoutArea) LayoutPlan {
 						f := resolveSVGFont(family, weight, style)
 						return registerFontStandard(ctx.Page, f)
 					},
+					MeasureText: func(family, weight, style string, size float64, text string) float64 {
+						f := resolveSVGFont(family, weight, style)
+						return f.MeasureString(text, size)
+					},
 				}
 				capturedSVG.DrawWithOptions(ctx.Stream, absX, absTopY-capturedH, capturedW, capturedH, opts)
 			},

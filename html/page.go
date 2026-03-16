@@ -21,11 +21,32 @@ var pageSizes = map[string][2]float64{
 }
 
 // parsePageConfig extracts page dimensions and margins from @page rules.
+// Supports pseudo-selectors: @page :first, @page :left, @page :right.
 func parsePageConfig(rules []pageRule, defaultFontSize float64) *PageConfig {
 	pc := &PageConfig{}
 	hasAny := false
 
 	for _, rule := range rules {
+		// Determine which margin target to apply to based on selector.
+		var target *PageMargins
+		switch rule.selector {
+		case "first":
+			if pc.First == nil {
+				pc.First = &PageMargins{}
+			}
+			target = pc.First
+		case "left":
+			if pc.Left == nil {
+				pc.Left = &PageMargins{}
+			}
+			target = pc.Left
+		case "right":
+			if pc.Right == nil {
+				pc.Right = &PageMargins{}
+			}
+			target = pc.Right
+		}
+
 		for _, d := range rule.declarations {
 			prop := strings.TrimSpace(strings.ToLower(d.property))
 			val := strings.TrimSpace(d.value)
@@ -36,23 +57,76 @@ func parsePageConfig(rules []pageRule, defaultFontSize float64) *PageConfig {
 				hasAny = true
 			case "margin":
 				t, r, b, l := parseMarginShorthand(val, defaultFontSize)
-				pc.MarginTop = t
-				pc.MarginRight = r
-				pc.MarginBottom = b
-				pc.MarginLeft = l
+				if target != nil {
+					target.Top, target.Right, target.Bottom, target.Left = t, r, b, l
+					target.HasMargins = true
+				} else {
+					pc.MarginTop, pc.MarginRight, pc.MarginBottom, pc.MarginLeft = t, r, b, l
+					pc.HasMargins = true
+				}
 				hasAny = true
 			case "margin-top":
-				pc.MarginTop = parseSingleLength(val, defaultFontSize)
+				v := parseSingleLength(val, defaultFontSize)
+				if target != nil {
+					target.Top = v
+					target.HasMargins = true
+				} else {
+					pc.MarginTop = v
+					pc.HasMargins = true
+				}
 				hasAny = true
 			case "margin-right":
-				pc.MarginRight = parseSingleLength(val, defaultFontSize)
+				v := parseSingleLength(val, defaultFontSize)
+				if target != nil {
+					target.Right = v
+					target.HasMargins = true
+				} else {
+					pc.MarginRight = v
+					pc.HasMargins = true
+				}
 				hasAny = true
 			case "margin-bottom":
-				pc.MarginBottom = parseSingleLength(val, defaultFontSize)
+				v := parseSingleLength(val, defaultFontSize)
+				if target != nil {
+					target.Bottom = v
+					target.HasMargins = true
+				} else {
+					pc.MarginBottom = v
+					pc.HasMargins = true
+				}
 				hasAny = true
 			case "margin-left":
-				pc.MarginLeft = parseSingleLength(val, defaultFontSize)
+				v := parseSingleLength(val, defaultFontSize)
+				if target != nil {
+					target.Left = v
+					target.HasMargins = true
+				} else {
+					pc.MarginLeft = v
+					pc.HasMargins = true
+				}
 				hasAny = true
+			}
+		}
+
+		// Extract margin box content.
+		if len(rule.marginBoxes) > 0 {
+			hasAny = true
+			for boxName, boxDecls := range rule.marginBoxes {
+				mbc := parseMarginBoxDecls(boxDecls, defaultFontSize)
+				if mbc.Content == "" {
+					continue
+				}
+				if target != nil {
+					if target.MarginBoxes == nil {
+						target.MarginBoxes = make(map[string]MarginBoxContent)
+					}
+					target.MarginBoxes[boxName] = mbc
+				} else {
+					if pc.MarginBoxes == nil {
+						pc.MarginBoxes = make(map[string]MarginBoxContent)
+					}
+					pc.MarginBoxes[boxName] = mbc
+				}
 			}
 		}
 	}
@@ -61,6 +135,76 @@ func parsePageConfig(rules []pageRule, defaultFontSize float64) *PageConfig {
 		return nil
 	}
 	return pc
+}
+
+// parseMarginBoxDecls extracts content, font-size, and color from margin box declarations.
+func parseMarginBoxDecls(decls []cssDecl, defaultFontSize float64) MarginBoxContent {
+	var mbc MarginBoxContent
+	for _, d := range decls {
+		prop := strings.TrimSpace(strings.ToLower(d.property))
+		val := strings.TrimSpace(d.value)
+		switch prop {
+		case "content":
+			mbc.Content = parseContentValue(val)
+		case "font-size":
+			if l := parseCSSLengthWithUnit(val); l != nil {
+				mbc.FontSize = l.toPoints(0, defaultFontSize)
+			}
+		case "color":
+			if c, ok := parseColor(val); ok {
+				mbc.Color = [3]float64{c.R, c.G, c.B}
+			}
+		}
+	}
+	return mbc
+}
+
+// parseContentValue parses a CSS content value, supporting:
+//   - quoted strings: "Page "
+//   - counter(page), counter(pages)
+//   - concatenation of the above
+func parseContentValue(val string) string {
+	val = strings.TrimSpace(val)
+	if val == "none" || val == "normal" || val == "" {
+		return ""
+	}
+
+	var result strings.Builder
+	remaining := val
+	for len(remaining) > 0 {
+		remaining = strings.TrimSpace(remaining)
+		if len(remaining) == 0 {
+			break
+		}
+		// Quoted string.
+		if remaining[0] == '"' || remaining[0] == '\'' {
+			quote := remaining[0]
+			end := strings.IndexByte(remaining[1:], quote)
+			if end >= 0 {
+				result.WriteString(remaining[1 : end+1])
+				remaining = remaining[end+2:]
+				continue
+			}
+		}
+		// counter() function — stored as placeholder, resolved at render time.
+		if strings.HasPrefix(remaining, "counter(") {
+			closeIdx := strings.IndexByte(remaining, ')')
+			if closeIdx >= 0 {
+				fnCall := remaining[:closeIdx+1]
+				result.WriteString("{" + fnCall + "}")
+				remaining = remaining[closeIdx+1:]
+				continue
+			}
+		}
+		// Skip unknown tokens.
+		spIdx := strings.IndexByte(remaining, ' ')
+		if spIdx >= 0 {
+			remaining = remaining[spIdx+1:]
+		} else {
+			break
+		}
+	}
+	return result.String()
 }
 
 // parsePageSize parses the CSS @page size property.
@@ -96,12 +240,17 @@ func parsePageSize(val string, pc *PageConfig) {
 	}
 
 	// Explicit dimensions: "8.5in 11in" or "210mm 297mm"
+	// Special case: height of "0" means auto-height (size page to content).
 	if len(parts) >= 2 {
 		w := parseCSSLength(parts[0])
 		h := parseCSSLength(parts[1])
-		if w > 0 && h > 0 {
+		explicitZeroH := parts[1] == "0"
+		if w > 0 && (h > 0 || explicitZeroH) {
 			pc.Width = w
 			pc.Height = h
+			if explicitZeroH {
+				pc.AutoHeight = true
+			}
 			if pc.Landscape {
 				pc.Width, pc.Height = pc.Height, pc.Width
 			}
@@ -179,7 +328,7 @@ func parseFloat(s string) float64 {
 	s = strings.TrimSpace(s)
 	var v float64
 	for i, ch := range s {
-		if ch == '.' {
+		if ch == '.' || (i == 0 && ch == '-') {
 			continue
 		}
 		if ch < '0' || ch > '9' {

@@ -304,6 +304,43 @@ func (f *sfntFace) NumGlyphs() int {
 	return f.font.NumGlyphs()
 }
 
+// BuildGIDToUnicode parses a TrueType/OpenType font and builds a map
+// from glyph ID to Unicode code point by scanning the font's cmap table.
+// This is used as a fallback for CIDFont text extraction when no
+// ToUnicode CMap is provided.
+//
+// The approach scans the Unicode BMP range (U+0000 to U+FFFF) and queries
+// the font for each rune's glyph index, then builds the reverse mapping.
+// First rune wins if multiple runes map to the same GID.
+// Returns nil if parsing fails.
+func BuildGIDToUnicode(fontData []byte) map[uint16]rune {
+	f, err := sfnt.Parse(fontData)
+	if err != nil {
+		return nil
+	}
+
+	var buf sfnt.Buffer
+	gidMap := make(map[uint16]rune)
+
+	// Scan the full Unicode BMP (U+0000 to U+FFFF).
+	for r := rune(0); r <= 0xFFFF; r++ {
+		gid, err := f.GlyphIndex(&buf, r)
+		if err != nil || gid == 0 {
+			continue
+		}
+		g := uint16(gid)
+		// First rune wins — don't overwrite if already mapped.
+		if _, exists := gidMap[g]; !exists {
+			gidMap[g] = r
+		}
+	}
+
+	if len(gidMap) == 0 {
+		return nil
+	}
+	return gidMap
+}
+
 // fix26_6ToInt converts a fixed.Int26_6 to a rounded integer.
 func fix26_6ToInt(v fixed.Int26_6) int {
 	return int((v + 32) >> 6)

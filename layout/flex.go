@@ -45,12 +45,27 @@ const (
 
 // FlexItem wraps a child element with flex-specific properties.
 type FlexItem struct {
-	element   Element
-	grow      float64     // flex-grow (default 0)
-	shrink    float64     // flex-shrink (default 1)
-	basis     float64     // flex-basis in points; 0 means auto
-	alignSelf *AlignItems // per-item override (nil = use container)
+	element        Element
+	grow           float64     // flex-grow (default 0)
+	shrink         float64     // flex-shrink (default 1)
+	basis          float64     // flex-basis in points; 0 means auto
+	basisUnit      *UnitValue  // lazy-resolved flex-basis (overrides basis when set)
+	alignSelf      *AlignItems // per-item override (nil = use container)
+	marginTopAuto  bool        // if true, absorb remaining space before this item (flex column)
+	marginLeftAuto bool        // if true, absorb remaining space before this item (flex row)
+	marginTop      float64     // vertical margin (can be negative to pull item up)
+	marginBottom   float64     // vertical margin below item
+	marginLeft     float64     // horizontal margin (negative = extend left beyond parent)
+	marginRight    float64     // horizontal margin (negative = extend right beyond parent)
 }
+
+// SetMarginTopAuto marks this flex item to absorb remaining vertical space
+// before it (CSS margin-top: auto in flex column layout).
+func (fi *FlexItem) SetMarginTopAuto() *FlexItem { fi.marginTopAuto = true; return fi }
+
+// SetMarginLeftAuto marks this flex item to absorb remaining horizontal space
+// before it (CSS margin-left: auto in flex row layout — pushes item to right).
+func (fi *FlexItem) SetMarginLeftAuto() *FlexItem { fi.marginLeftAuto = true; return fi }
 
 // NewFlexItem creates a FlexItem wrapping an element.
 func NewFlexItem(elem Element) *FlexItem {
@@ -66,24 +81,38 @@ func (fi *FlexItem) SetShrink(v float64) *FlexItem { fi.shrink = v; return fi }
 // SetBasis sets the flex-basis in points. 0 means auto (use intrinsic size).
 func (fi *FlexItem) SetBasis(v float64) *FlexItem { fi.basis = v; return fi }
 
+// SetBasisUnit sets the flex-basis as a UnitValue, resolved lazily at layout time.
+func (fi *FlexItem) SetBasisUnit(u UnitValue) *FlexItem { fi.basisUnit = &u; return fi }
+
 // SetAlignSelf overrides the container's align-items for this item.
 func (fi *FlexItem) SetAlignSelf(a AlignItems) *FlexItem { fi.alignSelf = &a; return fi }
+
+// SetMargins sets the margins on a flex item. Negative values extend beyond the parent.
+func (fi *FlexItem) SetMargins(top, right, bottom, left float64) *FlexItem {
+	fi.marginTop = top
+	fi.marginRight = right
+	fi.marginBottom = bottom
+	fi.marginLeft = left
+	return fi
+}
 
 // Flex is a container that lays out children using flexbox semantics.
 // It implements Element and Measurable.
 type Flex struct {
-	items       []*FlexItem
-	direction   FlexDirection
-	justify     JustifyContent
-	alignItems  AlignItems
-	wrap        FlexWrap
-	rowGap      float64
-	columnGap   float64
-	padding     Padding
-	borders     CellBorders
-	background  *Color
-	spaceBefore float64
-	spaceAfter  float64
+	items                []*FlexItem
+	direction            FlexDirection
+	justify              JustifyContent
+	alignItems           AlignItems
+	wrap                 FlexWrap
+	rowGap               float64
+	columnGap            float64
+	padding              Padding
+	borders              CellBorders
+	background           *Color
+	spaceBefore          float64
+	heightUnit           *UnitValue // forced height for cross-axis stretch
+	spaceAfter           float64
+	hasDefiniteCrossSize bool // true when parent constrains cross-axis (e.g. wrapper Div has explicit height)
 }
 
 // NewFlex creates an empty flex container.
@@ -139,11 +168,36 @@ func (f *Flex) SetBorder(b Border) *Flex { f.borders = AllBorders(b); return f }
 // SetBackground sets the background fill color.
 func (f *Flex) SetBackground(c Color) *Flex { f.background = &c; return f }
 
+// ClearBackground removes the background color.
+func (f *Flex) ClearBackground() *Flex { f.background = nil; return f }
+
+// SetDefiniteCrossSize marks that the Flex operates within a parent that
+// constrains its cross-axis (e.g. a wrapper Div with explicit height).
+// This enables cross-axis stretching even when the Flex itself has no heightUnit.
+func (f *Flex) SetDefiniteCrossSize(v bool) *Flex { f.hasDefiniteCrossSize = v; return f }
+
 // SetSpaceBefore sets extra vertical space before the container.
 func (f *Flex) SetSpaceBefore(pts float64) *Flex { f.spaceBefore = pts; return f }
 
 // SetSpaceAfter sets extra vertical space after the container.
 func (f *Flex) SetSpaceAfter(pts float64) *Flex { f.spaceAfter = pts; return f }
+
+// ForceHeight implements HeightSettable. Forces height for cross-axis stretch.
+func (f *Flex) ForceHeight(u UnitValue) { f.heightUnit = &u }
+
+// ClearHeightUnit removes the forced height.
+func (f *Flex) ClearHeightUnit() {
+	f.heightUnit = nil
+}
+
+// HasExplicitHeight returns true if the Flex has an explicit CSS height set.
+func (f *Flex) HasExplicitHeight() bool { return f.heightUnit != nil }
+
+// GetSpaceBefore returns the extra vertical space before the Flex container.
+func (f *Flex) GetSpaceBefore() float64 { return f.spaceBefore }
+
+// GetSpaceAfter returns the extra vertical space after the Flex container.
+func (f *Flex) GetSpaceAfter() float64 { return f.spaceAfter }
 
 // Layout implements Element.
 func (f *Flex) Layout(maxWidth float64) []Line {
@@ -260,11 +314,29 @@ func (f *Flex) planRow(area LayoutArea) LayoutPlan {
 		innerHeight = 0
 	}
 
+	// If the flex container has an explicit height, use it to constrain
+	// children so that percentage heights resolve against the container,
+	// not the remaining page height.
+	if f.heightUnit != nil {
+		resolvedH := f.heightUnit.Resolve(area.Height)
+		innerHeight = resolvedH - f.padding.Top - f.padding.Bottom
+		if innerHeight < 0 {
+			innerHeight = 0
+		}
+	}
+
 	// Step 1: Measure intrinsic widths for flex-basis resolution.
 	basisWidths := f.resolveRowBasis(innerWidth)
 
 	// Step 2: Partition into flex lines.
 	lines := f.partitionRowLines(basisWidths, innerWidth)
+
+	// Determine definite cross-size (when container has explicit height or
+	// is constrained by a parent wrapper with explicit height).
+	definiteCrossSize := 0.0
+	if f.heightUnit != nil || f.hasDefiniteCrossSize {
+		definiteCrossSize = innerHeight
+	}
 
 	// Step 3-7: Lay out each line.
 	var allChildren []PlacedBlock
@@ -279,27 +351,91 @@ func (f *Flex) planRow(area LayoutArea) LayoutPlan {
 		resolvedWidths := f.resolveGrowShrink(line, innerWidth)
 		line.resolvedSizes = resolvedWidths
 
-		// Lay out each item to determine height.
+		remainingCross := innerHeight - (curY - f.padding.Top)
+
+		// First pass: lay out each item to determine content height.
 		itemPlans := make([]LayoutPlan, len(line.items))
 		lineHeight := 0.0
 		for j, item := range line.items {
-			plan := item.element.PlanLayout(LayoutArea{Width: resolvedWidths[j], Height: innerHeight - (curY - f.padding.Top)})
+			plan := item.element.PlanLayout(LayoutArea{Width: resolvedWidths[j], Height: remainingCross})
 			itemPlans[j] = plan
 			if plan.Consumed > lineHeight {
 				lineHeight = plan.Consumed
 			}
 		}
 
+		// Cross-axis stretch (W3C Flexbox §9.4):
+		// The line cross-size is the tallest item. With a definite container
+		// height (single-line), it may be the container's inner height instead.
+		// Items with align-items:stretch grow to fill the line cross-size,
+		// even without a definite container height (stretch to tallest sibling).
+		lineCrossSize := lineHeight
+		if definiteCrossSize > 0 && (f.wrap == FlexNoWrap || len(lines) == 1) {
+			if definiteCrossSize > lineCrossSize {
+				lineCrossSize = definiteCrossSize
+			}
+		}
+
+		// Second pass: re-layout stretch items to match line cross-size.
+		for j, item := range line.items {
+			if itemPlans[j].Consumed >= lineCrossSize-0.01 {
+				continue // already at or above line height
+			}
+			align := f.alignItems
+			if item.alignSelf != nil {
+				align = *item.alignSelf
+			}
+			if align != CrossAlignStretch {
+				continue
+			}
+			hs, ok := item.element.(HeightSettable)
+			if !ok || hs.HasExplicitHeight() {
+				continue
+			}
+			// Force the cross-size as an absolute height, re-layout,
+			// then clear so the element reverts to content-based sizing.
+			hs.ForceHeight(Pt(lineCrossSize))
+			itemPlans[j] = item.element.PlanLayout(LayoutArea{
+				Width:  resolvedWidths[j],
+				Height: lineCrossSize,
+			})
+			hs.ClearHeightUnit()
+		}
+
 		// Check if this line fits.
-		if curY-f.padding.Top+lineHeight > innerHeight && fittedLineCount > 0 {
+		if curY-f.padding.Top+lineCrossSize > innerHeight+0.01 && fittedLineCount > 0 {
 			allFit = false
 			break
 		}
 
 		// Position items with justify-content and align-items.
 		xOffsets := f.computeJustifyOffsets(resolvedWidths, innerWidth)
+
+		// margin-left: auto — absorb remaining space before this item,
+		// pushing it (and all subsequent items) to the right.
 		for j, item := range line.items {
-			yOffset := f.computeAlignOffset(item, lineHeight, itemPlans[j].Consumed)
+			if item.marginLeftAuto {
+				// Calculate used space up to this item.
+				usedBefore := xOffsets[j]
+				usedAfter := 0.0
+				for k := j; k < len(line.items); k++ {
+					usedAfter += resolvedWidths[k]
+					if k > j {
+						usedAfter += f.columnGap
+					}
+				}
+				autoSpace := innerWidth - usedBefore - usedAfter
+				if autoSpace > 0 {
+					for k := j; k < len(line.items); k++ {
+						xOffsets[k] += autoSpace
+					}
+				}
+				break // only one auto margin per line
+			}
+		}
+
+		for j, item := range line.items {
+			yOffset := f.computeAlignOffset(item, lineCrossSize, itemPlans[j].Consumed)
 			for _, block := range itemPlans[j].Blocks {
 				b := block
 				b.X += f.padding.Left + xOffsets[j]
@@ -308,11 +444,17 @@ func (f *Flex) planRow(area LayoutArea) LayoutPlan {
 			}
 		}
 
-		curY += lineHeight
+		curY += lineCrossSize
 		fittedLineCount++
 	}
 
 	totalH := curY + f.padding.Bottom
+
+	// Apply explicit height if set (CSS height property).
+	if f.heightUnit != nil {
+		totalH = f.heightUnit.Resolve(area.Height)
+	}
+
 	consumed := f.spaceBefore + totalH + f.spaceAfter
 
 	containerBlock := f.makeContainerBlock(allChildren, totalH, area.Width)
@@ -326,11 +468,20 @@ func (f *Flex) planRow(area LayoutArea) LayoutPlan {
 	return LayoutPlan{Status: LayoutPartial, Consumed: consumed, Blocks: []PlacedBlock{containerBlock}, Overflow: overflow}
 }
 
+// effectiveBasis returns the resolved flex-basis for an item.
+// Prefers basisUnit (lazy) over basis (absolute), falling back to 0 (auto).
+func (fi *FlexItem) effectiveBasis(available float64) float64 {
+	if fi.basisUnit != nil {
+		return fi.basisUnit.Resolve(available)
+	}
+	return fi.basis
+}
+
 func (f *Flex) resolveRowBasis(innerWidth float64) []float64 {
 	widths := make([]float64, len(f.items))
 	for i, item := range f.items {
-		if item.basis > 0 {
-			widths[i] = item.basis
+		if b := item.effectiveBasis(innerWidth); b > 0 {
+			widths[i] = b
 		} else if m, ok := item.element.(Measurable); ok {
 			widths[i] = m.MaxWidth()
 		} else {
@@ -375,8 +526,8 @@ func (f *Flex) resolveGrowShrink(line flexLine, innerWidth float64) []float64 {
 	// Compute basis for this line's items.
 	basis := make([]float64, n)
 	for i, item := range line.items {
-		if item.basis > 0 {
-			basis[i] = item.basis
+		if b := item.effectiveBasis(innerWidth); b > 0 {
+			basis[i] = b
 		} else if m, ok := item.element.(Measurable); ok {
 			basis[i] = m.MaxWidth()
 		} else {
@@ -541,11 +692,32 @@ func (f *Flex) planColumn(area LayoutArea) LayoutPlan {
 		innerHeight = 0
 	}
 
-	var fittedBlocks []PlacedBlock
+	// If the flex container has an explicit height, use it to constrain
+	// children so that percentage heights resolve against the container.
+	if f.heightUnit != nil {
+		resolvedH := f.heightUnit.Resolve(area.Height)
+		innerHeight = resolvedH - f.padding.Top - f.padding.Bottom
+		if innerHeight < 0 {
+			innerHeight = 0
+		}
+	}
+
+	// --- Phase 1: Layout all items at natural height (overflow detection). ---
+
+	type colItemResult struct {
+		plan      LayoutPlan
+		itemWidth float64
+		align     AlignItems
+	}
+	var results []colItemResult
 	curY := f.padding.Top
 	remaining := innerHeight
 	allFit := true
 	fittedCount := 0
+
+	// Track partial/overflow for early returns. We need positioned blocks
+	// only for overflow paths; the normal path rebuilds them in phase 3.
+	var earlyBlocks []PlacedBlock
 
 	for i, item := range f.items {
 		if i > 0 {
@@ -555,6 +727,30 @@ func (f *Flex) planColumn(area LayoutArea) LayoutPlan {
 			}
 			curY += f.rowGap
 			remaining -= f.rowGap
+		}
+
+		// Apply vertical margin-top (can be negative to pull item up).
+		if item.marginTop != 0 {
+			curY += item.marginTop
+			remaining -= item.marginTop
+		}
+
+		// margin-top: auto — absorb all remaining space before this item.
+		if item.marginTopAuto && remaining > 0 {
+			neededBelow := 0.0
+			for j := i; j < len(f.items); j++ {
+				if j > i {
+					neededBelow += f.rowGap
+				}
+				plan := f.items[j].element.PlanLayout(LayoutArea{Width: innerWidth, Height: 1e9})
+				neededBelow += plan.Consumed
+				neededBelow += f.items[j].marginBottom
+			}
+			autoSpace := remaining - neededBelow
+			if autoSpace > 0 {
+				curY += autoSpace
+				remaining -= autoSpace
+			}
 		}
 
 		// Resolve item width for cross-axis alignment.
@@ -572,69 +768,174 @@ func (f *Flex) planColumn(area LayoutArea) LayoutPlan {
 			}
 		}
 
+		// Negative horizontal margins widen the item beyond the parent
+		// (CSS: margin: 0 -14px expands element to cancel parent padding).
+		if item.marginLeft < 0 || item.marginRight < 0 {
+			itemWidth -= item.marginLeft + item.marginRight // subtracting negatives = adding
+		}
+
 		plan := item.element.PlanLayout(LayoutArea{Width: itemWidth, Height: remaining})
 
 		switch plan.Status {
 		case LayoutFull:
-			// Check if the child actually fits: elements may force at least
-			// one line even when it exceeds the remaining height.
-			if plan.Consumed > remaining && fittedCount > 0 {
+			// Use a small epsilon to avoid floating-point precision issues.
+			if plan.Consumed > remaining+0.01 && fittedCount > 0 {
 				allFit = false
-				return f.buildColumnResult(fittedBlocks, curY, area.Width, f.items[i:])
+				return f.buildColumnResult(earlyBlocks, curY, area.Width, f.items[i:])
 			}
-			xOffset := f.columnAlignOffset(align, innerWidth, itemWidth)
+			xOffset := f.columnAlignOffset(align, innerWidth, itemWidth) + item.marginLeft
 			for _, block := range plan.Blocks {
 				b := block
 				b.X += f.padding.Left + xOffset
 				b.Y += curY
-				fittedBlocks = append(fittedBlocks, b)
+				earlyBlocks = append(earlyBlocks, b)
 			}
-			curY += plan.Consumed
-			remaining -= plan.Consumed
+			results = append(results, colItemResult{plan, itemWidth, align})
+			consumed := plan.Consumed + item.marginBottom
+			curY += consumed
+			remaining -= consumed
 			fittedCount++
 
 		case LayoutPartial:
-			xOffset := f.columnAlignOffset(align, innerWidth, itemWidth)
+			xOffset := f.columnAlignOffset(align, innerWidth, itemWidth) + item.marginLeft
 			for _, block := range plan.Blocks {
 				b := block
 				b.X += f.padding.Left + xOffset
 				b.Y += curY
-				fittedBlocks = append(fittedBlocks, b)
+				earlyBlocks = append(earlyBlocks, b)
 			}
 			curY += plan.Consumed
-			// Build overflow: partial remainder + remaining items.
 			var overflowItems []*FlexItem
 			if plan.Overflow != nil {
 				overflowItems = append(overflowItems, &FlexItem{
-					element: plan.Overflow,
-					grow:    item.grow,
-					shrink:  item.shrink,
-					basis:   item.basis,
+					element:   plan.Overflow,
+					grow:      item.grow,
+					shrink:    item.shrink,
+					basis:     item.basis,
+					basisUnit: item.basisUnit,
 				})
 			}
 			overflowItems = append(overflowItems, f.items[i+1:]...)
 			allFit = false
-			fittedCount = i + 1
-			_ = overflowItems
-			return f.buildColumnResult(fittedBlocks, curY, area.Width, overflowItems)
+			return f.buildColumnResult(earlyBlocks, curY, area.Width, overflowItems)
 
 		case LayoutNothing:
 			if fittedCount == 0 {
 				return LayoutPlan{Status: LayoutNothing}
 			}
 			allFit = false
-			return f.buildColumnResult(fittedBlocks, curY, area.Width, f.items[i:])
+			return f.buildColumnResult(earlyBlocks, curY, area.Width, f.items[i:])
+		}
+	}
+
+	// --- Phase 2: Distribute remaining space to flex-grow items. ---
+
+	if allFit && remaining > 0.01 {
+		totalGrow := 0.0
+		for _, item := range f.items {
+			totalGrow += item.grow
+		}
+		if totalGrow > 0 {
+			for idx, item := range f.items {
+				if item.grow <= 0 || idx >= len(results) {
+					continue
+				}
+				extra := remaining * (item.grow / totalGrow)
+				newH := results[idx].plan.Consumed + extra
+				hs, ok := item.element.(HeightSettable)
+				if ok && !hs.HasExplicitHeight() {
+					hs.ForceHeight(Pt(newH))
+					results[idx].plan = item.element.PlanLayout(LayoutArea{
+						Width:  results[idx].itemWidth,
+						Height: newH,
+					})
+					hs.ClearHeightUnit()
+				}
+			}
+		}
+	}
+
+	// --- Phase 3: Position items (with justify-content and margin-top:auto). ---
+
+	type colItemRange struct {
+		startIdx int
+		endIdx   int
+		consumed float64
+		baseY    float64
+	}
+
+	var fittedBlocks []PlacedBlock
+	var itemRanges []colItemRange
+	curY = f.padding.Top
+
+	for i, r := range results {
+		item := f.items[i]
+		if i > 0 {
+			curY += f.rowGap
+		}
+
+		// Apply vertical margin-top (can be negative).
+		if item.marginTop != 0 {
+			curY += item.marginTop
+		}
+
+		// Recalculate margin-top:auto with final sizes.
+		if item.marginTopAuto {
+			neededBelow := 0.0
+			for j := i; j < len(results); j++ {
+				if j > i {
+					neededBelow += f.rowGap
+				}
+				neededBelow += results[j].plan.Consumed
+				neededBelow += f.items[j].marginBottom
+			}
+			autoSpace := innerHeight - (curY - f.padding.Top) - neededBelow
+			if autoSpace > 0 {
+				curY += autoSpace
+			}
+		}
+
+		startIdx := len(fittedBlocks)
+		xOffset := f.columnAlignOffset(r.align, innerWidth, r.itemWidth) + item.marginLeft
+		for _, block := range r.plan.Blocks {
+			b := block
+			b.X += f.padding.Left + xOffset
+			b.Y += curY
+			fittedBlocks = append(fittedBlocks, b)
+		}
+		consumed := r.plan.Consumed + item.marginBottom
+		itemRanges = append(itemRanges, colItemRange{startIdx, len(fittedBlocks), consumed, curY})
+		curY += consumed
+	}
+
+	// Apply justify-content for column direction.
+	if allFit && f.justify != JustifyFlexStart && len(itemRanges) > 0 {
+		heights := make([]float64, len(itemRanges))
+		for i, r := range itemRanges {
+			heights[i] = r.consumed
+		}
+		offsets := f.computeColumnJustifyOffsets(heights, innerHeight)
+		for i, r := range itemRanges {
+			yDelta := f.padding.Top + offsets[i] - r.baseY
+			for j := r.startIdx; j < r.endIdx; j++ {
+				fittedBlocks[j].Y += yDelta
+			}
 		}
 	}
 
 	totalH := curY + f.padding.Bottom
+
+	// Apply explicit height if set (CSS height property).
+	if f.heightUnit != nil {
+		totalH = f.heightUnit.Resolve(area.Height)
+	}
+
 	consumed := f.spaceBefore + totalH + f.spaceAfter
 	containerBlock := f.makeContainerBlock(fittedBlocks, totalH, area.Width)
 
 	if allFit {
 		return LayoutPlan{Status: LayoutFull, Consumed: consumed, Blocks: []PlacedBlock{containerBlock}}
 	}
-	// Should not reach here, but handle gracefully.
 	return LayoutPlan{Status: LayoutFull, Consumed: consumed, Blocks: []PlacedBlock{containerBlock}}
 }
 

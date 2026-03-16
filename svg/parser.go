@@ -17,6 +17,7 @@ type SVG struct {
 	width   float64 // from width attribute (0 if not set)
 	height  float64 // from height attribute (0 if not set)
 	viewBox ViewBox
+	defs    map[string]*Node // reusable elements indexed by id
 }
 
 // ViewBox defines the SVG coordinate system.
@@ -59,7 +60,13 @@ func ParseReader(r io.Reader) (*SVG, error) {
 
 	s := &SVG{root: svgRoot}
 	s.extractDimensions()
+	s.indexDefs()
 	return s, nil
+}
+
+// Defs returns the map of reusable elements indexed by id.
+func (s *SVG) Defs() map[string]*Node {
+	return s.defs
 }
 
 // Width returns the SVG width. If not specified, returns viewBox width.
@@ -136,12 +143,17 @@ func parseElement(dec *xml.Decoder) (*Node, error) {
 		switch t := tok.(type) {
 		case xml.StartElement:
 			node := &Node{
-				Tag:   localName(t.Name),
-				Attrs: make(map[string]string),
+				Tag:       localName(t.Name),
+				Attrs:     make(map[string]string),
+				Transform: Identity(),
 			}
 			for _, attr := range t.Attr {
 				key := localName(attr.Name)
 				node.Attrs[key] = attr.Value
+			}
+			// Parse transform attribute into the Transform matrix.
+			if tf, ok := node.Attrs["transform"]; ok {
+				node.Transform = ParseTransform(tf)
 			}
 
 			// Recursively parse children.
@@ -180,12 +192,16 @@ func parseChildren(dec *xml.Decoder, parent *Node) error {
 		switch t := tok.(type) {
 		case xml.StartElement:
 			child := &Node{
-				Tag:   localName(t.Name),
-				Attrs: make(map[string]string),
+				Tag:       localName(t.Name),
+				Attrs:     make(map[string]string),
+				Transform: Identity(),
 			}
 			for _, attr := range t.Attr {
 				key := localName(attr.Name)
 				child.Attrs[key] = attr.Value
+			}
+			if tf, ok := child.Attrs["transform"]; ok {
+				child.Transform = ParseTransform(tf)
 			}
 			if err := parseChildren(dec, child); err != nil {
 				return err
@@ -280,5 +296,28 @@ func parseViewBox(s string) ViewBox {
 		Width:  width,
 		Height: height,
 		Valid:  true,
+	}
+}
+
+// indexDefs walks the SVG tree and indexes all elements inside <defs> blocks
+// by their id attribute. Also indexes any element with an id outside <defs>
+// so that <use> can reference it.
+func (s *SVG) indexDefs() {
+	s.defs = make(map[string]*Node)
+	if s.root == nil {
+		return
+	}
+	for _, child := range s.root.Children {
+		if child.Tag == "defs" {
+			for _, defChild := range child.Children {
+				if id, ok := defChild.Attrs["id"]; ok && id != "" {
+					s.defs[id] = defChild
+				}
+			}
+		}
+		// Also index top-level elements with id (can be referenced by <use>).
+		if id, ok := child.Attrs["id"]; ok && id != "" && child.Tag != "defs" {
+			s.defs[id] = child
+		}
 	}
 }

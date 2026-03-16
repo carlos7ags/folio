@@ -13,23 +13,25 @@ import (
 
 // resolver fetches and caches PDF objects by their object number.
 type resolver struct {
-	data      []byte
-	xref      *xrefTable
-	cache     map[int]core.PdfObject
-	maxCache  int            // max cached objects (0 = unlimited)
-	order     []int          // insertion order for LRU eviction
-	mem       *memoryTracker // memory safety limits
-	resolving map[int]bool   // tracks objects currently being resolved (cycle detection)
+	data       []byte
+	xref       *xrefTable
+	cache      map[int]core.PdfObject
+	maxCache   int            // max cached objects (0 = unlimited)
+	order      []int          // insertion order for LRU eviction
+	mem        *memoryTracker // memory safety limits
+	resolving  map[int]bool   // tracks objects currently being resolved (cycle detection)
+	strictness Strictness     // controls error handling behavior
 }
 
-func newResolver(data []byte, xref *xrefTable, mem *memoryTracker) *resolver {
+func newResolver(data []byte, xref *xrefTable, mem *memoryTracker, strictness Strictness) *resolver {
 	return &resolver{
-		data:      data,
-		xref:      xref,
-		cache:     make(map[int]core.PdfObject),
-		maxCache:  10000, // default: cache up to 10K objects
-		mem:       mem,
-		resolving: make(map[int]bool),
+		data:       data,
+		xref:       xref,
+		cache:      make(map[int]core.PdfObject),
+		maxCache:   10000, // default: cache up to 10K objects
+		mem:        mem,
+		resolving:  make(map[int]bool),
+		strictness: strictness,
 	}
 }
 
@@ -163,6 +165,18 @@ func (r *resolver) resolveCompressed(objNum, objStreamNum, indexInStream int) (c
 	// The stream data starts with N pairs of (objNum offset) integers,
 	// followed by the actual object data starting at /First.
 	streamData := stream.Data
+
+	// Bound /N to prevent excessive allocation from a malicious PDF.
+	// Each entry in the header requires at least 2 tokens (objNum + offset),
+	// each needing at least 2 bytes (digit + separator). Cap at streamData/2.
+	maxEntries := len(streamData) / 2
+	if maxEntries < 1 {
+		maxEntries = 1
+	}
+	if nObj > maxEntries {
+		return nil, fmt.Errorf("reader: object stream %d: /N (%d) exceeds reasonable limit for stream size (%d bytes)", objStreamNum, nObj, len(streamData))
+	}
+
 	tok := NewTokenizer(streamData)
 
 	// Read the N pairs of (objNum, offset).
@@ -189,6 +203,9 @@ func (r *resolver) resolveCompressed(objNum, objStreamNum, indexInStream int) (c
 
 	// Parse the object at the given index.
 	objOffset := firstOffset + entries[indexInStream].offset
+	if objOffset < 0 || objOffset >= len(streamData) {
+		return nil, fmt.Errorf("reader: object stream %d: computed offset %d out of bounds (stream size %d)", objStreamNum, objOffset, len(streamData))
+	}
 	tok.SetPos(objOffset)
 	parser := NewParser(tok)
 	obj, err := parser.ParseObject()
@@ -259,24 +276,84 @@ func (r *resolver) resolveStream(stream *core.PdfStream, objOffset int64) (*core
 		tok.pos++
 	}
 
+	streamStart := tok.pos
+
 	if streamLen > 0 && tok.pos+streamLen <= tok.len {
-		rawData := make([]byte, streamLen)
-		copy(rawData, tok.data[tok.pos:tok.pos+streamLen])
-
-		// Decompress if needed.
-		data, err := decompressStreamLimited(rawData, stream.Dict, r.mem)
-		if err != nil {
-			return nil, fmt.Errorf("reader: decompress stream: %w", err)
+		// Verify that "endstream" follows at the expected position.
+		// If it doesn't and we're in tolerant mode, scan for it.
+		endPos := tok.pos + streamLen
+		endstreamFound := false
+		if endPos+9 <= tok.len {
+			// Skip optional whitespace/EOL between data and "endstream".
+			checkPos := endPos
+			for checkPos < tok.len && (tok.data[checkPos] == '\r' || tok.data[checkPos] == '\n' || tok.data[checkPos] == ' ') {
+				checkPos++
+			}
+			if checkPos+9 <= tok.len && string(tok.data[checkPos:checkPos+9]) == "endstream" {
+				endstreamFound = true
+			}
 		}
 
-		result := core.NewPdfStream(data)
-		for _, entry := range stream.Dict.Entries {
-			result.Dict.Set(entry.Key.Value, entry.Value)
+		if !endstreamFound && r.strictness != StrictnessStrict {
+			// /Length appears wrong. Scan forward for "endstream" to find the real length.
+			const maxScanDist = 10 * 1024 * 1024 // 10 MB
+			actual := scanForEndstream(tok.data, streamStart, maxScanDist)
+			if actual >= 0 {
+				streamLen = actual - streamStart
+				// Re-validate corrected length against memory limits.
+				if streamLen < 0 {
+					streamLen = 0
+				}
+				if maxRaw >= 0 && int64(streamLen) > maxRaw {
+					return nil, fmt.Errorf("%w: corrected stream /Length %d exceeds limit %d", ErrMemoryLimitExceeded, streamLen, maxRaw)
+				}
+			}
+			// If not found, keep the original /Length value.
 		}
-		return result, nil
+
+		if streamLen > 0 && tok.pos+streamLen <= tok.len {
+			rawData := make([]byte, streamLen)
+			copy(rawData, tok.data[tok.pos:tok.pos+streamLen])
+
+			// Decompress if needed.
+			data, err := decompressStreamLimited(rawData, stream.Dict, r.mem)
+			if err != nil {
+				return nil, fmt.Errorf("reader: decompress stream: %w", err)
+			}
+
+			result := core.NewPdfStream(data)
+			for _, entry := range stream.Dict.Entries {
+				result.Dict.Set(entry.Key.Value, entry.Value)
+			}
+			return result, nil
+		}
 	}
 
 	return stream, nil
+}
+
+// scanForEndstream searches for the "endstream" keyword starting from
+// position start in data, scanning up to maxScan bytes.
+// Returns the byte offset of "endstream" or -1 if not found.
+func scanForEndstream(data []byte, start, maxScan int) int {
+	end := start + maxScan
+	if end > len(data) {
+		end = len(data)
+	}
+	if start < 0 || start >= len(data) {
+		return -1
+	}
+	idx := bytes.Index(data[start:end], []byte("endstream"))
+	if idx < 0 {
+		return -1
+	}
+	pos := start + idx
+	// Strip trailing whitespace/EOL before "endstream" to get the actual data end.
+	dataEnd := pos
+	for dataEnd > start && (data[dataEnd-1] == '\r' || data[dataEnd-1] == '\n') {
+		dataEnd--
+	}
+	return dataEnd
 }
 
 // decompressStreamLimited decompresses stream data with memory tracking.

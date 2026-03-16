@@ -86,7 +86,15 @@ type Cell struct {
 	borders  CellBorders
 	colspan  int
 	rowspan  int
-	bgColor  *Color // background fill color (nil = transparent)
+	bgColor  *Color  // background fill color (nil = transparent)
+	hintW    float64 // CSS width hint in points (0 = not set)
+}
+
+// SetWidthHint sets the CSS width hint for this cell (in points).
+// Used by auto-sizing to influence column width allocation.
+func (c *Cell) SetWidthHint(pts float64) *Cell {
+	c.hintW = pts
+	return c
 }
 
 // SetAlign sets the horizontal text alignment within the cell.
@@ -238,6 +246,8 @@ type Table struct {
 	colUnitWidths  []UnitValue // unit-based column widths (overrides colWidths if set)
 	autoWidths     bool        // if true, compute column widths from cell content
 	borderCollapse bool        // if true, collapse adjacent cell borders
+	minWidth       float64     // minimum total table width (0 = no minimum)
+	minWidthUnit   *UnitValue  // lazy-resolved min-width (overrides minWidth when set)
 }
 
 // NewTable creates a new empty table.
@@ -260,6 +270,26 @@ func (t *Table) SetColumnWidths(widths []float64) *Table {
 // and the bottom border of each cell except the last row.
 func (t *Table) SetBorderCollapse(enabled bool) *Table {
 	t.borderCollapse = enabled
+	return t
+}
+
+// BorderCollapse reports whether border-collapse is enabled.
+func (t *Table) BorderCollapse() bool {
+	return t.borderCollapse
+}
+
+// SetMinWidth sets the minimum total table width in points.
+// When auto-sizing, if the content is narrower than this, columns are
+// expanded proportionally to fill the minimum width.
+func (t *Table) SetMinWidth(pts float64) *Table {
+	t.minWidth = pts
+	return t
+}
+
+// SetMinWidthUnit sets the minimum table width as a UnitValue, resolved
+// lazily at layout time. Use Pct(100) for width:100%.
+func (t *Table) SetMinWidthUnit(u UnitValue) *Table {
+	t.minWidthUnit = &u
 	return t
 }
 
@@ -450,6 +480,22 @@ func (t *Table) computeAutoWidths(nCols int, maxWidth float64) []float64 {
 
 	widths := make([]float64, nCols)
 
+	// Resolve table-level minWidth (prefer lazy UnitValue).
+	resolvedMinWidth := t.minWidth
+	if t.minWidthUnit != nil {
+		resolvedMinWidth = t.minWidthUnit.Resolve(maxWidth)
+	}
+
+	// Apply table-level minWidth: if content is narrower, expand proportionally.
+	if resolvedMinWidth > 0 && totalMax < resolvedMinWidth && resolvedMinWidth <= maxWidth {
+		// Scale columns proportionally so total = resolvedMinWidth.
+		scale := resolvedMinWidth / totalMax
+		for i := range nCols {
+			widths[i] = colMax[i] * scale
+		}
+		return widths
+	}
+
 	if totalMax <= maxWidth {
 		// Everything fits at max width — no wrapping.
 		copy(widths, colMax)
@@ -477,6 +523,11 @@ func (t *Table) computeAutoWidths(nCols int, maxWidth float64) []float64 {
 // accounting for padding.
 func cellIntrinsicWidths(cell *Cell) (minW, maxW float64) {
 	pad := cell.padLeft() + cell.padRight()
+
+	// CSS width hint on the cell overrides content measurement.
+	if cell.hintW > 0 {
+		return cell.hintW, cell.hintW
+	}
 
 	// Rich cell content.
 	if cell.content != nil {

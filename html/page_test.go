@@ -114,6 +114,44 @@ func TestPageSizeAndMargins(t *testing.T) {
 	}
 }
 
+func TestPageSizeAutoHeight(t *testing.T) {
+	// @page { size: 80mm 0; } should set width and AutoHeight=true.
+	result, err := ConvertFull(`<html><head><style>@page { size: 80mm 0; margin: 0; }</style></head><body><p>Receipt</p></body></html>`, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.PageConfig == nil {
+		t.Fatal("expected PageConfig from @page rule")
+	}
+	// 80mm ≈ 226.77pt
+	if math.Abs(result.PageConfig.Width-226.77) > 1 {
+		t.Errorf("width = %.2f, want ~226.77", result.PageConfig.Width)
+	}
+	if result.PageConfig.Height != 0 {
+		t.Errorf("height = %.2f, want 0 (auto-height)", result.PageConfig.Height)
+	}
+	if !result.PageConfig.AutoHeight {
+		t.Error("expected AutoHeight=true for size: 80mm 0")
+	}
+}
+
+func TestPageSizeAutoHeight210mm(t *testing.T) {
+	// @page { size: 210mm 0; } — flyer-style auto-height.
+	result, err := ConvertFull(`<html><head><style>@page { size: 210mm 0; margin: 0; }</style></head><body><h1>Hello</h1></body></html>`, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.PageConfig == nil {
+		t.Fatal("expected PageConfig")
+	}
+	if math.Abs(result.PageConfig.Width-595.28) > 1 {
+		t.Errorf("width = %.2f, want ~595.28", result.PageConfig.Width)
+	}
+	if !result.PageConfig.AutoHeight {
+		t.Error("expected AutoHeight=true")
+	}
+}
+
 func TestNoPageRule(t *testing.T) {
 	result, _ := ConvertFull(`<p>No page rule</p>`, nil)
 	if result.PageConfig != nil {

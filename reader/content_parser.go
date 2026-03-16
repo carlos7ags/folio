@@ -66,10 +66,28 @@ func skipInlineImage(tok *Tokenizer) {
 			break
 		}
 	}
-	// Skip one whitespace byte after ID.
-	tok.Skip(1)
-	// Scan for EI preceded by whitespace.
-	for !tok.AtEnd() {
+	// After "ID", the spec requires a single white-space byte before image
+	// data. However, some producers emit "\r\n" (two bytes). Consume up to
+	// two EOL bytes so we don't treat them as image data.
+	if !tok.AtEnd() {
+		b := tok.Data()[tok.Pos()]
+		if b == '\r' {
+			tok.Skip(1)
+			// Consume optional \n after \r.
+			if !tok.AtEnd() && tok.Data()[tok.Pos()] == '\n' {
+				tok.Skip(1)
+			}
+		} else {
+			// Single whitespace byte (space, \n, \t, etc.).
+			tok.Skip(1)
+		}
+	}
+
+	// Scan for "EI" preceded by whitespace. Limit the scan to prevent
+	// runaway searches through the rest of a large content stream.
+	const maxScan = 10 * 1024 * 1024 // 10 MB safety limit
+	scanned := 0
+	for !tok.AtEnd() && scanned < maxScan {
 		if tok.MatchKeyword("EI") {
 			// Check that the byte before is whitespace.
 			pos := tok.Pos()
@@ -82,6 +100,7 @@ func skipInlineImage(tok *Tokenizer) {
 			}
 		}
 		tok.Skip(1)
+		scanned++
 	}
 }
 
@@ -99,11 +118,9 @@ type textState struct {
 	currentFont *FontEntry
 	fontSize    float64 // from Tf operator
 
-	// Text matrix components — we track tx, ty (translation) for positioning.
-	// These are set by Tm and updated by Td/TD/T*.
-	tmX, tmY float64 // current text position
-	lineX    float64 // line start x (set by Tm, updated by T*/TD)
-	lineY    float64 // line start y
+	// Full 6-element text matrices for correct handling of rotated/scaled/skewed text.
+	textMatrix     [6]float64 // current text matrix (Tm)
+	textLineMatrix [6]float64 // line start matrix (set by Td/TD/Tm, used by T*)
 
 	// Leading for T* and ' operators.
 	leading float64
@@ -136,8 +153,8 @@ func ExtractTextWithFonts(data []byte, fonts FontCache) string {
 		switch op.Operator {
 		case "BT":
 			// Begin text object — reset text matrix.
-			ts.tmX, ts.tmY = 0, 0
-			ts.lineX, ts.lineY = 0, 0
+			ts.textMatrix = identityMatrix
+			ts.textLineMatrix = identityMatrix
 			ts.inBT = true
 			ts.btHadText = false
 
@@ -169,12 +186,14 @@ func ExtractTextWithFonts(data []byte, fonts FontCache) string {
 
 		case "Tm":
 			// Set text matrix: a b c d e f Tm
-			// e = x translation, f = y translation
 			if len(op.Operands) >= 6 {
-				ts.tmX = tokenFloat(op.Operands[4])
-				ts.tmY = tokenFloat(op.Operands[5])
-				ts.lineX = ts.tmX
-				ts.lineY = ts.tmY
+				m := [6]float64{
+					tokenFloat(op.Operands[0]), tokenFloat(op.Operands[1]),
+					tokenFloat(op.Operands[2]), tokenFloat(op.Operands[3]),
+					tokenFloat(op.Operands[4]), tokenFloat(op.Operands[5]),
+				}
+				ts.textMatrix = m
+				ts.textLineMatrix = m
 			}
 
 		case "Td":
@@ -182,10 +201,8 @@ func ExtractTextWithFonts(data []byte, fonts FontCache) string {
 			if len(op.Operands) >= 2 {
 				tx := tokenFloat(op.Operands[0])
 				ty := tokenFloat(op.Operands[1])
-				ts.tmX = ts.lineX + tx
-				ts.tmY = ts.lineY + ty
-				ts.lineX = ts.tmX
-				ts.lineY = ts.tmY
+				ts.textLineMatrix = multiplyMatrix([6]float64{1, 0, 0, 1, tx, ty}, ts.textLineMatrix)
+				ts.textMatrix = ts.textLineMatrix
 			}
 
 		case "TD":
@@ -194,52 +211,47 @@ func ExtractTextWithFonts(data []byte, fonts FontCache) string {
 				tx := tokenFloat(op.Operands[0])
 				ty := tokenFloat(op.Operands[1])
 				ts.leading = -ty
-				ts.tmX = ts.lineX + tx
-				ts.tmY = ts.lineY + ty
-				ts.lineX = ts.tmX
-				ts.lineY = ts.tmY
+				ts.textLineMatrix = multiplyMatrix([6]float64{1, 0, 0, 1, tx, ty}, ts.textLineMatrix)
+				ts.textMatrix = ts.textLineMatrix
 			}
 
 		case "T*":
 			// Move to start of next line (equivalent to 0 -leading Td).
-			ts.tmX = ts.lineX
-			ts.tmY = ts.lineY - ts.leading
-			ts.lineX = ts.tmX
-			ts.lineY = ts.tmY
+			ts.textLineMatrix = multiplyMatrix([6]float64{1, 0, 0, 1, 0, -ts.leading}, ts.textLineMatrix)
+			ts.textMatrix = ts.textLineMatrix
 
 		case "Tj":
 			// Check position change right before rendering text.
 			result = ts.emitPositionChange(result)
 			if len(op.Operands) > 0 {
+				raw := []byte(op.Operands[0].Value)
 				text := decodeTextOperand(op.Operands[0], ts.currentFont)
 				result = append(result, text...)
-				ts.advanceX(text)
+				ts.advanceX(raw)
 			}
 
 		case "'":
 			// Move to next line and show text.
-			ts.tmX = ts.lineX
-			ts.tmY = ts.lineY - ts.leading
-			ts.lineX = ts.tmX
-			ts.lineY = ts.tmY
+			ts.textLineMatrix = multiplyMatrix([6]float64{1, 0, 0, 1, 0, -ts.leading}, ts.textLineMatrix)
+			ts.textMatrix = ts.textLineMatrix
 			result = ts.emitPositionChange(result)
 			if len(op.Operands) > 0 {
+				raw := []byte(op.Operands[0].Value)
 				text := decodeTextOperand(op.Operands[0], ts.currentFont)
 				result = append(result, text...)
-				ts.advanceX(text)
+				ts.advanceX(raw)
 			}
 
 		case "\"":
 			// Set word/char spacing, move to next line, show text.
-			ts.tmX = ts.lineX
-			ts.tmY = ts.lineY - ts.leading
-			ts.lineX = ts.tmX
-			ts.lineY = ts.tmY
+			ts.textLineMatrix = multiplyMatrix([6]float64{1, 0, 0, 1, 0, -ts.leading}, ts.textLineMatrix)
+			ts.textMatrix = ts.textLineMatrix
 			result = ts.emitPositionChange(result)
 			if len(op.Operands) > 2 {
+				raw := []byte(op.Operands[2].Value)
 				text := decodeTextOperand(op.Operands[2], ts.currentFont)
 				result = append(result, text...)
-				ts.advanceX(text)
+				ts.advanceX(raw)
 			}
 
 		case "TJ":
@@ -248,13 +260,15 @@ func ExtractTextWithFonts(data []byte, fonts FontCache) string {
 			// Text array: mix of strings and kerning adjustments.
 			for _, operand := range op.Operands {
 				if operand.Type == TokenString || operand.Type == TokenHexString {
+					raw := []byte(operand.Value)
 					text := decodeTextOperand(operand, ts.currentFont)
 					result = append(result, text...)
-					ts.advanceX(text)
+					ts.advanceX(raw)
 				} else if operand.Type == TokenNumber {
 					// Negative = move right (kern tighter), positive = move left.
 					// Large negative values indicate word spaces.
 					adj := tokenFloat(operand)
+					ts.textMatrix[4] -= adj / 1000 * ts.fontSize
 					if adj < float64(tjKernThreshold) {
 						result = appendSpaceIfNeeded(result)
 					}
@@ -273,7 +287,7 @@ func (ts *textState) emitPositionChange(result []byte) []byte {
 		return result
 	}
 
-	dy := ts.tmY - ts.prevY
+	dy := ts.textMatrix[5] - ts.prevY
 	if dy < 0 {
 		dy = -dy
 	}
@@ -283,54 +297,74 @@ func (ts *textState) emitPositionChange(result []byte) []byte {
 		lineHeight = 12
 	}
 
-	// Significant Y change → line break.
+	// Significant Y change -> line break.
 	if dy > lineHeight*0.5 {
 		return appendNewlineIfNeeded(result)
 	}
 
-	// Same line gap detection. Two strategies:
-	//
-	// 1. Between BT/ET blocks (new BT, no text yet in this block):
-	//    If font encoding is available, spaces come from the text data itself
-	//    (CMap decoding or literal strings), so skip automatic space insertion.
-	//    If no font encoding (standard fonts, our own PDFs), insert a space
-	//    since the writer relies on positioning rather than space characters.
-	//
-	// 2. Within the same BT block: use estimated end position to detect gaps.
-	if !ts.btHadText {
-		// Between BT blocks: insert space only when no font encoding.
-		if ts.currentFont == nil {
-			return appendSpaceIfNeeded(result)
+	// Same line gap detection: check estimated text end vs current position.
+	// If the gap exceeds a threshold, insert a space.
+	// Use font-aware space width when available.
+	gap := ts.textMatrix[4] - ts.prevEndX
+	threshold := ts.fontSize * wordGapThreshold // default
+	if ts.currentFont != nil {
+		sw := ts.currentFont.SpaceWidth()
+		if sw > 0 {
+			threshold = float64(sw) / 1000.0 * ts.fontSize * 0.5
 		}
-		return result
 	}
-
-	// Within BT: check gap between estimated text end and current position.
-	gap := ts.tmX - ts.prevEndX
-	if gap > lineHeight*wordGapThreshold {
+	if gap > threshold {
 		return appendSpaceIfNeeded(result)
 	}
 
 	return result
 }
 
-// advanceX marks that text was output and estimates where the text ends.
-func (ts *textState) advanceX(text []byte) {
-	if len(text) > 0 {
-		ts.hadText = true
-		ts.btHadText = true
-		ts.prevY = ts.tmY
-		charCount := len([]rune(string(text)))
-		// Estimate end position using average character width.
-		// When font encoding is available (CMap/named encoding), use a generous
-		// estimate to avoid false word-gap detection within BT blocks.
-		// When no encoding, use a narrower estimate for between-BT gap detection.
-		widthFactor := 0.45
-		if ts.currentFont != nil {
-			widthFactor = 0.7
-		}
-		ts.prevEndX = ts.tmX + float64(charCount)*ts.fontSize*widthFactor
+// advanceX marks that text was output and computes the text end position
+// for gap-based word space detection.
+//
+// When the font has glyph width data (from /Widths in the PDF or from the
+// standard 14 font metrics), the width is computed exactly. Otherwise a
+// heuristic estimate is used (0.45 em per character).
+func (ts *textState) advanceX(rawBytes []byte) {
+	if len(rawBytes) == 0 {
+		return
 	}
+	ts.hadText = true
+	ts.btHadText = true
+	ts.prevY = ts.textMatrix[5]
+
+	textWidth := 0.0
+	if ts.currentFont != nil {
+		textWidth = ts.computeTextWidth(rawBytes)
+	} else {
+		// No font info at all — rough estimate.
+		charCount := len([]rune(string(rawBytes)))
+		textWidth = float64(charCount) * ts.fontSize * 0.45
+	}
+	ts.prevEndX = ts.textMatrix[4] + textWidth
+	// Advance the text matrix.
+	ts.textMatrix[4] += textWidth
+}
+
+// computeTextWidth calculates the exact width of raw character code bytes
+// using the current font's glyph width data.
+func (ts *textState) computeTextWidth(raw []byte) float64 {
+	fe := ts.currentFont
+	total := 0
+	if fe.isType0 {
+		// CIDFont: 2-byte character codes.
+		for i := 0; i+1 < len(raw); i += 2 {
+			code := int(raw[i])<<8 | int(raw[i+1])
+			total += fe.CharWidth(code)
+		}
+	} else {
+		// Simple font: 1-byte character codes.
+		for _, b := range raw {
+			total += fe.CharWidth(int(b))
+		}
+	}
+	return float64(total) / 1000.0 * ts.fontSize
 }
 
 // decodeTextOperand converts a string/hex-string token to Unicode text

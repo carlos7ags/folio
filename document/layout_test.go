@@ -552,6 +552,61 @@ func TestDocumentAbsolutePositioning(t *testing.T) {
 	}
 }
 
+func TestDocumentAutoHeight(t *testing.T) {
+	// Height=0 means auto-size page to content.
+	doc := NewDocument(PageSize{Width: 226, Height: 0})
+	doc.SetMargins(layout.Margins{Top: 20, Right: 20, Bottom: 20, Left: 20})
+
+	doc.Add(layout.NewParagraph("Receipt Item 1", font.Helvetica, 10))
+	doc.Add(layout.NewParagraph("Receipt Item 2", font.Helvetica, 10))
+	doc.Add(layout.NewParagraph("Receipt Item 3", font.Helvetica, 10))
+
+	var buf bytes.Buffer
+	if _, err := doc.WriteTo(&buf); err != nil {
+		t.Fatalf("WriteTo failed: %v", err)
+	}
+
+	pdf := buf.String()
+
+	// Should produce exactly 1 page — no page breaks.
+	if !strings.Contains(pdf, "/Count 1") {
+		t.Error("expected exactly 1 page for auto-height document")
+	}
+
+	// MediaBox height should NOT be 0 — it should be sized to content.
+	if strings.Contains(pdf, "/MediaBox [0 0 226 0]") {
+		t.Error("MediaBox height should not be 0 for auto-height page")
+	}
+
+	// The page height should be reasonable (3 lines at 10pt + margins).
+	// Just check it's > 0 and < 200 (3 lines shouldn't be tall).
+	runQpdfCheck(t, buf.Bytes())
+}
+
+func TestDocumentAutoHeightTable(t *testing.T) {
+	doc := NewDocument(PageSize{Width: 300, Height: 0})
+	doc.SetMargins(layout.Margins{Top: 10, Right: 10, Bottom: 10, Left: 10})
+
+	tbl := layout.NewTable()
+	tbl.SetColumnWidths([]float64{140, 140})
+	for range 5 {
+		r := tbl.AddRow()
+		r.AddCell("Item", font.Helvetica, 10)
+		r.AddCell("$9.99", font.Helvetica, 10).SetAlign(layout.AlignRight)
+	}
+	doc.Add(tbl)
+
+	var buf bytes.Buffer
+	if _, err := doc.WriteTo(&buf); err != nil {
+		t.Fatalf("WriteTo failed: %v", err)
+	}
+
+	if !strings.Contains(buf.String(), "/Count 1") {
+		t.Error("expected exactly 1 page for auto-height table")
+	}
+	runQpdfCheck(t, buf.Bytes())
+}
+
 func TestDocumentAbsoluteOnPageQPDF(t *testing.T) {
 	doc := NewDocument(PageSizeLetter)
 	for range 50 {

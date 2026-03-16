@@ -23,7 +23,9 @@ type fontFaceRule struct {
 
 // pageRule holds parsed @page declarations.
 type pageRule struct {
+	selector     string // "", "first", "left", "right"
 	declarations []cssDecl
+	marginBoxes  map[string][]cssDecl // e.g. "top-center" → declarations
 }
 
 // styleSheet holds parsed CSS rules from <style> blocks.
@@ -142,18 +144,17 @@ func (ss *styleSheet) parseCSS(css string) {
 	// since PDF is a print medium.
 	css = ss.extractMediaPrint(css)
 
-	// Split on closing braces to find rules.
+	// Split on closing braces to find rules, handling nested braces.
 	remaining := css
 	for {
 		openIdx := strings.IndexByte(remaining, '{')
 		if openIdx < 0 {
 			break
 		}
-		closeIdx := strings.IndexByte(remaining[openIdx:], '}')
+		closeIdx := findMatchingBrace(remaining, openIdx)
 		if closeIdx < 0 {
 			break
 		}
-		closeIdx += openIdx
 
 		selectorStr := strings.TrimSpace(remaining[:openIdx])
 		declStr := strings.TrimSpace(remaining[openIdx+1 : closeIdx])
@@ -184,10 +185,26 @@ func (ss *styleSheet) parseCSS(css string) {
 			}
 			continue
 		}
-		// Parse @page rules.
-		if selectorStr == "@page" || strings.HasPrefix(selectorStr, "@page ") {
-			decls := parseDeclarations(declStr)
-			ss.pageRules = append(ss.pageRules, pageRule{declarations: decls})
+		// Parse @page rules (with optional pseudo-selector like :first, :left, :right).
+		if selectorStr == "@page" || strings.HasPrefix(selectorStr, "@page ") || strings.HasPrefix(selectorStr, "@page:") {
+			sel := ""
+			rest := strings.TrimPrefix(selectorStr, "@page")
+			rest = strings.TrimSpace(rest)
+			if strings.HasPrefix(rest, ":") {
+				sel = strings.TrimPrefix(rest, ":")
+				sel = strings.TrimSpace(sel)
+			}
+
+			// Extract nested margin box rules (e.g. @top-center { ... }) from declStr.
+			marginBoxes := make(map[string][]cssDecl)
+			cleanedDecls := extractMarginBoxes(declStr, marginBoxes)
+
+			decls := parseDeclarations(cleanedDecls)
+			ss.pageRules = append(ss.pageRules, pageRule{
+				selector:     sel,
+				declarations: decls,
+				marginBoxes:  marginBoxes,
+			})
 			continue
 		}
 
@@ -263,6 +280,66 @@ func (ss *styleSheet) extractMediaPrint(css string) string {
 		// Other @media blocks are discarded.
 	}
 	return result.String()
+}
+
+// extractMarginBoxes extracts nested @-rules (margin boxes) from a @page declaration
+// string. Returns the remaining declarations with margin boxes removed.
+// Supported margin boxes: @top-left, @top-center, @top-right,
+// @bottom-left, @bottom-center, @bottom-right.
+func extractMarginBoxes(declStr string, boxes map[string][]cssDecl) string {
+	var clean strings.Builder
+	remaining := declStr
+	for {
+		atIdx := strings.IndexByte(remaining, '@')
+		if atIdx < 0 {
+			clean.WriteString(remaining)
+			break
+		}
+		// Write everything before the @
+		clean.WriteString(remaining[:atIdx])
+
+		// Find the name (e.g. "top-center")
+		rest := remaining[atIdx+1:]
+		openIdx := strings.IndexByte(rest, '{')
+		if openIdx < 0 {
+			clean.WriteString(remaining[atIdx:])
+			break
+		}
+		name := strings.TrimSpace(rest[:openIdx])
+
+		// Find matching close brace
+		fullStr := remaining[atIdx:]
+		braceStart := strings.IndexByte(fullStr, '{')
+		closeIdx := findMatchingBrace(fullStr, braceStart)
+		if closeIdx < 0 {
+			clean.WriteString(remaining[atIdx:])
+			break
+		}
+
+		boxDecls := strings.TrimSpace(fullStr[braceStart+1 : closeIdx])
+		boxes[name] = parseDeclarations(boxDecls)
+
+		remaining = remaining[atIdx+closeIdx+1:]
+	}
+	return clean.String()
+}
+
+// findMatchingBrace finds the closing '}' that matches the opening '{' at openIdx,
+// correctly handling nested braces.
+func findMatchingBrace(s string, openIdx int) int {
+	depth := 0
+	for i := openIdx; i < len(s); i++ {
+		switch s[i] {
+		case '{':
+			depth++
+		case '}':
+			depth--
+			if depth == 0 {
+				return i
+			}
+		}
+	}
+	return -1
 }
 
 // stripComments removes /* ... */ comments from CSS.
