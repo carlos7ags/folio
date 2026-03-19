@@ -81,6 +81,22 @@ type Div struct {
 	transforms       []TransformOp
 	transformOriginX float64 // in points, relative to element top-left
 	transformOriginY float64
+
+	// Overlay children: absolutely positioned elements within this
+	// containing block. They are laid out independently and placed at
+	// fixed offsets (overlayX, overlayY) from the Div's top-left,
+	// without affecting normal-flow layout.
+	overlays []overlayChild
+}
+
+// overlayChild is an absolutely positioned child element within a Div.
+type overlayChild struct {
+	elem         Element
+	x            float64 // offset from containing block left edge (CSS left)
+	y            float64 // offset from containing block top edge (CSS top)
+	width        float64 // layout width (0 = use containing block width)
+	rightAligned bool    // true when positioned with CSS right
+	zIndex       int     // z-index for ordering
 }
 
 // NewDiv creates an empty Div container.
@@ -96,6 +112,18 @@ func (d *Div) Children() []Element {
 // Add appends a child element to the Div.
 func (d *Div) Add(e Element) *Div {
 	d.elements = append(d.elements, e)
+	return d
+}
+
+// AddOverlay adds an absolutely positioned child element that will be
+// rendered at (x, y) relative to the Div's content area, without
+// participating in normal flow layout. This implements CSS position:absolute
+// within a containing block.
+func (d *Div) AddOverlay(elem Element, x, y, width float64, rightAligned bool, zIndex int) *Div {
+	d.overlays = append(d.overlays, overlayChild{
+		elem: elem, x: x, y: y, width: width,
+		rightAligned: rightAligned, zIndex: zIndex,
+	})
 	return d
 }
 
@@ -634,6 +662,30 @@ func (d *Div) PlanLayout(area LayoutArea) LayoutPlan {
 			}
 		},
 		Children: fittedBlocks,
+	}
+
+	// Lay out overlay children (position:absolute within this containing block).
+	// Overlays are positioned at fixed offsets and don't affect normal flow.
+	for _, ov := range d.overlays {
+		ovWidth := ov.width
+		if ovWidth <= 0 {
+			ovWidth = innerWidth
+		}
+		ovPlan := ov.elem.PlanLayout(LayoutArea{Width: ovWidth, Height: totalH})
+		for _, block := range ovPlan.Blocks {
+			if ov.rightAligned {
+				// CSS right: position from the right edge of the containing block.
+				elemWidth := block.Width
+				if elemWidth <= 0 {
+					elemWidth = ovWidth
+				}
+				block.X += effectiveWidth - ov.x - elemWidth
+			} else {
+				block.X += d.padding.Left + ov.x
+			}
+			block.Y += d.padding.Top + ov.y
+			containerBlock.Children = append(containerBlock.Children, block)
+		}
 	}
 
 	consumed := d.spaceBefore + totalH + d.spaceAfter

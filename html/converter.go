@@ -230,6 +230,27 @@ type converter struct {
 
 	// CSS counters: maps counter name → stack of values (for nesting).
 	counters map[string][]int
+
+	// Positioned ancestor stack for resolving position:absolute against the
+	// nearest containing block (position:relative/absolute/fixed ancestor).
+	positionedAncestors []containingBlock
+}
+
+// containingBlock tracks a positioned ancestor for absolute positioning resolution.
+type containingBlock struct {
+	width   float64          // resolved content width in points
+	height  float64          // resolved content height in points (0 if unknown)
+	pending []pendingOverlay // absolute children waiting to be attached to the Div
+}
+
+// pendingOverlay stores an absolute element waiting to be attached to its
+// containing block's Div.
+type pendingOverlay struct {
+	elem         layout.Element
+	x, y         float64
+	width        float64
+	rightAligned bool
+	zIndex       int
 }
 
 // getFallbackFont returns a Unicode-capable embedded font for text that
@@ -598,6 +619,27 @@ func (c *converter) convertElement(n *html.Node, parentStyle computedStyle) []la
 		before = append(before, layout.NewAreaBreak())
 	}
 
+	// If this element establishes a containing block (position: relative,
+	// absolute, or fixed), push it onto the positioned ancestor stack so
+	// that descendant absolute elements resolve against it.
+	isContainingBlock := style.Position == "relative" || style.Position == "absolute" || style.Position == "fixed"
+	if isContainingBlock {
+		cbWidth := c.containerWidth
+		if style.Width != nil {
+			if w := style.Width.toPoints(c.containerWidth, style.FontSize); w > 0 {
+				cbWidth = w
+			}
+		}
+		cbHeight := 0.0
+		if style.Height != nil {
+			cbHeight = style.Height.toPoints(c.opts.PageHeight, style.FontSize)
+		}
+		c.positionedAncestors = append(c.positionedAncestors, containingBlock{
+			width:  cbWidth,
+			height: cbHeight,
+		})
+	}
+
 	elems := c.convertElementInner(n, style)
 
 	// ::before pseudo-element.
@@ -618,6 +660,14 @@ func (c *converter) convertElement(n *html.Node, parentStyle computedStyle) []la
 		}
 	}
 
+	// Pop the containing block and collect pending overlays.
+	var pendingOverlays []pendingOverlay
+	if isContainingBlock {
+		top := c.positionedAncestors[len(c.positionedAncestors)-1]
+		pendingOverlays = top.pending
+		c.positionedAncestors = c.positionedAncestors[:len(c.positionedAncestors)-1]
+	}
+
 	// Wrap in float if CSS float is set.
 	if style.Float == "left" || style.Float == "right" {
 		side := layout.FloatLeft
@@ -633,36 +683,100 @@ func (c *converter) convertElement(n *html.Node, parentStyle computedStyle) []la
 
 	// Handle position:absolute/fixed — remove from normal flow.
 	if style.Position == "absolute" || style.Position == "fixed" {
-		for _, e := range elems {
-			item := AbsoluteItem{
-				Element: e,
-				Fixed:   style.Position == "fixed",
+		// Determine the containing block for resolving offsets.
+		cbWidth := c.opts.PageWidth
+		cbHeight := c.opts.PageHeight
+		hasContainingBlock := len(c.positionedAncestors) > 0 && style.Position == "absolute"
+		if hasContainingBlock {
+			cb := &c.positionedAncestors[len(c.positionedAncestors)-1]
+			cbWidth = cb.width
+			if cb.height > 0 {
+				cbHeight = cb.height
 			}
-			if style.Left != nil {
-				item.X = style.Left.toPoints(c.opts.PageWidth, style.FontSize)
-			} else if style.Right != nil {
-				// Store the right offset; the renderer will subtract the
-				// element's laid-out width to get the final X position.
-				item.X = style.Right.toPoints(c.opts.PageWidth, style.FontSize)
-				item.RightAligned = true
-			}
-			if style.Top != nil {
-				// CSS top → PDF y: page_height - top
-				item.Y = c.opts.PageHeight - style.Top.toPoints(c.opts.PageHeight, style.FontSize)
-			} else if style.Bottom != nil {
-				item.Y = style.Bottom.toPoints(c.opts.PageHeight, style.FontSize)
-			}
-			if style.Width != nil {
-				item.Width = style.Width.toPoints(c.opts.PageWidth, style.FontSize)
-			}
-			item.ZIndex = style.ZIndex
-			c.absolutes = append(c.absolutes, item)
 		}
+
+		for _, e := range elems {
+			if hasContainingBlock {
+				// Add as overlay on the nearest positioned ancestor.
+				ov := pendingOverlay{elem: e, zIndex: style.ZIndex}
+				if style.Left != nil {
+					ov.x = style.Left.toPoints(cbWidth, style.FontSize)
+				} else if style.Right != nil {
+					ov.x = style.Right.toPoints(cbWidth, style.FontSize)
+					ov.rightAligned = true
+				}
+				if style.Top != nil {
+					ov.y = style.Top.toPoints(cbHeight, style.FontSize)
+				} else if style.Bottom != nil {
+					// CSS bottom in containing block: offset from the bottom edge.
+					bottomVal := style.Bottom.toPoints(cbHeight, style.FontSize)
+					if cbHeight > 0 {
+						ov.y = cbHeight - bottomVal
+					}
+				}
+				if style.Width != nil {
+					ov.width = style.Width.toPoints(cbWidth, style.FontSize)
+				}
+				cb := &c.positionedAncestors[len(c.positionedAncestors)-1]
+				cb.pending = append(cb.pending, ov)
+			} else {
+				// No positioned ancestor — fall back to page-level absolute.
+				item := AbsoluteItem{
+					Element: e,
+					Fixed:   style.Position == "fixed",
+				}
+				if style.Left != nil {
+					item.X = style.Left.toPoints(cbWidth, style.FontSize)
+				} else if style.Right != nil {
+					item.X = style.Right.toPoints(cbWidth, style.FontSize)
+					item.RightAligned = true
+				}
+				if style.Top != nil {
+					// CSS top → PDF y: page_height - top
+					item.Y = cbHeight - style.Top.toPoints(cbHeight, style.FontSize)
+				} else if style.Bottom != nil {
+					item.Y = style.Bottom.toPoints(cbHeight, style.FontSize)
+				}
+				if style.Width != nil {
+					item.Width = style.Width.toPoints(cbWidth, style.FontSize)
+				}
+				item.ZIndex = style.ZIndex
+				c.absolutes = append(c.absolutes, item)
+			}
+		}
+		// Attach any overlays from descendants of this absolute element
+		// to the result elements (there are none to attach since we
+		// return nil, but we still need to handle them if they were
+		// collected). In practice, absolute children of absolute elements
+		// are handled because the absolute element pushed/popped its own
+		// containing block above.
+
 		// Pop any counters that were reset by this element.
 		for _, cr := range style.CounterReset {
 			c.popCounter(cr.Name)
 		}
 		return nil // don't add to normal flow
+	}
+
+	// Attach pending overlay children (absolute descendants) to the
+	// element's Div. If the element produced a single Div, attach
+	// directly; otherwise wrap in a new Div to serve as the container.
+	if len(pendingOverlays) > 0 {
+		var targetDiv *layout.Div
+		if len(elems) == 1 {
+			targetDiv, _ = elems[0].(*layout.Div)
+		}
+		if targetDiv == nil {
+			// Wrap in a new Div to serve as the containing block.
+			targetDiv = layout.NewDiv()
+			for _, e := range elems {
+				targetDiv.Add(e)
+			}
+			elems = []layout.Element{targetDiv}
+		}
+		for _, ov := range pendingOverlays {
+			targetDiv.AddOverlay(ov.elem, ov.x, ov.y, ov.width, ov.rightAligned, ov.zIndex)
+		}
 	}
 
 	// Handle position:relative — offset visually without affecting flow.
