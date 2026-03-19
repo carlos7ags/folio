@@ -151,7 +151,7 @@ func clamp01(v float64) float64 {
 	return v
 }
 
-// namedColors contains the 147 SVG/CSS named colors.
+// namedColors contains the 148 SVG/CSS named colors.
 var namedColors = map[string]Color{
 	"aliceblue":            {R: 0.9412, G: 0.9725, B: 1.0000, A: 1},
 	"antiquewhite":         {R: 0.9804, G: 0.9216, B: 0.8431, A: 1},

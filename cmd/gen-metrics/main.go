@@ -17,8 +17,8 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
-	"strings"
 	"strconv"
+	"strings"
 )
 
 // glyphToRune maps Adobe glyph names to Unicode code points.

@@ -107,6 +107,8 @@ func makeStandardEncoding() *Encoding {
 		0xA6: 0x0192, // florin
 		0xA7: 0x00A7, // section
 		0xA8: 0x00A4, // currency
+		0xA9: 0x0027, // quotesingle
+		0xAA: 0x201C, // quotedblleft
 		0xAB: 0x00AB, // guillemotleft
 		0xAC: 0x2039, // guilsinglleft
 		0xAD: 0x203A, // guilsinglright
@@ -116,6 +118,7 @@ func makeStandardEncoding() *Encoding {
 		0xB2: 0x2020, // dagger
 		0xB3: 0x2021, // daggerdbl
 		0xB4: 0x00B7, // periodcentered
+		0xB6: 0x00B6, // paragraph
 		0xB7: 0x2022, // bullet
 		0xB8: 0x201A, // quotesinglbase
 		0xB9: 0x201E, // quotedblbase
@@ -123,6 +126,7 @@ func makeStandardEncoding() *Encoding {
 		0xBB: 0x00BB, // guillemotright
 		0xBC: 0x2026, // ellipsis
 		0xBD: 0x2030, // perthousand
+		0xBF: 0x00BF, // questiondown
 		0xC1: 0x0060, // grave
 		0xC2: 0x00B4, // acute
 		0xC3: 0x02C6, // circumflex
@@ -225,6 +229,45 @@ var glyphNameToRune = map[string]rune{
 	"ordfeminine": 0x00AA, "ordmasculine": 0x00BA,
 	"onehalf": 0x00BD, "onequarter": 0x00BC, "threequarters": 0x00BE,
 	"onesuperior": 0x00B9, "twosuperior": 0x00B2, "threesuperior": 0x00B3,
+	// Greek uppercase
+	"Alpha": 0x0391, "Beta": 0x0392, "Gamma": 0x0393, "Delta": 0x0394,
+	"Epsilon": 0x0395, "Zeta": 0x0396, "Eta": 0x0397, "Theta": 0x0398,
+	"Iota": 0x0399, "Kappa": 0x039A, "Lambda": 0x039B, "Mu": 0x039C,
+	"Nu": 0x039D, "Xi": 0x039E, "Omicron": 0x039F, "Pi": 0x03A0,
+	"Rho": 0x03A1, "Sigma": 0x03A3, "Tau": 0x03A4, "Upsilon": 0x03A5,
+	"Phi": 0x03A6, "Chi": 0x03A7, "Psi": 0x03A8, "Omega": 0x03A9,
+	// Greek lowercase
+	"alpha": 0x03B1, "beta": 0x03B2, "gamma": 0x03B3, "delta": 0x03B4,
+	"epsilon": 0x03B5, "zeta": 0x03B6, "eta": 0x03B7, "theta": 0x03B8,
+	"iota": 0x03B9, "kappa": 0x03BA, "lambda": 0x03BB,
+	"nu": 0x03BD, "xi": 0x03BE, "omicron": 0x03BF, "pi": 0x03C0,
+	"rho": 0x03C1, "sigma": 0x03C3, "sigma1": 0x03C2, "tau": 0x03C4,
+	"upsilon": 0x03C5, "phi": 0x03C6, "chi": 0x03C7, "psi": 0x03C8, "omega": 0x03C9,
+	// Math symbols
+	"infinity": 0x221E, "partialdiff": 0x2202, "summation": 0x2211,
+	"product": 0x220F, "integral": 0x222B, "radical": 0x221A,
+	"approxequal": 0x2248, "notequal": 0x2260, "lessequal": 0x2264,
+	"greaterequal": 0x2265, "lozenge": 0x25CA,
+	// Additional ligatures
+	"ff": 0xFB00, "ffi": 0xFB03, "ffl": 0xFB04,
+	// Central/Eastern European
+	"Abreve": 0x0102, "abreve": 0x0103, "Aogonek": 0x0104, "aogonek": 0x0105,
+	"Cacute": 0x0106, "cacute": 0x0107, "Ccaron": 0x010C, "ccaron": 0x010D,
+	"Dcaron": 0x010E, "dcaron": 0x010F, "Dcroat": 0x0110, "dcroat": 0x0111,
+	"Eogonek": 0x0118, "eogonek": 0x0119, "Ecaron": 0x011A, "ecaron": 0x011B,
+	"Gbreve": 0x011E, "gbreve": 0x011F, "Idotaccent": 0x0130,
+	"Lacute": 0x0139, "lacute": 0x013A, "Lcaron": 0x013D, "lcaron": 0x013E,
+	"Nacute": 0x0143, "nacute": 0x0144, "Ncaron": 0x0147, "ncaron": 0x0148,
+	"Ohungarumlaut": 0x0150, "ohungarumlaut": 0x0151,
+	"Racute": 0x0154, "racute": 0x0155, "Rcaron": 0x0158, "rcaron": 0x0159,
+	"Sacute": 0x015A, "sacute": 0x015B, "Scedilla": 0x015E, "scedilla": 0x015F,
+	"Tcaron": 0x0164, "tcaron": 0x0165,
+	"Tcommaaccent": 0x0162, "tcommaaccent": 0x0163,
+	"Uhungarumlaut": 0x0170, "uhungarumlaut": 0x0171,
+	"Uring": 0x016E, "uring": 0x016F,
+	"Zacute": 0x0179, "zacute": 0x017A, "Zdotaccent": 0x017B, "zdotaccent": 0x017C,
+	// Miscellaneous
+	"nbspace": 0x00A0, "sfthyphen": 0x00AD,
 }
 
 // GlyphToRune converts an Adobe glyph name to a Unicode rune.

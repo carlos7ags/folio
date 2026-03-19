@@ -5,25 +5,44 @@ package barcode
 
 import "fmt"
 
+// ECCLevel represents the error correction level for QR codes.
+type ECCLevel int
+
+const (
+	ECCLevelL ECCLevel = iota // 7% recovery
+	ECCLevelM                 // 15% recovery
+	ECCLevelQ                 // 25% recovery
+	ECCLevelH                 // 30% recovery
+)
+
 // QR generates a QR Code barcode from a string.
 // Uses byte mode encoding with error correction level M (15% recovery).
-// Automatically selects the smallest version (1-10) that fits the data.
+// Automatically selects the smallest version (1-20) that fits the data.
 func QR(data string) (*Barcode, error) {
+	return QRWithECC(data, ECCLevelM)
+}
+
+// QRWithECC generates a QR Code barcode with the specified error correction level.
+// Automatically selects the smallest version (1-20) that fits the data.
+func QRWithECC(data string, level ECCLevel) (*Barcode, error) {
 	if len(data) == 0 {
 		return nil, fmt.Errorf("barcode: empty data")
+	}
+	if level < ECCLevelL || level > ECCLevelH {
+		return nil, fmt.Errorf("barcode: invalid ECC level %d", level)
 	}
 
 	// Find the smallest version that fits.
 	version := 0
-	for v := 1; v <= 10; v++ {
-		cap := qrByteCapacity[v]
+	for v := 1; v <= 20; v++ {
+		cap := qrByteCapacity[v][level]
 		if len(data) <= cap {
 			version = v
 			break
 		}
 	}
 	if version == 0 {
-		return nil, fmt.Errorf("barcode: data too long for QR version 1-10 (%d bytes, max %d)", len(data), qrByteCapacity[10])
+		return nil, fmt.Errorf("barcode: data too long for QR version 1-20 (%d bytes, max %d at level %d)", len(data), qrByteCapacity[20][level], level)
 	}
 
 	size := 17 + version*4
@@ -73,44 +92,236 @@ func QR(data string) (*Barcode, error) {
 		reserved[size-1-i][8] = true
 	}
 
-	// Reserve version info areas (version 7+, not needed for 1-10).
-
-	// Encode data.
-	bits := encodeQRData(data, version)
-
-	// Place data bits.
-	placeData(modules, reserved, bits, size)
-
-	// Apply mask pattern 0 (checkerboard: (row+col) % 2 == 0).
-	for r := range size {
-		for c := range size {
-			if !reserved[r][c] && (r+c)%2 == 0 {
-				modules[r][c] = !modules[r][c]
+	// Reserve version info areas (version 7+).
+	if version >= 7 {
+		for i := range 6 {
+			for j := range 3 {
+				reserved[size-11+j][i] = true // bottom-left
+				reserved[i][size-11+j] = true // top-right
 			}
 		}
 	}
 
-	// Place format info (error correction M, mask 0).
-	placeFormatInfo(modules, reserved, size, version)
+	// Encode data.
+	bits := encodeQRData(data, version, level)
 
-	return &Barcode{modules: modules, width: size, height: size}, nil
+	// Place data bits.
+	placeData(modules, reserved, bits, size)
+
+	// Evaluate all 8 mask patterns and pick the best one.
+	bestMask, bestModules := evaluateMasks(modules, reserved, size)
+
+	// Place format info.
+	placeFormatInfo(bestModules, size, level, bestMask)
+
+	// Place version info (version 7+).
+	if version >= 7 {
+		placeVersionInfo(bestModules, size, version)
+	}
+
+	return &Barcode{modules: bestModules, width: size, height: size}, nil
 }
 
-// qrByteCapacity is the maximum byte-mode data capacity for versions 1-10
-// at error correction level M.
-var qrByteCapacity = [11]int{
-	0,   // version 0 unused
-	14,  // version 1
-	26,  // version 2
-	42,  // version 3
-	62,  // version 4
-	84,  // version 5
-	106, // version 6
-	122, // version 7
-	152, // version 8
-	180, // version 9
-	213, // version 10
+// --- Byte capacity table: [21][4]int, index 0 unused, columns L/M/Q/H ---
+
+var qrByteCapacity = [21][4]int{
+	{0, 0, 0, 0},         // version 0 unused
+	{17, 14, 11, 7},      // version 1
+	{32, 26, 20, 14},     // version 2
+	{53, 42, 32, 24},     // version 3
+	{78, 62, 46, 34},     // version 4
+	{106, 84, 60, 44},    // version 5
+	{134, 106, 74, 58},   // version 6
+	{154, 122, 86, 64},   // version 7
+	{192, 152, 108, 84},  // version 8
+	{230, 180, 130, 98},  // version 9
+	{271, 213, 151, 119}, // version 10
+	{321, 251, 177, 137}, // version 11
+	{367, 287, 203, 155}, // version 12
+	{425, 331, 241, 177}, // version 13
+	{458, 362, 258, 194}, // version 14
+	{520, 412, 292, 220}, // version 15
+	{586, 450, 322, 250}, // version 16
+	{644, 504, 364, 280}, // version 17
+	{718, 560, 394, 310}, // version 18
+	{792, 624, 442, 338}, // version 19
+	{858, 666, 482, 382}, // version 20
 }
+
+// --- Data codewords table: [21][4]int, columns L/M/Q/H ---
+
+var qrDataCodewords = [21][4]int{
+	{0, 0, 0, 0},         // version 0 unused
+	{19, 16, 13, 9},      // version 1
+	{34, 28, 22, 16},     // version 2
+	{55, 44, 34, 26},     // version 3
+	{80, 64, 48, 36},     // version 4
+	{108, 86, 62, 46},    // version 5
+	{136, 108, 76, 60},   // version 6
+	{156, 124, 88, 66},   // version 7
+	{194, 154, 110, 86},  // version 8
+	{232, 182, 132, 100}, // version 9
+	{274, 216, 154, 122}, // version 10
+	{324, 254, 180, 140}, // version 11
+	{370, 290, 206, 158}, // version 12
+	{428, 334, 244, 180}, // version 13
+	{461, 365, 261, 197}, // version 14
+	{523, 415, 295, 223}, // version 15
+	{589, 453, 325, 253}, // version 16
+	{647, 507, 367, 283}, // version 17
+	{721, 563, 397, 313}, // version 18
+	{795, 627, 445, 341}, // version 19
+	{861, 669, 485, 385}, // version 20
+}
+
+// --- ECC codewords per block: [21][4]int, columns L/M/Q/H ---
+
+var qrECCPerBlock = [21][4]int{
+	{0, 0, 0, 0},     // version 0 unused
+	{7, 10, 13, 17},  // version 1
+	{10, 16, 22, 28}, // version 2
+	{15, 26, 18, 22}, // version 3
+	{20, 18, 26, 16}, // version 4
+	{26, 24, 18, 22}, // version 5
+	{18, 16, 24, 28}, // version 6
+	{20, 18, 18, 26}, // version 7
+	{24, 22, 22, 26}, // version 8
+	{30, 22, 20, 24}, // version 9
+	{18, 26, 24, 28}, // version 10
+	{20, 30, 28, 24}, // version 11
+	{24, 22, 26, 28}, // version 12
+	{26, 22, 24, 22}, // version 13
+	{30, 24, 20, 24}, // version 14
+	{22, 24, 30, 24}, // version 15
+	{24, 28, 24, 30}, // version 16
+	{28, 28, 28, 28}, // version 17
+	{30, 26, 28, 28}, // version 18
+	{28, 26, 26, 26}, // version 19
+	{28, 26, 30, 28}, // version 20
+}
+
+// qrBlockInfo describes the block structure for a version/ECC combination.
+type qrBlockInfo struct {
+	group1Blocks int
+	group1DataCW int // data codewords per block in group 1
+	group2Blocks int
+	group2DataCW int // data codewords per block in group 2 (= group1DataCW + 1, or 0)
+}
+
+// qrBlockTable: [21][4]qrBlockInfo, columns L/M/Q/H.
+var qrBlockTable = [21][4]qrBlockInfo{
+	{}, // version 0 unused
+	// version 1
+	{{1, 19, 0, 0}, {1, 16, 0, 0}, {1, 13, 0, 0}, {1, 9, 0, 0}},
+	// version 2
+	{{1, 34, 0, 0}, {1, 28, 0, 0}, {1, 22, 0, 0}, {1, 16, 0, 0}},
+	// version 3
+	{{1, 55, 0, 0}, {1, 44, 0, 0}, {2, 17, 0, 0}, {2, 13, 0, 0}},
+	// version 4
+	{{1, 80, 0, 0}, {2, 32, 0, 0}, {2, 24, 0, 0}, {4, 9, 0, 0}},
+	// version 5
+	{{1, 108, 0, 0}, {2, 43, 0, 0}, {2, 15, 2, 16}, {2, 11, 2, 12}},
+	// version 6
+	{{2, 68, 0, 0}, {4, 27, 0, 0}, {4, 19, 0, 0}, {4, 15, 0, 0}},
+	// version 7
+	{{2, 78, 0, 0}, {4, 31, 0, 0}, {2, 14, 4, 15}, {4, 13, 1, 14}},
+	// version 8
+	{{2, 97, 0, 0}, {2, 38, 2, 39}, {4, 18, 2, 19}, {4, 14, 2, 15}},
+	// version 9
+	{{2, 116, 0, 0}, {3, 36, 2, 37}, {4, 16, 4, 17}, {4, 12, 4, 13}},
+	// version 10
+	{{2, 68, 2, 69}, {4, 43, 1, 44}, {6, 19, 2, 20}, {6, 15, 2, 16}},
+	// version 11
+	{{4, 81, 0, 0}, {1, 50, 4, 51}, {4, 22, 4, 23}, {3, 12, 8, 13}},
+	// version 12
+	{{2, 92, 2, 93}, {6, 36, 2, 37}, {4, 20, 6, 21}, {7, 14, 4, 15}},
+	// version 13
+	{{4, 107, 0, 0}, {8, 37, 1, 38}, {8, 20, 4, 21}, {12, 11, 4, 12}},
+	// version 14
+	{{3, 115, 1, 116}, {4, 40, 5, 41}, {11, 16, 5, 17}, {11, 12, 5, 13}},
+	// version 15
+	{{5, 87, 1, 88}, {5, 41, 5, 42}, {5, 24, 7, 25}, {11, 12, 7, 13}},
+	// version 16
+	{{5, 98, 1, 99}, {7, 45, 3, 46}, {15, 19, 2, 20}, {3, 15, 13, 16}},
+	// version 17
+	{{1, 107, 5, 108}, {10, 46, 1, 47}, {1, 22, 15, 23}, {2, 14, 17, 15}},
+	// version 18
+	{{5, 120, 1, 121}, {9, 43, 4, 44}, {17, 22, 1, 23}, {2, 14, 19, 15}},
+	// version 19
+	{{3, 113, 4, 114}, {3, 44, 11, 45}, {17, 21, 4, 22}, {9, 13, 16, 14}},
+	// version 20
+	{{3, 107, 5, 108}, {3, 41, 13, 42}, {15, 24, 5, 25}, {15, 15, 10, 16}},
+}
+
+// --- Alignment pattern positions for versions 1-20 ---
+
+var alignmentTable = [21][]int{
+	{},              // version 0
+	{},              // version 1 (no alignment)
+	{6, 18},         // version 2
+	{6, 22},         // version 3
+	{6, 26},         // version 4
+	{6, 30},         // version 5
+	{6, 34},         // version 6
+	{6, 22, 38},     // version 7
+	{6, 24, 42},     // version 8
+	{6, 26, 46},     // version 9
+	{6, 28, 50},     // version 10
+	{6, 30, 54},     // version 11
+	{6, 32, 58},     // version 12
+	{6, 34, 62},     // version 13
+	{6, 26, 46, 66}, // version 14
+	{6, 26, 48, 70}, // version 15
+	{6, 26, 50, 74}, // version 16
+	{6, 30, 54, 78}, // version 17
+	{6, 30, 56, 82}, // version 18
+	{6, 30, 58, 86}, // version 19
+	{6, 34, 62, 90}, // version 20
+}
+
+func alignmentPositions(version int) []int {
+	if version < 1 || version > 20 {
+		return nil
+	}
+	return alignmentTable[version]
+}
+
+// --- Format info lookup table: [4][8]uint16 — [eccLevel][maskPattern] ---
+// Pre-computed BCH(15,5) encoded with XOR mask 0x5412.
+
+var qrFormatInfo = [4][8]uint16{
+	// ECCLevelL
+	{0x77C4, 0x72F3, 0x7DAA, 0x789D, 0x662F, 0x6318, 0x6C41, 0x6976},
+	// ECCLevelM
+	{0x5412, 0x5125, 0x5E7C, 0x5B4B, 0x45F9, 0x40CE, 0x4F97, 0x4AA0},
+	// ECCLevelQ
+	{0x355F, 0x3068, 0x3F31, 0x3A06, 0x24B4, 0x2183, 0x2EDA, 0x2BED},
+	// ECCLevelH
+	{0x1689, 0x13BE, 0x1CE7, 0x19D0, 0x0762, 0x0255, 0x0D0C, 0x083B},
+}
+
+// --- Version info lookup table for versions 7-20 ---
+// BCH(18,6) encoded with generator polynomial 0x1F25.
+
+var qrVersionInfo = [21]uint32{
+	0, 0, 0, 0, 0, 0, 0, // versions 0-6: no version info
+	0x07C94, // version 7
+	0x085BC, // version 8
+	0x09A99, // version 9
+	0x0A4D3, // version 10
+	0x0BBF6, // version 11
+	0x0C762, // version 12
+	0x0D847, // version 13
+	0x0E60D, // version 14
+	0x0F928, // version 15
+	0x10B78, // version 16
+	0x1145D, // version 17
+	0x12A17, // version 18
+	0x13532, // version 19
+	0x149A6, // version 20
+}
+
+// --- Finder and alignment pattern placement ---
 
 // placeFinder places a 7x7 finder pattern at (row, col).
 func placeFinder(modules, reserved [][]bool, row, col int) {
@@ -151,30 +362,10 @@ func placeAlignment(modules, reserved [][]bool, row, col int) {
 	}
 }
 
-// alignmentPositions returns the alignment pattern center coordinates for a version.
-var alignmentTable = [11][]int{
-	{},          // version 0
-	{},          // version 1 (no alignment)
-	{6, 18},     // version 2
-	{6, 22},     // version 3
-	{6, 26},     // version 4
-	{6, 30},     // version 5
-	{6, 34},     // version 6
-	{6, 22, 38}, // version 7
-	{6, 24, 42}, // version 8
-	{6, 26, 46}, // version 9
-	{6, 28, 50}, // version 10
-}
+// --- Data encoding ---
 
-func alignmentPositions(version int) []int {
-	if version < 1 || version > 10 {
-		return nil
-	}
-	return alignmentTable[version]
-}
-
-// encodeQRData encodes data in byte mode with ECC level M.
-func encodeQRData(data string, version int) []bool {
+// encodeQRData encodes data in byte mode with the specified ECC level.
+func encodeQRData(data string, version int, level ECCLevel) []bool {
 	var bits []bool
 
 	// Mode indicator: byte mode = 0100.
@@ -197,7 +388,7 @@ func encodeQRData(data string, version int) []bool {
 	}
 
 	// Terminator (up to 4 zero bits).
-	totalBits := qrTotalDataBits(version)
+	totalBits := qrDataCodewords[version][level] * 8
 	for range 4 {
 		if len(bits) >= totalBits {
 			break
@@ -226,88 +417,87 @@ func encodeQRData(data string, version int) []bool {
 		bits = bits[:totalBits]
 	}
 
-	// Add error correction codewords.
-	bits = appendECC(bits, version)
+	// Add error correction codewords with multi-block interleaving.
+	bits = appendECCInterleaved(bits, version, level)
 
 	return bits
 }
 
-// qrTotalDataBits returns the total data bits (before ECC) for a version at ECC level M.
-var qrDataCodewords = [11]int{
-	0,   // version 0
-	16,  // version 1: 16 data codewords
-	28,  // version 2
-	44,  // version 3
-	64,  // version 4
-	86,  // version 5
-	108, // version 6
-	124, // version 7
-	154, // version 8
-	182, // version 9
-	216, // version 10
-}
-
-func qrTotalDataBits(version int) int {
-	if version < 1 || version > 10 {
-		return 0
-	}
-	return qrDataCodewords[version] * 8
-}
-
-// appendECC appends Reed-Solomon error correction codewords.
-// Simplified: generates ECC using GF(256) arithmetic.
-func appendECC(dataBits []bool, version int) []bool {
+// appendECCInterleaved splits data into blocks, generates per-block ECC,
+// and interleaves both data and ECC codewords per the QR spec.
+func appendECCInterleaved(dataBits []bool, version int, level ECCLevel) []bool {
 	// Convert bits to codewords (bytes).
-	codewords := make([]byte, len(dataBits)/8)
-	for i := range codewords {
+	dataBytes := make([]byte, len(dataBits)/8)
+	for i := range dataBytes {
 		var b byte
 		for j := range 8 {
 			if dataBits[i*8+j] {
 				b |= 1 << (7 - j)
 			}
 		}
-		codewords[i] = b
+		dataBytes[i] = b
 	}
 
-	// ECC codeword count per version (level M).
-	eccCount := qrECCCount(version)
+	bi := qrBlockTable[version][level]
+	eccPerBlock := qrECCPerBlock[version][level]
 
-	// Generate ECC using polynomial division in GF(256).
-	generator := rsGeneratorPoly(eccCount)
-	ecc := rsEncode(codewords, generator, eccCount)
+	// Build blocks.
+	totalBlocks := bi.group1Blocks + bi.group2Blocks
+	blocks := make([][]byte, totalBlocks)
+	offset := 0
 
-	// Append ECC bits.
-	result := make([]bool, len(dataBits))
-	copy(result, dataBits)
-	for _, b := range ecc {
+	for i := range bi.group1Blocks {
+		n := bi.group1DataCW
+		blocks[i] = make([]byte, n)
+		copy(blocks[i], dataBytes[offset:offset+n])
+		offset += n
+	}
+	for i := range bi.group2Blocks {
+		n := bi.group2DataCW
+		blocks[bi.group1Blocks+i] = make([]byte, n)
+		copy(blocks[bi.group1Blocks+i], dataBytes[offset:offset+n])
+		offset += n
+	}
+
+	// Generate ECC for each block.
+	generator := rsGeneratorPoly(eccPerBlock)
+	eccBlocks := make([][]byte, totalBlocks)
+	for i, block := range blocks {
+		eccBlocks[i] = rsEncode(block, generator, eccPerBlock)
+	}
+
+	// Interleave data codewords.
+	var interleaved []byte
+	maxDataCW := bi.group1DataCW
+	if bi.group2Blocks > 0 && bi.group2DataCW > maxDataCW {
+		maxDataCW = bi.group2DataCW
+	}
+	for j := range maxDataCW {
+		for i := range totalBlocks {
+			if j < len(blocks[i]) {
+				interleaved = append(interleaved, blocks[i][j])
+			}
+		}
+	}
+
+	// Interleave ECC codewords.
+	for j := range eccPerBlock {
+		for i := range totalBlocks {
+			if j < len(eccBlocks[i]) {
+				interleaved = append(interleaved, eccBlocks[i][j])
+			}
+		}
+	}
+
+	// Convert back to bits.
+	result := make([]bool, 0, len(interleaved)*8)
+	for _, b := range interleaved {
 		for i := 7; i >= 0; i-- {
 			result = append(result, (b>>i)&1 == 1)
 		}
 	}
 
 	return result
-}
-
-// qrECCCount returns the number of ECC codewords for a version at level M.
-var qrECCCounts = [11]int{
-	0,  // version 0
-	10, // version 1
-	16, // version 2
-	26, // version 3
-	18, // version 4 (2 blocks)
-	24, // version 5
-	16, // version 6 (4 blocks - simplified to single block)
-	18, // version 7
-	22, // version 8
-	22, // version 9
-	26, // version 10
-}
-
-func qrECCCount(version int) int {
-	if version < 1 || version > 10 {
-		return 0
-	}
-	return qrECCCounts[version]
 }
 
 // --- GF(256) arithmetic for Reed-Solomon ---
@@ -371,6 +561,8 @@ func rsEncode(data []byte, generator []byte, eccLen int) []byte {
 	return msg[len(data):]
 }
 
+// --- Data placement ---
+
 // placeData places data bits into the QR matrix in the zigzag pattern.
 func placeData(modules, reserved [][]bool, bits []bool, size int) {
 	bitIdx := 0
@@ -410,12 +602,218 @@ func placeData(modules, reserved [][]bool, bits []bool, size int) {
 	}
 }
 
+// --- Mask patterns ---
+
+// qrMaskFunc returns true if the module at (row, col) should be flipped for the given mask.
+func qrMaskFunc(mask int, row, col int) bool {
+	switch mask {
+	case 0:
+		return (row+col)%2 == 0
+	case 1:
+		return row%2 == 0
+	case 2:
+		return col%3 == 0
+	case 3:
+		return (row+col)%3 == 0
+	case 4:
+		return (row/2+col/3)%2 == 0
+	case 5:
+		return (row*col)%2+(row*col)%3 == 0
+	case 6:
+		return ((row*col)%2+(row*col)%3)%2 == 0
+	case 7:
+		return ((row*col)%3+(row+col)%2)%2 == 0
+	}
+	return false
+}
+
+// applyMask applies a mask pattern to a copy of the modules matrix.
+// Only non-reserved modules are flipped.
+func applyMask(modules, reserved [][]bool, size, mask int) [][]bool {
+	result := make([][]bool, size)
+	for r := range size {
+		result[r] = make([]bool, size)
+		copy(result[r], modules[r])
+		for c := range size {
+			if !reserved[r][c] && qrMaskFunc(mask, r, c) {
+				result[r][c] = !result[r][c]
+			}
+		}
+	}
+	return result
+}
+
+// evaluateMasks tries all 8 mask patterns, computes penalty scores, and returns
+// the best mask index and the masked modules matrix.
+func evaluateMasks(modules, reserved [][]bool, size int) (int, [][]bool) {
+	bestMask := 0
+	bestPenalty := int(^uint(0) >> 1) // max int
+	var bestModules [][]bool
+
+	for mask := range 8 {
+		masked := applyMask(modules, reserved, size, mask)
+		penalty := penaltyScore(masked, size)
+		if penalty < bestPenalty {
+			bestPenalty = penalty
+			bestMask = mask
+			bestModules = masked
+		}
+	}
+
+	return bestMask, bestModules
+}
+
+// --- Penalty scoring (ISO 18004 §7.8.3) ---
+
+func penaltyScore(modules [][]bool, size int) int {
+	return penaltyRule1(modules, size) +
+		penaltyRule2(modules, size) +
+		penaltyRule3(modules, size) +
+		penaltyRule4(modules, size)
+}
+
+// Rule 1: Adjacent modules in row/column in same color.
+// For each run of 5+ same-colored modules: penalty = 3 + (run - 5).
+func penaltyRule1(modules [][]bool, size int) int {
+	penalty := 0
+
+	// Horizontal runs.
+	for r := range size {
+		count := 1
+		for c := 1; c < size; c++ {
+			if modules[r][c] == modules[r][c-1] {
+				count++
+			} else {
+				if count >= 5 {
+					penalty += 3 + (count - 5)
+				}
+				count = 1
+			}
+		}
+		if count >= 5 {
+			penalty += 3 + (count - 5)
+		}
+	}
+
+	// Vertical runs.
+	for c := range size {
+		count := 1
+		for r := 1; r < size; r++ {
+			if modules[r][c] == modules[r-1][c] {
+				count++
+			} else {
+				if count >= 5 {
+					penalty += 3 + (count - 5)
+				}
+				count = 1
+			}
+		}
+		if count >= 5 {
+			penalty += 3 + (count - 5)
+		}
+	}
+
+	return penalty
+}
+
+// Rule 2: 2x2 blocks of same color. Penalty = 3 * count.
+func penaltyRule2(modules [][]bool, size int) int {
+	count := 0
+	for r := range size - 1 {
+		for c := range size - 1 {
+			v := modules[r][c]
+			if modules[r][c+1] == v && modules[r+1][c] == v && modules[r+1][c+1] == v {
+				count++
+			}
+		}
+	}
+	return 3 * count
+}
+
+// Rule 3: Finder-like patterns (1:1:3:1:1 with 4-module light on one side).
+// Penalty = 40 * count.
+func penaltyRule3(modules [][]bool, size int) int {
+	count := 0
+	// Pattern: dark, light, dark dark dark, light, dark, light light light light
+	// or the reverse.
+	p1 := [11]bool{true, false, true, true, true, false, true, false, false, false, false}
+	p2 := [11]bool{false, false, false, false, true, false, true, true, true, false, true}
+
+	for r := range size {
+		for c := 0; c <= size-11; c++ {
+			match1 := true
+			match2 := true
+			for k := range 11 {
+				if modules[r][c+k] != p1[k] {
+					match1 = false
+				}
+				if modules[r][c+k] != p2[k] {
+					match2 = false
+				}
+				if !match1 && !match2 {
+					break
+				}
+			}
+			if match1 || match2 {
+				count++
+			}
+		}
+	}
+
+	for c := range size {
+		for r := 0; r <= size-11; r++ {
+			match1 := true
+			match2 := true
+			for k := range 11 {
+				if modules[r+k][c] != p1[k] {
+					match1 = false
+				}
+				if modules[r+k][c] != p2[k] {
+					match2 = false
+				}
+				if !match1 && !match2 {
+					break
+				}
+			}
+			if match1 || match2 {
+				count++
+			}
+		}
+	}
+
+	return 40 * count
+}
+
+// Rule 4: Color balance. Penalty = 10 * k where k = floor(|50 - percentDark| / 5) * 2.
+func penaltyRule4(modules [][]bool, size int) int {
+	dark := 0
+	total := size * size
+	for r := range size {
+		for c := range size {
+			if modules[r][c] {
+				dark++
+			}
+		}
+	}
+	percent := dark * 100 / total
+	diff := percent - 50
+	if diff < 0 {
+		diff = -diff
+	}
+	k := (diff / 5) * 2
+	return 10 * k
+}
+
+// --- Format and version info placement ---
+
 // placeFormatInfo places the 15-bit format information string.
-func placeFormatInfo(modules, reserved [][]bool, size, _ int) {
-	// Format info for ECC level M (01), mask pattern 0 (000) = 0b01000.
-	// After BCH encoding: 101010000010010.
-	formatBits := [15]bool{
-		true, false, true, false, true, false, false, false, false, false, true, false, false, true, false,
+func placeFormatInfo(modules [][]bool, size int, level ECCLevel, mask int) {
+	info := qrFormatInfo[level][mask]
+
+	// Convert to 15-bit array (MSB first).
+	var formatBits [15]bool
+	for i := range 15 {
+		formatBits[i] = (info>>(14-i))&1 == 1
 	}
 
 	// Place around top-left finder.
@@ -433,5 +831,24 @@ func placeFormatInfo(modules, reserved [][]bool, size, _ int) {
 	}
 	for i := range 8 {
 		modules[8][size-8+i] = formatBits[7+i]
+	}
+}
+
+// placeVersionInfo places the 18-bit version information for versions 7+.
+// Two copies: bottom-left (6x3 block) and top-right (3x6 block).
+func placeVersionInfo(modules [][]bool, size, version int) {
+	if version < 7 {
+		return
+	}
+	info := qrVersionInfo[version]
+
+	for i := range 18 {
+		bit := (info>>(17-i))&1 == 1
+		// i maps to position: row = i/3, col = i%3
+		// Bottom-left block: rows (size-11)..(size-9), cols 0..5
+		r := i / 3
+		c := i % 3
+		modules[size-11+c][r] = bit // bottom-left
+		modules[r][size-11+c] = bit // top-right
 	}
 }

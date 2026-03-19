@@ -161,7 +161,7 @@ func TestQRLongData(t *testing.T) {
 }
 
 func TestQRTooLong(t *testing.T) {
-	data := make([]byte, 300)
+	data := make([]byte, 700) // exceeds version 20 level M capacity (666)
 	for i := range data {
 		data[i] = 'X'
 	}
