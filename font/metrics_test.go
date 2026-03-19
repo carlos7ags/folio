@@ -84,12 +84,20 @@ func TestMeasureStringUnknownCharFallback(t *testing.T) {
 	}
 }
 
-func TestMeasureStringSymbolFallback(t *testing.T) {
-	// Symbol has nil widths → fallback to 600 units/char (Courier-like)
+func TestMeasureStringSymbolWidths(t *testing.T) {
+	// Symbol font now has real width tables. ASCII 'a','b','c' are not in the
+	// Symbol encoding, so they fall through to the default width (250).
 	got := Symbol.MeasureString("abc", 10)
-	expected := 18.0 // 3 * 600/1000 * 10
+	expected := 7.5 // 3 * 250/1000 * 10
 	if math.Abs(got-expected) > 0.001 {
 		t.Errorf("expected %.3f, got %.3f", expected, got)
+	}
+
+	// Greek alpha (U+03B1) has width 631 in the Symbol font.
+	got2 := Symbol.MeasureString("\u03B1", 10)
+	expected2 := 6.31 // 631/1000 * 10
+	if math.Abs(got2-expected2) > 0.001 {
+		t.Errorf("expected %.3f, got %.3f", expected2, got2)
 	}
 }
 

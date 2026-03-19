@@ -161,9 +161,9 @@ func TestQRLongData(t *testing.T) {
 }
 
 func TestQRTooLong(t *testing.T) {
-	data := make([]byte, 700) // exceeds version 20 level M capacity (666)
+	data := make([]byte, 2400) // exceeds version 40 level M byte capacity (2331)
 	for i := range data {
-		data[i] = 'X'
+		data[i] = 'x' // lowercase forces byte mode
 	}
 	_, err := QR(string(data))
 	if err == nil {
@@ -194,6 +194,104 @@ func TestQRVersionSelection(t *testing.T) {
 	bc2, _ := QR("This is a longer string that needs more capacity")
 	if bc2.Width() <= 21 {
 		t.Errorf("medium data: size = %d, should be > 21", bc2.Width())
+	}
+}
+
+func TestQRNumericMode(t *testing.T) {
+	bc, err := QR("1234567890")
+	if err != nil {
+		t.Fatalf("QR numeric failed: %v", err)
+	}
+	// Numeric mode is more efficient, so "1234567890" (10 digits) should fit in version 1.
+	// Version 1 at level M supports 34 numeric characters.
+	if bc.Width() != 21 {
+		t.Errorf("numeric data: size = %d, want 21 (version 1)", bc.Width())
+	}
+}
+
+func TestQRAlphanumericMode(t *testing.T) {
+	bc, err := QR("HELLO WORLD")
+	if err != nil {
+		t.Fatalf("QR alphanumeric failed: %v", err)
+	}
+	// "HELLO WORLD" is 11 chars, version 1 level M supports 20 alphanumeric chars.
+	if bc.Width() != 21 {
+		t.Errorf("alphanumeric data: size = %d, want 21 (version 1)", bc.Width())
+	}
+}
+
+func TestQRModeDetection(t *testing.T) {
+	if m := detectMode("12345"); m != qrModeNumeric {
+		t.Errorf("expected numeric mode for digits, got %d", m)
+	}
+	if m := detectMode("HELLO 123"); m != qrModeAlphanumeric {
+		t.Errorf("expected alphanumeric mode for uppercase+digits+space, got %d", m)
+	}
+	if m := detectMode("hello"); m != qrModeByte {
+		t.Errorf("expected byte mode for lowercase, got %d", m)
+	}
+}
+
+func TestQRVersion21Plus(t *testing.T) {
+	// 700 bytes of lowercase forces byte mode; v20 max is 666 bytes at level M.
+	data := make([]byte, 700)
+	for i := range data {
+		data[i] = 'a' + byte(i%26) // lowercase forces byte mode
+	}
+	bc, err := QR(string(data))
+	if err != nil {
+		t.Fatalf("QR with 700 bytes failed: %v", err)
+	}
+	// Version 21 size = 17 + 21*4 = 101.
+	if bc.Width() < 101 {
+		t.Errorf("700 bytes should need version 21+, got size %d", bc.Width())
+	}
+}
+
+func TestQRVersion40(t *testing.T) {
+	// Test near max capacity at level L (2953 bytes for v40).
+	data := make([]byte, 2900)
+	for i := range data {
+		data[i] = byte(32 + i%95)
+	}
+	bc, err := QRWithECC(string(data), ECCLevelL)
+	if err != nil {
+		t.Fatalf("QR version 40 level L failed: %v", err)
+	}
+	// Version 40 size = 17 + 40*4 = 177.
+	if bc.Width() != 177 {
+		t.Errorf("expected version 40 (177x177), got %dx%d", bc.Width(), bc.Height())
+	}
+}
+
+func TestQRNumericLargeCapacity(t *testing.T) {
+	// Numeric mode at level L version 40 can hold ~7089 digits.
+	// Test with 5000 digits to verify large numeric encoding works.
+	data := make([]byte, 5000)
+	for i := range data {
+		data[i] = '0' + byte(i%10)
+	}
+	bc, err := QRWithECC(string(data), ECCLevelL)
+	if err != nil {
+		t.Fatalf("QR with 5000 digits failed: %v", err)
+	}
+	if bc.Width() == 0 {
+		t.Error("expected non-zero dimensions")
+	}
+}
+
+func TestQRAlphanumericHelpers(t *testing.T) {
+	if !isNumeric("0123456789") {
+		t.Error("expected isNumeric true for all digits")
+	}
+	if isNumeric("123A") {
+		t.Error("expected isNumeric false with letter")
+	}
+	if !isAlphanumeric("HELLO WORLD 123 $%*+-./:") {
+		t.Error("expected isAlphanumeric true for valid chars")
+	}
+	if isAlphanumeric("hello") {
+		t.Error("expected isAlphanumeric false for lowercase")
 	}
 }
 

@@ -15,15 +15,124 @@ const (
 	ECCLevelH                 // 30% recovery
 )
 
+// qrMode represents the encoding mode for QR code data.
+type qrMode int
+
+const (
+	qrModeNumeric      qrMode = 1 // 0001
+	qrModeAlphanumeric qrMode = 2 // 0010
+	qrModeByte         qrMode = 4 // 0100
+)
+
+// alphanumericValues maps characters to their alphanumeric mode values.
+var alphanumericValues = map[byte]int{
+	'0': 0, '1': 1, '2': 2, '3': 3, '4': 4, '5': 5, '6': 6, '7': 7, '8': 8, '9': 9,
+	'A': 10, 'B': 11, 'C': 12, 'D': 13, 'E': 14, 'F': 15, 'G': 16, 'H': 17,
+	'I': 18, 'J': 19, 'K': 20, 'L': 21, 'M': 22, 'N': 23, 'O': 24, 'P': 25,
+	'Q': 26, 'R': 27, 'S': 28, 'T': 29, 'U': 30, 'V': 31, 'W': 32, 'X': 33,
+	'Y': 34, 'Z': 35, ' ': 36, '$': 37, '%': 38, '*': 39, '+': 40, '-': 41,
+	'.': 42, '/': 43, ':': 44,
+}
+
+// isNumeric returns true if data contains only digits 0-9.
+func isNumeric(data string) bool {
+	for i := range len(data) {
+		if data[i] < '0' || data[i] > '9' {
+			return false
+		}
+	}
+	return true
+}
+
+// isAlphanumeric returns true if data contains only alphanumeric mode characters.
+func isAlphanumeric(data string) bool {
+	for i := range len(data) {
+		if _, ok := alphanumericValues[data[i]]; !ok {
+			return false
+		}
+	}
+	return true
+}
+
+// detectMode returns the most efficient encoding mode for the data.
+func detectMode(data string) qrMode {
+	if isNumeric(data) {
+		return qrModeNumeric
+	}
+	if isAlphanumeric(data) {
+		return qrModeAlphanumeric
+	}
+	return qrModeByte
+}
+
+// charCountBits returns the number of character count indicator bits for the given mode and version.
+func charCountBits(mode qrMode, version int) int {
+	switch mode {
+	case qrModeNumeric:
+		if version <= 9 {
+			return 10
+		}
+		if version <= 26 {
+			return 12
+		}
+		return 14
+	case qrModeAlphanumeric:
+		if version <= 9 {
+			return 9
+		}
+		if version <= 26 {
+			return 11
+		}
+		return 13
+	default: // byte mode
+		if version <= 9 {
+			return 8
+		}
+		return 16
+	}
+}
+
+// dataCapacity returns the number of characters that fit in the given version/level/mode.
+func dataCapacity(version int, level ECCLevel, mode qrMode) int {
+	dataCW := qrDataCodewords[version][level]
+	countBits := charCountBits(mode, version)
+	totalDataBits := dataCW*8 - 4 - countBits // subtract mode indicator and count bits
+
+	switch mode {
+	case qrModeNumeric:
+		// 3 digits → 10 bits, 2 digits → 7 bits, 1 digit → 4 bits
+		fullGroups := totalDataBits / 10
+		remaining := totalDataBits % 10
+		chars := fullGroups * 3
+		if remaining >= 7 {
+			chars += 2
+		} else if remaining >= 4 {
+			chars += 1
+		}
+		return chars
+	case qrModeAlphanumeric:
+		// 2 chars → 11 bits, 1 char → 6 bits
+		fullPairs := totalDataBits / 11
+		remaining := totalDataBits % 11
+		chars := fullPairs * 2
+		if remaining >= 6 {
+			chars += 1
+		}
+		return chars
+	default: // byte mode
+		return totalDataBits / 8
+	}
+}
+
 // QR generates a QR Code barcode from a string.
-// Uses byte mode encoding with error correction level M (15% recovery).
-// Automatically selects the smallest version (1-20) that fits the data.
+// Uses the most efficient encoding mode with error correction level M (15% recovery).
+// Automatically selects the smallest version (1-40) that fits the data.
 func QR(data string) (*Barcode, error) {
 	return QRWithECC(data, ECCLevelM)
 }
 
 // QRWithECC generates a QR Code barcode with the specified error correction level.
-// Automatically selects the smallest version (1-20) that fits the data.
+// Automatically selects the most efficient encoding mode and smallest version (1-40).
 func QRWithECC(data string, level ECCLevel) (*Barcode, error) {
 	if len(data) == 0 {
 		return nil, fmt.Errorf("barcode: empty data")
@@ -32,17 +141,19 @@ func QRWithECC(data string, level ECCLevel) (*Barcode, error) {
 		return nil, fmt.Errorf("barcode: invalid ECC level %d", level)
 	}
 
+	mode := detectMode(data)
+
 	// Find the smallest version that fits.
 	version := 0
-	for v := 1; v <= 20; v++ {
-		cap := qrByteCapacity[v][level]
+	for v := 1; v <= 40; v++ {
+		cap := dataCapacity(v, level, mode)
 		if len(data) <= cap {
 			version = v
 			break
 		}
 	}
 	if version == 0 {
-		return nil, fmt.Errorf("barcode: data too long for QR version 1-20 (%d bytes, max %d at level %d)", len(data), qrByteCapacity[20][level], level)
+		return nil, fmt.Errorf("barcode: data too long for QR version 1-40 at ECC level %d", level)
 	}
 
 	size := 17 + version*4
@@ -103,7 +214,7 @@ func QRWithECC(data string, level ECCLevel) (*Barcode, error) {
 	}
 
 	// Encode data.
-	bits := encodeQRData(data, version, level)
+	bits := encodeQRData(data, version, level, mode)
 
 	// Place data bits.
 	placeData(modules, reserved, bits, size)
@@ -122,61 +233,101 @@ func QRWithECC(data string, level ECCLevel) (*Barcode, error) {
 	return &Barcode{modules: bestModules, width: size, height: size}, nil
 }
 
-// --- Byte capacity table: [21][4]int, index 0 unused, columns L/M/Q/H ---
+// --- Byte capacity table: [41][4]int, index 0 unused, columns L/M/Q/H ---
 
-var qrByteCapacity = [21][4]int{
-	{0, 0, 0, 0},         // version 0 unused
-	{17, 14, 11, 7},      // version 1
-	{32, 26, 20, 14},     // version 2
-	{53, 42, 32, 24},     // version 3
-	{78, 62, 46, 34},     // version 4
-	{106, 84, 60, 44},    // version 5
-	{134, 106, 74, 58},   // version 6
-	{154, 122, 86, 64},   // version 7
-	{192, 152, 108, 84},  // version 8
-	{230, 180, 130, 98},  // version 9
-	{271, 213, 151, 119}, // version 10
-	{321, 251, 177, 137}, // version 11
-	{367, 287, 203, 155}, // version 12
-	{425, 331, 241, 177}, // version 13
-	{458, 362, 258, 194}, // version 14
-	{520, 412, 292, 220}, // version 15
-	{586, 450, 322, 250}, // version 16
-	{644, 504, 364, 280}, // version 17
-	{718, 560, 394, 310}, // version 18
-	{792, 624, 442, 338}, // version 19
-	{858, 666, 482, 382}, // version 20
+var qrByteCapacity = [41][4]int{
+	{0, 0, 0, 0},             // version 0 unused
+	{17, 14, 11, 7},          // version 1
+	{32, 26, 20, 14},         // version 2
+	{53, 42, 32, 24},         // version 3
+	{78, 62, 46, 34},         // version 4
+	{106, 84, 60, 44},        // version 5
+	{134, 106, 74, 58},       // version 6
+	{154, 122, 86, 64},       // version 7
+	{192, 152, 108, 84},      // version 8
+	{230, 180, 130, 98},      // version 9
+	{271, 213, 151, 119},     // version 10
+	{321, 251, 177, 137},     // version 11
+	{367, 287, 203, 155},     // version 12
+	{425, 331, 241, 177},     // version 13
+	{458, 362, 258, 194},     // version 14
+	{520, 412, 292, 220},     // version 15
+	{586, 450, 322, 250},     // version 16
+	{644, 504, 364, 280},     // version 17
+	{718, 560, 394, 310},     // version 18
+	{792, 624, 442, 338},     // version 19
+	{858, 666, 482, 382},     // version 20
+	{929, 711, 509, 403},     // version 21
+	{1003, 779, 565, 439},    // version 22
+	{1091, 857, 611, 461},    // version 23
+	{1171, 911, 661, 511},    // version 24
+	{1273, 997, 715, 535},    // version 25
+	{1367, 1059, 751, 593},   // version 26
+	{1465, 1125, 805, 625},   // version 27
+	{1528, 1190, 868, 658},   // version 28
+	{1628, 1264, 908, 698},   // version 29
+	{1732, 1370, 982, 742},   // version 30
+	{1840, 1452, 1030, 790},  // version 31
+	{1952, 1538, 1112, 842},  // version 32
+	{2068, 1628, 1168, 898},  // version 33
+	{2188, 1722, 1228, 958},  // version 34
+	{2303, 1809, 1283, 983},  // version 35
+	{2431, 1911, 1351, 1051}, // version 36
+	{2563, 1989, 1423, 1093}, // version 37
+	{2699, 2099, 1499, 1139}, // version 38
+	{2809, 2213, 1579, 1219}, // version 39
+	{2953, 2331, 1663, 1273}, // version 40
 }
 
-// --- Data codewords table: [21][4]int, columns L/M/Q/H ---
+// --- Data codewords table: [41][4]int, columns L/M/Q/H ---
 
-var qrDataCodewords = [21][4]int{
-	{0, 0, 0, 0},         // version 0 unused
-	{19, 16, 13, 9},      // version 1
-	{34, 28, 22, 16},     // version 2
-	{55, 44, 34, 26},     // version 3
-	{80, 64, 48, 36},     // version 4
-	{108, 86, 62, 46},    // version 5
-	{136, 108, 76, 60},   // version 6
-	{156, 124, 88, 66},   // version 7
-	{194, 154, 110, 86},  // version 8
-	{232, 182, 132, 100}, // version 9
-	{274, 216, 154, 122}, // version 10
-	{324, 254, 180, 140}, // version 11
-	{370, 290, 206, 158}, // version 12
-	{428, 334, 244, 180}, // version 13
-	{461, 365, 261, 197}, // version 14
-	{523, 415, 295, 223}, // version 15
-	{589, 453, 325, 253}, // version 16
-	{647, 507, 367, 283}, // version 17
-	{721, 563, 397, 313}, // version 18
-	{795, 627, 445, 341}, // version 19
-	{861, 669, 485, 385}, // version 20
+var qrDataCodewords = [41][4]int{
+	{0, 0, 0, 0},             // version 0 unused
+	{19, 16, 13, 9},          // version 1
+	{34, 28, 22, 16},         // version 2
+	{55, 44, 34, 26},         // version 3
+	{80, 64, 48, 36},         // version 4
+	{108, 86, 62, 46},        // version 5
+	{136, 108, 76, 60},       // version 6
+	{156, 124, 88, 66},       // version 7
+	{194, 154, 110, 86},      // version 8
+	{232, 182, 132, 100},     // version 9
+	{274, 216, 154, 122},     // version 10
+	{324, 254, 180, 140},     // version 11
+	{370, 290, 206, 158},     // version 12
+	{428, 334, 244, 180},     // version 13
+	{461, 365, 261, 197},     // version 14
+	{523, 415, 295, 223},     // version 15
+	{589, 453, 325, 253},     // version 16
+	{647, 507, 367, 283},     // version 17
+	{721, 563, 397, 313},     // version 18
+	{795, 627, 445, 341},     // version 19
+	{861, 669, 485, 385},     // version 20
+	{932, 714, 512, 406},     // version 21
+	{1006, 782, 568, 442},    // version 22
+	{1094, 860, 614, 464},    // version 23
+	{1174, 914, 664, 514},    // version 24
+	{1276, 1000, 718, 538},   // version 25
+	{1370, 1062, 754, 596},   // version 26
+	{1468, 1128, 808, 628},   // version 27
+	{1531, 1193, 871, 661},   // version 28
+	{1631, 1267, 911, 701},   // version 29
+	{1735, 1373, 985, 745},   // version 30
+	{1843, 1455, 1033, 793},  // version 31
+	{1955, 1541, 1115, 845},  // version 32
+	{2071, 1631, 1171, 901},  // version 33
+	{2191, 1725, 1231, 961},  // version 34
+	{2306, 1812, 1286, 986},  // version 35
+	{2434, 1914, 1354, 1054}, // version 36
+	{2566, 1992, 1426, 1096}, // version 37
+	{2702, 2102, 1502, 1142}, // version 38
+	{2812, 2216, 1582, 1222}, // version 39
+	{2956, 2334, 1666, 1276}, // version 40
 }
 
-// --- ECC codewords per block: [21][4]int, columns L/M/Q/H ---
+// --- ECC codewords per block: [41][4]int, columns L/M/Q/H ---
 
-var qrECCPerBlock = [21][4]int{
+var qrECCPerBlock = [41][4]int{
 	{0, 0, 0, 0},     // version 0 unused
 	{7, 10, 13, 17},  // version 1
 	{10, 16, 22, 28}, // version 2
@@ -198,6 +349,26 @@ var qrECCPerBlock = [21][4]int{
 	{30, 26, 28, 28}, // version 18
 	{28, 26, 26, 26}, // version 19
 	{28, 26, 30, 28}, // version 20
+	{28, 26, 28, 28}, // version 21
+	{28, 28, 30, 28}, // version 22
+	{30, 28, 30, 28}, // version 23
+	{30, 28, 30, 28}, // version 24
+	{26, 28, 30, 28}, // version 25
+	{28, 28, 28, 28}, // version 26
+	{30, 28, 30, 28}, // version 27
+	{30, 28, 30, 28}, // version 28
+	{30, 28, 30, 28}, // version 29
+	{30, 28, 30, 28}, // version 30
+	{30, 28, 30, 28}, // version 31
+	{30, 28, 30, 28}, // version 32
+	{30, 28, 30, 28}, // version 33
+	{30, 28, 30, 28}, // version 34
+	{30, 28, 30, 28}, // version 35
+	{30, 28, 30, 28}, // version 36
+	{30, 28, 30, 28}, // version 37
+	{30, 28, 30, 28}, // version 38
+	{30, 28, 30, 28}, // version 39
+	{30, 28, 30, 28}, // version 40
 }
 
 // qrBlockInfo describes the block structure for a version/ECC combination.
@@ -208,8 +379,8 @@ type qrBlockInfo struct {
 	group2DataCW int // data codewords per block in group 2 (= group1DataCW + 1, or 0)
 }
 
-// qrBlockTable: [21][4]qrBlockInfo, columns L/M/Q/H.
-var qrBlockTable = [21][4]qrBlockInfo{
+// qrBlockTable: [41][4]qrBlockInfo, columns L/M/Q/H.
+var qrBlockTable = [41][4]qrBlockInfo{
 	{}, // version 0 unused
 	// version 1
 	{{1, 19, 0, 0}, {1, 16, 0, 0}, {1, 13, 0, 0}, {1, 9, 0, 0}},
@@ -251,36 +422,96 @@ var qrBlockTable = [21][4]qrBlockInfo{
 	{{3, 113, 4, 114}, {3, 44, 11, 45}, {17, 21, 4, 22}, {9, 13, 16, 14}},
 	// version 20
 	{{3, 107, 5, 108}, {3, 41, 13, 42}, {15, 24, 5, 25}, {15, 15, 10, 16}},
+	// version 21
+	{{4, 116, 4, 117}, {17, 42, 0, 0}, {17, 22, 6, 23}, {19, 16, 6, 17}},
+	// version 22
+	{{2, 111, 7, 112}, {17, 46, 0, 0}, {7, 24, 16, 25}, {34, 13, 0, 0}},
+	// version 23
+	{{4, 121, 5, 122}, {4, 47, 14, 48}, {11, 24, 14, 25}, {16, 15, 14, 16}},
+	// version 24
+	{{6, 117, 4, 118}, {6, 45, 14, 46}, {11, 24, 16, 25}, {30, 16, 2, 17}},
+	// version 25
+	{{8, 106, 4, 107}, {8, 47, 13, 48}, {7, 24, 22, 25}, {22, 15, 13, 16}},
+	// version 26
+	{{10, 114, 2, 115}, {19, 46, 4, 47}, {28, 22, 6, 23}, {33, 16, 4, 17}},
+	// version 27
+	{{8, 122, 4, 123}, {22, 45, 3, 46}, {8, 23, 26, 24}, {12, 15, 28, 16}},
+	// version 28
+	{{3, 117, 10, 118}, {3, 45, 23, 46}, {4, 24, 31, 25}, {11, 15, 31, 16}},
+	// version 29
+	{{7, 116, 7, 117}, {21, 45, 7, 46}, {1, 23, 37, 24}, {19, 15, 26, 16}},
+	// version 30
+	{{5, 115, 10, 116}, {19, 47, 10, 48}, {15, 24, 25, 25}, {23, 15, 25, 16}},
+	// version 31
+	{{13, 115, 3, 116}, {2, 46, 29, 47}, {42, 24, 1, 25}, {23, 15, 28, 16}},
+	// version 32
+	{{17, 115, 0, 0}, {10, 46, 23, 47}, {10, 24, 35, 25}, {19, 15, 35, 16}},
+	// version 33
+	{{17, 115, 1, 116}, {14, 46, 21, 47}, {29, 24, 19, 25}, {11, 15, 46, 16}},
+	// version 34
+	{{13, 115, 6, 116}, {14, 46, 23, 47}, {44, 24, 7, 25}, {59, 16, 1, 17}},
+	// version 35
+	{{12, 121, 7, 122}, {12, 47, 26, 48}, {39, 24, 14, 25}, {22, 15, 41, 16}},
+	// version 36
+	{{6, 121, 14, 122}, {6, 47, 34, 48}, {46, 24, 10, 25}, {2, 15, 64, 16}},
+	// version 37
+	{{17, 122, 4, 123}, {29, 46, 14, 47}, {49, 24, 10, 25}, {24, 15, 46, 16}},
+	// version 38
+	{{4, 122, 18, 123}, {13, 46, 32, 47}, {48, 24, 14, 25}, {42, 15, 32, 16}},
+	// version 39
+	{{20, 117, 4, 118}, {40, 47, 7, 48}, {43, 24, 22, 25}, {10, 15, 67, 16}},
+	// version 40
+	{{19, 118, 6, 119}, {18, 47, 31, 48}, {34, 24, 34, 25}, {20, 15, 61, 16}},
 }
 
-// --- Alignment pattern positions for versions 1-20 ---
+// --- Alignment pattern positions for versions 1-40 ---
 
-var alignmentTable = [21][]int{
-	{},              // version 0
-	{},              // version 1 (no alignment)
-	{6, 18},         // version 2
-	{6, 22},         // version 3
-	{6, 26},         // version 4
-	{6, 30},         // version 5
-	{6, 34},         // version 6
-	{6, 22, 38},     // version 7
-	{6, 24, 42},     // version 8
-	{6, 26, 46},     // version 9
-	{6, 28, 50},     // version 10
-	{6, 30, 54},     // version 11
-	{6, 32, 58},     // version 12
-	{6, 34, 62},     // version 13
-	{6, 26, 46, 66}, // version 14
-	{6, 26, 48, 70}, // version 15
-	{6, 26, 50, 74}, // version 16
-	{6, 30, 54, 78}, // version 17
-	{6, 30, 56, 82}, // version 18
-	{6, 30, 58, 86}, // version 19
-	{6, 34, 62, 90}, // version 20
+var alignmentTable = [41][]int{
+	{},                             // version 0
+	{},                             // version 1 (no alignment)
+	{6, 18},                        // version 2
+	{6, 22},                        // version 3
+	{6, 26},                        // version 4
+	{6, 30},                        // version 5
+	{6, 34},                        // version 6
+	{6, 22, 38},                    // version 7
+	{6, 24, 42},                    // version 8
+	{6, 26, 46},                    // version 9
+	{6, 28, 50},                    // version 10
+	{6, 30, 54},                    // version 11
+	{6, 32, 58},                    // version 12
+	{6, 34, 62},                    // version 13
+	{6, 26, 46, 66},                // version 14
+	{6, 26, 48, 70},                // version 15
+	{6, 26, 50, 74},                // version 16
+	{6, 30, 54, 78},                // version 17
+	{6, 30, 56, 82},                // version 18
+	{6, 30, 58, 86},                // version 19
+	{6, 34, 62, 90},                // version 20
+	{6, 28, 50, 72, 94},            // version 21
+	{6, 26, 50, 74, 98},            // version 22
+	{6, 30, 54, 78, 102},           // version 23
+	{6, 28, 54, 80, 106},           // version 24
+	{6, 32, 58, 84, 110},           // version 25
+	{6, 30, 58, 86, 114},           // version 26
+	{6, 34, 62, 90, 118},           // version 27
+	{6, 26, 50, 74, 98, 122},       // version 28
+	{6, 30, 54, 78, 102, 126},      // version 29
+	{6, 26, 52, 78, 104, 130},      // version 30
+	{6, 30, 56, 82, 108, 134},      // version 31
+	{6, 34, 60, 86, 112, 138},      // version 32
+	{6, 30, 58, 86, 114, 142},      // version 33
+	{6, 34, 62, 90, 118, 146},      // version 34
+	{6, 30, 54, 78, 102, 126, 150}, // version 35
+	{6, 24, 50, 76, 102, 128, 154}, // version 36
+	{6, 28, 54, 80, 106, 132, 158}, // version 37
+	{6, 32, 58, 84, 110, 136, 162}, // version 38
+	{6, 26, 54, 82, 110, 138, 166}, // version 39
+	{6, 30, 58, 86, 114, 142, 170}, // version 40
 }
 
 func alignmentPositions(version int) []int {
-	if version < 1 || version > 20 {
+	if version < 1 || version > 40 {
 		return nil
 	}
 	return alignmentTable[version]
@@ -300,10 +531,10 @@ var qrFormatInfo = [4][8]uint16{
 	{0x1689, 0x13BE, 0x1CE7, 0x19D0, 0x0762, 0x0255, 0x0D0C, 0x083B},
 }
 
-// --- Version info lookup table for versions 7-20 ---
+// --- Version info lookup table for versions 7-40 ---
 // BCH(18,6) encoded with generator polynomial 0x1F25.
 
-var qrVersionInfo = [21]uint32{
+var qrVersionInfo = [41]uint32{
 	0, 0, 0, 0, 0, 0, 0, // versions 0-6: no version info
 	0x07C94, // version 7
 	0x085BC, // version 8
@@ -319,6 +550,26 @@ var qrVersionInfo = [21]uint32{
 	0x12A17, // version 18
 	0x13532, // version 19
 	0x149A6, // version 20
+	0x15683, // version 21
+	0x168C9, // version 22
+	0x177EC, // version 23
+	0x18EC4, // version 24
+	0x191E1, // version 25
+	0x1AFAB, // version 26
+	0x1B08E, // version 27
+	0x1CC1A, // version 28
+	0x1D33F, // version 29
+	0x1ED75, // version 30
+	0x1F250, // version 31
+	0x209D5, // version 32
+	0x216F0, // version 33
+	0x228BA, // version 34
+	0x2379F, // version 35
+	0x24B0B, // version 36
+	0x2542E, // version 37
+	0x26A64, // version 38
+	0x27541, // version 39
+	0x28C69, // version 40
 }
 
 // --- Finder and alignment pattern placement ---
@@ -364,27 +615,101 @@ func placeAlignment(modules, reserved [][]bool, row, col int) {
 
 // --- Data encoding ---
 
-// encodeQRData encodes data in byte mode with the specified ECC level.
-func encodeQRData(data string, version int, level ECCLevel) []bool {
+// appendBitsN appends the lowest n bits of val (MSB first) to bits.
+func appendBitsN(bits []bool, val, n int) []bool {
+	for i := n - 1; i >= 0; i-- {
+		bits = append(bits, (val>>i)&1 == 1)
+	}
+	return bits
+}
+
+// encodeNumericData encodes data in numeric mode.
+func encodeNumericData(data string, version int) []bool {
+	var bits []bool
+
+	// Mode indicator: numeric = 0001.
+	bits = append(bits, false, false, false, true)
+
+	// Character count indicator.
+	countBits := charCountBits(qrModeNumeric, version)
+	bits = appendBitsN(bits, len(data), countBits)
+
+	// Encode groups of 3 digits → 10 bits, 2 → 7 bits, 1 → 4 bits.
+	i := 0
+	for i+2 < len(data) {
+		val := int(data[i]-'0')*100 + int(data[i+1]-'0')*10 + int(data[i+2]-'0')
+		bits = appendBitsN(bits, val, 10)
+		i += 3
+	}
+	remaining := len(data) - i
+	if remaining == 2 {
+		val := int(data[i]-'0')*10 + int(data[i+1]-'0')
+		bits = appendBitsN(bits, val, 7)
+	} else if remaining == 1 {
+		val := int(data[i] - '0')
+		bits = appendBitsN(bits, val, 4)
+	}
+
+	return bits
+}
+
+// encodeAlphanumericData encodes data in alphanumeric mode.
+func encodeAlphanumericData(data string, version int) []bool {
+	var bits []bool
+
+	// Mode indicator: alphanumeric = 0010.
+	bits = append(bits, false, false, true, false)
+
+	// Character count indicator.
+	countBits := charCountBits(qrModeAlphanumeric, version)
+	bits = appendBitsN(bits, len(data), countBits)
+
+	// Encode pairs → 11 bits, remainder → 6 bits.
+	i := 0
+	for i+1 < len(data) {
+		val := alphanumericValues[data[i]]*45 + alphanumericValues[data[i+1]]
+		bits = appendBitsN(bits, val, 11)
+		i += 2
+	}
+	if i < len(data) {
+		bits = appendBitsN(bits, alphanumericValues[data[i]], 6)
+	}
+
+	return bits
+}
+
+// encodeByteData encodes data in byte mode.
+func encodeByteData(data string, version int) []bool {
 	var bits []bool
 
 	// Mode indicator: byte mode = 0100.
 	bits = append(bits, false, true, false, false)
 
 	// Character count indicator (8 bits for versions 1-9, 16 for 10+).
-	countBits := 8
-	if version >= 10 {
-		countBits = 16
-	}
-	for i := countBits - 1; i >= 0; i-- {
-		bits = append(bits, (len(data)>>i)&1 == 1)
-	}
+	countBits := charCountBits(qrModeByte, version)
+	bits = appendBitsN(bits, len(data), countBits)
 
 	// Data bytes.
 	for _, b := range []byte(data) {
 		for i := 7; i >= 0; i-- {
 			bits = append(bits, (b>>i)&1 == 1)
 		}
+	}
+
+	return bits
+}
+
+// encodeQRData encodes data with the specified ECC level and encoding mode.
+func encodeQRData(data string, version int, level ECCLevel, mode qrMode) []bool {
+	var bits []bool
+
+	switch mode {
+	case qrModeNumeric:
+		bits = encodeNumericData(data, version)
+	case qrModeAlphanumeric:
+		bits = encodeAlphanumericData(data, version)
+	default:
+		bits = encodeByteData(data, version)
 	}
 
 	// Terminator (up to 4 zero bits).

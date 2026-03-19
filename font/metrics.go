@@ -95,6 +95,6 @@ var standardWidths = map[string]map[rune]int{
 	"Courier-Bold":          courierWidths, // Courier is monospaced
 	"Courier-Oblique":       courierWidths,
 	"Courier-BoldOblique":   courierWidths,
-	"Symbol":                nil, // not used for text layout
-	"ZapfDingbats":          nil,
+	"Symbol":                symbolWidths,
+	"ZapfDingbats":          zapfDingbatsWidths,
 }
