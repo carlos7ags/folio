@@ -406,10 +406,10 @@ func breakLongWords(words []Word, maxWidth float64) []Word {
 	return result
 }
 
-// hyphenateWord attempts to split a word to fit within `available` points.
-// Returns the first part (with trailing hyphen) and the remainder.
-// Returns ok=false if no valid split point is found (word must be at least 4 chars,
-// split at least 2 chars from each end).
+// hyphenateWord attempts to split a word to fit within `available` points
+// using the Liang-Knuth hyphenation algorithm for linguistically correct
+// syllable breaks. Returns the first part (with trailing hyphen) and the
+// remainder. Returns ok=false if no valid split point is found.
 func hyphenateWord(w Word, available float64) (part, rest Word, ok bool) {
 	runes := []rune(w.Text)
 	if len(runes) < 4 {
@@ -427,16 +427,41 @@ func hyphenateWord(w Word, available float64) (part, rest Word, ok bool) {
 
 	hyphenW := measure("-")
 
-	// Try splitting from longest prefix down to minimum 2 chars.
+	// Get linguistically valid break points from the hyphenator.
+	// Only attempt pattern-based hyphenation for pure-alpha words;
+	// fall back to character-boundary splitting for others.
+	var breakPoints []int
+	if isAlphaWord(w.Text) {
+		breakPoints = DefaultHyphenator().Hyphenate(w.Text)
+	}
+
+	// Find the latest valid break point that fits.
 	bestSplit := -1
-	for i := len(runes) - 2; i >= 2; i-- {
-		prefix := string(runes[:i])
-		pw := measure(prefix) + hyphenW
-		if pw <= available {
-			bestSplit = i
-			break
+	if len(breakPoints) > 0 {
+		for i := len(breakPoints) - 1; i >= 0; i-- {
+			bp := breakPoints[i]
+			prefix := string(runes[:bp])
+			pw := measure(prefix) + hyphenW
+			if pw <= available {
+				bestSplit = bp
+				break
+			}
 		}
 	}
+
+	// Fallback: if no pattern-based break fits, try character boundaries
+	// (at least 2 chars from each end) for very long words.
+	if bestSplit < 0 {
+		for i := len(runes) - 2; i >= 2; i-- {
+			prefix := string(runes[:i])
+			pw := measure(prefix) + hyphenW
+			if pw <= available {
+				bestSplit = i
+				break
+			}
+		}
+	}
+
 	if bestSplit < 0 {
 		return Word{}, Word{}, false
 	}
