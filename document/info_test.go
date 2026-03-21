@@ -46,7 +46,7 @@ func TestInfoToDict(t *testing.T) {
 		Author: "Test Author",
 	}
 	var buf bytes.Buffer
-	info.toDict().WriteTo(&buf)
+	_, _ = info.toDict().WriteTo(&buf)
 	s := buf.String()
 
 	if !strings.Contains(s, "/Title (Test Document)") {
@@ -60,7 +60,7 @@ func TestInfoToDict(t *testing.T) {
 func TestInfoToDictEmpty(t *testing.T) {
 	info := &Info{}
 	var buf bytes.Buffer
-	info.toDict().WriteTo(&buf)
+	_, _ = info.toDict().WriteTo(&buf)
 	// Empty info dict should have no entries
 	if buf.String() != "<< >>" {
 		t.Errorf("expected empty dict, got %q", buf.String())
@@ -89,7 +89,7 @@ func TestInfoToDictAllFields(t *testing.T) {
 		ModDate:      ts,
 	}
 	var buf bytes.Buffer
-	info.toDict().WriteTo(&buf)
+	_, _ = info.toDict().WriteTo(&buf)
 	s := buf.String()
 
 	for _, key := range []string{"/Title", "/Author", "/Subject", "/Keywords",

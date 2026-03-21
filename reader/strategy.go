@@ -146,7 +146,6 @@ func (l *LocationStrategy) Result() string {
 			if len(result) > 0 && result[len(result)-1] != '\n' {
 				result = append(result, '\n')
 			}
-			prevEndX = 0
 		} else {
 			threshold := lineH * 0.25
 			if span.SpaceWidth > 0 {

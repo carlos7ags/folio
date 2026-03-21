@@ -497,7 +497,7 @@ func buildPermsBlock(p int32) []byte {
 	// Bytes 9-11: 'adb' (per spec).
 	buf[9], buf[10], buf[11] = 'a', 'd', 'b'
 	// Bytes 12-15: random.
-	rand.Read(buf[12:16])
+	_, _ = rand.Read(buf[12:16])
 	return buf
 }
 

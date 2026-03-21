@@ -66,7 +66,7 @@ func TestMergePreservesContent(t *testing.T) {
 
 	m, _ := Merge(r1, r2)
 	var buf bytes.Buffer
-	m.WriteTo(&buf)
+	_, _ = m.WriteTo(&buf)
 
 	merged, _ := Parse(buf.Bytes())
 
@@ -89,7 +89,7 @@ func TestMergeSinglePDF(t *testing.T) {
 
 	m, _ := Merge(r)
 	var buf bytes.Buffer
-	m.WriteTo(&buf)
+	_, _ = m.WriteTo(&buf)
 
 	result, _ := Parse(buf.Bytes())
 	if result.PageCount() != 3 {
@@ -105,7 +105,7 @@ func TestMergeWithNewPage(t *testing.T) {
 	m.AddPageWithText(612, 792, "New page content", font.Helvetica, 12, 72, 700)
 
 	var buf bytes.Buffer
-	m.WriteTo(&buf)
+	_, _ = m.WriteTo(&buf)
 
 	result, _ := Parse(buf.Bytes())
 	if result.PageCount() != 2 {
@@ -121,7 +121,7 @@ func TestMergeWithBlankPage(t *testing.T) {
 	m.AddBlankPage(612, 792)
 
 	var buf bytes.Buffer
-	m.WriteTo(&buf)
+	_, _ = m.WriteTo(&buf)
 
 	result, _ := Parse(buf.Bytes())
 	if result.PageCount() != 2 {
@@ -137,7 +137,7 @@ func TestMergeSetInfo(t *testing.T) {
 	m.SetInfo("New Title", "New Author")
 
 	var buf bytes.Buffer
-	m.WriteTo(&buf)
+	_, _ = m.WriteTo(&buf)
 
 	result, _ := Parse(buf.Bytes())
 	title, author, _, _, _ := result.Info()
@@ -165,7 +165,7 @@ func TestMergeQpdfCheck(t *testing.T) {
 	m.SetInfo("Merged PDF", "Folio")
 
 	var buf bytes.Buffer
-	m.WriteTo(&buf)
+	_, _ = m.WriteTo(&buf)
 
 	tmpDir := t.TempDir()
 	tmpFile := tmpDir + "/merged.pdf"
@@ -190,7 +190,7 @@ func TestMergeThreePDFs(t *testing.T) {
 
 	m, _ := Merge(r1, r2, r3)
 	var buf bytes.Buffer
-	m.WriteTo(&buf)
+	_, _ = m.WriteTo(&buf)
 
 	result, _ := Parse(buf.Bytes())
 	if result.PageCount() != 6 {
@@ -204,20 +204,20 @@ func TestMergePreservesPageSize(t *testing.T) {
 	doc1.Info.Title = "Letter"
 	doc1.AddPage()
 	var buf1 bytes.Buffer
-	doc1.WriteTo(&buf1)
+	_, _ = doc1.WriteTo(&buf1)
 
 	doc2 := document.NewDocument(document.PageSizeA4)
 	doc2.Info.Title = "A4"
 	doc2.AddPage()
 	var buf2 bytes.Buffer
-	doc2.WriteTo(&buf2)
+	_, _ = doc2.WriteTo(&buf2)
 
 	r1, _ := Parse(buf1.Bytes())
 	r2, _ := Parse(buf2.Bytes())
 
 	m, _ := Merge(r1, r2)
 	var out bytes.Buffer
-	m.WriteTo(&out)
+	_, _ = m.WriteTo(&out)
 
 	result, _ := Parse(out.Bytes())
 	p1, _ := result.Page(0)
@@ -237,7 +237,7 @@ func TestMergePageDimensions(t *testing.T) {
 	m, _ := Merge(r)
 
 	var buf bytes.Buffer
-	m.WriteTo(&buf)
+	_, _ = m.WriteTo(&buf)
 
 	result, _ := Parse(buf.Bytes())
 	page, _ := result.Page(0)
@@ -252,12 +252,12 @@ func TestMergeExtractText(t *testing.T) {
 	p := doc.AddPage()
 	p.AddText("Extractable text", font.Helvetica, 12, 72, 700)
 	var buf bytes.Buffer
-	doc.WriteTo(&buf)
+	_, _ = doc.WriteTo(&buf)
 
 	r, _ := Parse(buf.Bytes())
 	m, _ := Merge(r)
 	var out bytes.Buffer
-	m.WriteTo(&out)
+	_, _ = m.WriteTo(&out)
 
 	result, _ := Parse(out.Bytes())
 	page, _ := result.Page(0)

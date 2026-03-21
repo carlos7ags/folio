@@ -73,7 +73,7 @@ func TestVisibleBoxUsesCropBox(t *testing.T) {
 	p.SetCropBox([4]float64{36, 36, 576, 756})
 
 	var buf bytes.Buffer
-	doc.WriteTo(&buf)
+	_, _ = doc.WriteTo(&buf)
 
 	r, _ := Parse(buf.Bytes())
 	page, _ := r.Page(0)
@@ -93,7 +93,7 @@ func TestVisibleBoxFallsBackToMediaBox(t *testing.T) {
 	doc.AddPage() // no CropBox
 
 	var buf bytes.Buffer
-	doc.WriteTo(&buf)
+	_, _ = doc.WriteTo(&buf)
 
 	r, _ := Parse(buf.Bytes())
 	page, _ := r.Page(0)

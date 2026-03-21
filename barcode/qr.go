@@ -638,11 +638,11 @@ func encodeNumericData(data string, version int) []bool {
 		bits = appendBitsN(bits, val, 10)
 		i += 3
 	}
-	remaining := len(data) - i
-	if remaining == 2 {
+	switch remaining := len(data) - i; remaining {
+	case 2:
 		val := int(data[i]-'0')*10 + int(data[i+1]-'0')
 		bits = appendBitsN(bits, val, 7)
-	} else if remaining == 1 {
+	case 1:
 		val := int(data[i] - '0')
 		bits = appendBitsN(bits, val, 4)
 	}

@@ -437,9 +437,10 @@ func normalizeCombinators(s string) string {
 	depth := 0
 	for i := 0; i < len(s); i++ {
 		ch := s[i]
-		if ch == '(' {
+		switch ch {
+		case '(':
 			depth++
-		} else if ch == ')' {
+		case ')':
 			depth--
 		}
 		if depth == 0 && (ch == '>' || ch == '+' || ch == '~') {

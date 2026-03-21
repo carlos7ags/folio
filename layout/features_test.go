@@ -411,11 +411,11 @@ func TestParagraphHyphensAuto(t *testing.T) {
 	if len(lines) <= 1 {
 		t.Errorf("hyphens:auto should produce multiple lines, got %d", len(lines))
 	}
-	// First line should contain a hyphenated fragment.
+	// First line should end with a hyphen (hyphenated fragment).
 	if len(lines) > 0 && len(lines[0].Words) > 1 {
 		lastWord := lines[0].Words[len(lines[0].Words)-1]
-		if len(lastWord.Text) > 1 && lastWord.Text[len(lastWord.Text)-1] == '-' {
-			// Good — hyphenation worked.
+		if len(lastWord.Text) > 1 && lastWord.Text[len(lastWord.Text)-1] != '-' {
+			t.Errorf("expected hyphenated last word on first line, got %q", lastWord.Text)
 		}
 	}
 }

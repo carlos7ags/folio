@@ -50,7 +50,7 @@ func (c *TSAClient) Timestamp(digest []byte, hashFunc crypto.Hash) ([]byte, erro
 	if err != nil {
 		return nil, fmt.Errorf("sign: TSA request: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("sign: TSA returned status %d", resp.StatusCode)

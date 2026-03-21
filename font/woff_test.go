@@ -7,7 +7,6 @@ import (
 	"bytes"
 	"compress/zlib"
 	"encoding/binary"
-	"math/bits"
 	"os"
 	"sort"
 	"testing"
@@ -90,8 +89,8 @@ func buildWOFF(t *testing.T, ttfData []byte) []byte {
 		if err != nil {
 			t.Fatal(err)
 		}
-		w.Write(tbl.data)
-		w.Close()
+		_, _ = w.Write(tbl.data)
+		_ = w.Close()
 
 		compData := compressed.Bytes()
 		compLen := uint32(len(compData))
@@ -123,10 +122,6 @@ func buildWOFF(t *testing.T, ttfData []byte) []byte {
 	totalLength := uint32(len(woffBytes))
 
 	// Calculate totalSfntSize.
-	highPow2 := 1 << bits.Len(uint(numTables)>>1)
-	if highPow2 == 0 {
-		highPow2 = 1
-	}
 	totalSfntSize := uint32(12 + numTables*16)
 	for _, e := range woffEntries {
 		totalSfntSize += (e.origLen + 3) &^ 3

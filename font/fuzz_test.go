@@ -22,6 +22,6 @@ func FuzzParseTTF(f *testing.F) {
 			}
 		}()
 		// Errors are expected for random input; only panics are failures.
-		ParseTTF(data)
+		_, _ = ParseTTF(data)
 	})
 }
