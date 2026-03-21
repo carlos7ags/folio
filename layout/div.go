@@ -535,7 +535,8 @@ func (d *Div) PlanLayout(area LayoutArea) LayoutPlan {
 	remaining := innerHeight
 
 	allFit := true
-	for _, elem := range d.elements {
+	overflowStartIdx := -1
+	for idx, elem := range d.elements {
 		plan := elem.PlanLayout(LayoutArea{Width: innerWidth, Height: remaining})
 
 		switch plan.Status {
@@ -555,12 +556,14 @@ func (d *Div) PlanLayout(area LayoutArea) LayoutPlan {
 				fittedBlocks = append(fittedBlocks, block)
 			}
 			allFit = false
+			overflowStartIdx = idx
 			if plan.Overflow != nil {
 				overflowElements = append(overflowElements, plan.Overflow)
 			}
 
 		case LayoutNothing:
 			allFit = false
+			overflowStartIdx = idx
 			overflowElements = append(overflowElements, elem)
 		}
 
@@ -569,25 +572,9 @@ func (d *Div) PlanLayout(area LayoutArea) LayoutPlan {
 		}
 	}
 
-	// Add remaining un-laid-out elements to overflow.
-	if !allFit {
-		for i, elem := range d.elements {
-			// Find where we stopped.
-			found := false
-			for _, oe := range overflowElements {
-				if oe == elem {
-					found = true
-					break
-				}
-			}
-			if found {
-				// Add all elements after this one.
-				if i+1 < len(d.elements) {
-					overflowElements = append(overflowElements, d.elements[i+1:]...)
-				}
-				break
-			}
-		}
+	// Add remaining un-laid-out siblings to overflow.
+	if overflowStartIdx >= 0 && overflowStartIdx+1 < len(d.elements) {
+		overflowElements = append(overflowElements, d.elements[overflowStartIdx+1:]...)
 	}
 
 	totalH := curY + d.padding.Bottom

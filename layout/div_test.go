@@ -179,3 +179,35 @@ func TestDivNegativeMargins(t *testing.T) {
 		t.Fatalf("expected 1 line, got %d", len(lines))
 	}
 }
+
+func TestDivOverflowKeepsFollowingChildren(t *testing.T) {
+	// First child is large enough to require multiple pages, so Div must
+	// enqueue both the overflow portion and the remaining siblings.
+	first := NewParagraph(strings.Repeat("long text ", 200), font.Helvetica, 12)
+	second := NewParagraph("Second child", font.Helvetica, 12)
+	third := NewParagraph("Third child", font.Helvetica, 12)
+
+	d := NewDiv().
+		Add(first).
+		Add(second).
+		Add(third)
+
+	plan := d.PlanLayout(LayoutArea{Width: 200, Height: 50})
+	if plan.Status != LayoutPartial {
+		t.Fatalf("expected LayoutPartial, got %v", plan.Status)
+	}
+	next, ok := plan.Overflow.(*Div)
+	if !ok {
+		t.Fatalf("expected overflow Div, got %T", plan.Overflow)
+	}
+	children := next.Children()
+	if len(children) < 3 {
+		t.Fatalf("expected overflow div to keep overflow + 2 siblings, got %d", len(children))
+	}
+	if children[1] != second {
+		t.Fatal("second child missing from overflow div")
+	}
+	if children[2] != third {
+		t.Fatal("third child missing from overflow div")
+	}
+}
