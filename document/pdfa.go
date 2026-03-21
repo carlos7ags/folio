@@ -51,6 +51,13 @@ type PdfAConfig struct {
 	// OutputCondition is the output condition identifier
 	// (e.g. "sRGB IEC61966-2.1"). Defaults to "sRGB IEC61966-2.1".
 	OutputCondition string
+
+	// XMPExtension is an optional block of raw RDF XML that is injected
+	// verbatim into the XMP metadata stream, immediately before the closing
+	// </rdf:RDF> tag. Use this to add application-specific XMP namespaces
+	// such as the Factur-X/ZUGFeRD fx: description block required by
+	// ZUGFeRD validators. The string must be a valid rdf:Description element.
+	XMPExtension string
 }
 
 // SetPdfA enables PDF/A conformance on the document.
@@ -151,7 +158,7 @@ func (d *Document) validatePdfA(allPages []*Page) error {
 }
 
 // buildXMPMetadata generates the XMP metadata stream for PDF/A identification.
-func buildXMPMetadata(info Info, level PdfALevel, addObject func(core.PdfObject) *core.PdfIndirectReference) *core.PdfIndirectReference {
+func buildXMPMetadata(info Info, level PdfALevel, xmpExtension string, addObject func(core.PdfObject) *core.PdfIndirectReference) *core.PdfIndirectReference {
 	part := pdfAPartNumber(level)
 	conf := pdfALevelString(level)
 
@@ -249,6 +256,12 @@ func buildXMPMetadata(info Info, level PdfALevel, addObject func(core.PdfObject)
 		b.WriteString(`</rdf:li></rdf:Bag></pdfaExtension:schemas>`)
 		b.WriteString("\n")
 		b.WriteString(`</rdf:Description>`)
+		b.WriteString("\n")
+	}
+
+	// Application-specific XMP extension (e.g. Factur-X/ZUGFeRD fx: block).
+	if xmpExtension != "" {
+		b.WriteString(xmpExtension)
 		b.WriteString("\n")
 	}
 
