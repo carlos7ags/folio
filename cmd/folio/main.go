@@ -104,7 +104,7 @@ Commands:
 func cmdMerge(args []string) error {
 	output, inputs := parseMergeArgs(args)
 	if output == "" || len(inputs) < 1 {
-		return fmt.Errorf("usage: folio merge -o output.pdf input1.pdf input2.pdf ...")
+		return fmt.Errorf("usage: folio merge -o output.pdf input1.pdf input2.pdf")
 	}
 
 	var readers []*reader.PdfReader

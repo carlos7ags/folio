@@ -634,9 +634,6 @@ func (t *Table) buildGrid(colWidths []float64) []gridRow {
 	// Track which cells in the grid are occupied (by rowspan from above).
 	// occupied[row][col] = true if occupied by a spanning cell from a previous row.
 	// We build this dynamically as we process rows.
-	type spanInfo struct {
-		remainingRows int
-	}
 	// colOccupied tracks how many more rows each column is occupied for.
 	colOccupied := make([]int, nCols)
 

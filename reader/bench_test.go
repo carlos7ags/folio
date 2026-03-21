@@ -21,13 +21,13 @@ func init() {
 	p2 := doc.AddPage()
 	p2.AddText("Second page content", font.Helvetica, 12, 72, 700)
 	var buf bytes.Buffer
-	doc.WriteTo(&buf)
+	_, _ = doc.WriteTo(&buf)
 	benchPDF = buf.Bytes()
 }
 
 func BenchmarkParse(b *testing.B) {
 	for range b.N {
-		Parse(benchPDF)
+		_, _ = Parse(benchPDF)
 	}
 }
 
@@ -60,6 +60,6 @@ func BenchmarkMerge(b *testing.B) {
 	for range b.N {
 		m, _ := Merge(r1, r2)
 		var buf bytes.Buffer
-		m.WriteTo(&buf)
+		_, _ = m.WriteTo(&buf)
 	}
 }

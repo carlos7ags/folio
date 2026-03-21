@@ -69,7 +69,7 @@ func TestBuildObjects(t *testing.T) {
 
 	// Verify Type0 dict
 	var buf bytes.Buffer
-	type0.WriteTo(&buf)
+	_, _ = type0.WriteTo(&buf)
 	s := buf.String()
 
 	if !strings.Contains(s, "/Subtype /Type0") {
@@ -103,7 +103,7 @@ func TestBuildObjectsFontDescriptor(t *testing.T) {
 	// Object 0: font stream, Object 1: descriptor
 	descriptor := objects[1]
 	var buf bytes.Buffer
-	descriptor.WriteTo(&buf)
+	_, _ = descriptor.WriteTo(&buf)
 	s := buf.String()
 
 	if !strings.Contains(s, "/Type /FontDescriptor") {
@@ -143,7 +143,7 @@ func TestBuildObjectsCIDFont(t *testing.T) {
 	// Object 2: CIDFont
 	cidFont := objects[2]
 	var buf bytes.Buffer
-	cidFont.WriteTo(&buf)
+	_, _ = cidFont.WriteTo(&buf)
 	s := buf.String()
 
 	if !strings.Contains(s, "/Subtype /CIDFontType2") {

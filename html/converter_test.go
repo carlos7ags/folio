@@ -2490,7 +2490,7 @@ func TestFormWithCSSStyling(t *testing.T) {
 func TestConvertExternalCSS(t *testing.T) {
 	dir := t.TempDir()
 	cssPath := filepath.Join(dir, "style.css")
-	os.WriteFile(cssPath, []byte("p { color: red; font-size: 24px; }"), 0644)
+	_ = os.WriteFile(cssPath, []byte("p { color: red; font-size: 24px; }"), 0644)
 
 	htmlStr := `<html><head><link rel="stylesheet" href="style.css"></head><body><p>Styled</p></body></html>`
 	elems, err := Convert(htmlStr, &Options{BasePath: dir})
@@ -2520,7 +2520,7 @@ func TestConvertExternalCSSMissingFile(t *testing.T) {
 func TestConvertExternalCSSOverriddenByStyle(t *testing.T) {
 	dir := t.TempDir()
 	cssPath := filepath.Join(dir, "base.css")
-	os.WriteFile(cssPath, []byte("p { font-size: 10px; }"), 0644)
+	_ = os.WriteFile(cssPath, []byte("p { font-size: 10px; }"), 0644)
 
 	htmlStr := `<html><head>
 		<link rel="stylesheet" href="base.css">
@@ -3420,7 +3420,7 @@ func createTestJPEG(t *testing.T) string {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	if err := jpeg.Encode(f, img, nil); err != nil {
 		t.Fatal(err)
 	}
@@ -3698,7 +3698,7 @@ func TestBackgroundImageHTTPURL(t *testing.T) {
 	}
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "image/png")
-		png.Encode(w, img)
+		_ = png.Encode(w, img)
 	}))
 	defer srv.Close()
 

@@ -25,7 +25,7 @@ func NewJPEG(data []byte) (*Image, error) {
 		return nil, fmt.Errorf("jpeg: %w", err)
 	}
 
-	cs := "DeviceRGB"
+	var cs string
 	switch ncomp {
 	case 1:
 		cs = "DeviceGray"

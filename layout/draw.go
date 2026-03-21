@@ -205,7 +205,8 @@ func drawDecorations(stream *content.Stream, word Word, x, baselineY float64) {
 
 	if word.Decoration&DecorationUnderline != 0 {
 		uy := baselineY - word.FontSize*0.15
-		if word.DecorationStyle == "double" {
+		switch word.DecorationStyle {
+		case "double":
 			// Draw two lines separated by the line width.
 			stream.MoveTo(x, uy)
 			stream.LineTo(x+word.Width, uy)
@@ -213,9 +214,9 @@ func drawDecorations(stream *content.Stream, word Word, x, baselineY float64) {
 			stream.MoveTo(x, uy-lw*2)
 			stream.LineTo(x+word.Width, uy-lw*2)
 			stream.Stroke()
-		} else if word.DecorationStyle == "wavy" {
+		case "wavy":
 			drawWavyLine(stream, x, uy, word.Width, lw)
-		} else {
+		default:
 			stream.MoveTo(x, uy)
 			stream.LineTo(x+word.Width, uy)
 			stream.Stroke()
@@ -223,16 +224,17 @@ func drawDecorations(stream *content.Stream, word Word, x, baselineY float64) {
 	}
 	if word.Decoration&DecorationStrikethrough != 0 {
 		sy := baselineY + word.FontSize*0.3
-		if word.DecorationStyle == "double" {
+		switch word.DecorationStyle {
+		case "double":
 			stream.MoveTo(x, sy)
 			stream.LineTo(x+word.Width, sy)
 			stream.Stroke()
 			stream.MoveTo(x, sy+lw*2)
 			stream.LineTo(x+word.Width, sy+lw*2)
 			stream.Stroke()
-		} else if word.DecorationStyle == "wavy" {
+		case "wavy":
 			drawWavyLine(stream, x, sy, word.Width, lw)
-		} else {
+		default:
 			stream.MoveTo(x, sy)
 			stream.LineTo(x+word.Width, sy)
 			stream.Stroke()
@@ -315,18 +317,6 @@ func registerFontStandard(page *PageResult, f *font.Standard) string {
 	}
 	name := fmt.Sprintf("F%d", len(page.Fonts)+1)
 	page.Fonts = append(page.Fonts, FontEntry{Name: name, Standard: f})
-	return name
-}
-
-// registerFontEmbedded ensures an embedded font is registered on the page.
-func registerFontEmbedded(page *PageResult, ef *font.EmbeddedFont) string {
-	for _, fe := range page.Fonts {
-		if fe.Embedded == ef {
-			return fe.Name
-		}
-	}
-	name := fmt.Sprintf("F%d", len(page.Fonts)+1)
-	page.Fonts = append(page.Fonts, FontEntry{Name: name, Embedded: ef})
 	return name
 }
 

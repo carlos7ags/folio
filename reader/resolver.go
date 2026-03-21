@@ -552,7 +552,7 @@ func inflateFlateDecode(data []byte, maxBytes int64) ([]byte, error) {
 	if err != nil {
 		return nil, fmt.Errorf("FlateDecode: %w", err)
 	}
-	defer r.Close()
+	defer func() { _ = r.Close() }()
 
 	result, err := limitedReadAll(r, maxBytes)
 	if err != nil {

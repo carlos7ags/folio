@@ -51,7 +51,7 @@ func TestPageNoBoxesDefault(t *testing.T) {
 	doc.AddPage()
 
 	var buf bytes.Buffer
-	doc.WriteTo(&buf)
+	_, _ = doc.WriteTo(&buf)
 
 	pdf := buf.String()
 	// Without explicit boxes, only MediaBox should appear.

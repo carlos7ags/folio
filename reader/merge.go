@@ -218,7 +218,7 @@ func (m *Modifier) SaveTo(path string) error {
 		return err
 	}
 	if _, err := m.WriteTo(f); err != nil {
-		f.Close()
+		_ = f.Close()
 		return err
 	}
 	return f.Close()

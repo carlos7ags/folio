@@ -233,52 +233,6 @@ func QRWithECC(data string, level ECCLevel) (*Barcode, error) {
 	return &Barcode{modules: bestModules, width: size, height: size}, nil
 }
 
-// --- Byte capacity table: [41][4]int, index 0 unused, columns L/M/Q/H ---
-
-var qrByteCapacity = [41][4]int{
-	{0, 0, 0, 0},             // version 0 unused
-	{17, 14, 11, 7},          // version 1
-	{32, 26, 20, 14},         // version 2
-	{53, 42, 32, 24},         // version 3
-	{78, 62, 46, 34},         // version 4
-	{106, 84, 60, 44},        // version 5
-	{134, 106, 74, 58},       // version 6
-	{154, 122, 86, 64},       // version 7
-	{192, 152, 108, 84},      // version 8
-	{230, 180, 130, 98},      // version 9
-	{271, 213, 151, 119},     // version 10
-	{321, 251, 177, 137},     // version 11
-	{367, 287, 203, 155},     // version 12
-	{425, 331, 241, 177},     // version 13
-	{458, 362, 258, 194},     // version 14
-	{520, 412, 292, 220},     // version 15
-	{586, 450, 322, 250},     // version 16
-	{644, 504, 364, 280},     // version 17
-	{718, 560, 394, 310},     // version 18
-	{792, 624, 442, 338},     // version 19
-	{858, 666, 482, 382},     // version 20
-	{929, 711, 509, 403},     // version 21
-	{1003, 779, 565, 439},    // version 22
-	{1091, 857, 611, 461},    // version 23
-	{1171, 911, 661, 511},    // version 24
-	{1273, 997, 715, 535},    // version 25
-	{1367, 1059, 751, 593},   // version 26
-	{1465, 1125, 805, 625},   // version 27
-	{1528, 1190, 868, 658},   // version 28
-	{1628, 1264, 908, 698},   // version 29
-	{1732, 1370, 982, 742},   // version 30
-	{1840, 1452, 1030, 790},  // version 31
-	{1952, 1538, 1112, 842},  // version 32
-	{2068, 1628, 1168, 898},  // version 33
-	{2188, 1722, 1228, 958},  // version 34
-	{2303, 1809, 1283, 983},  // version 35
-	{2431, 1911, 1351, 1051}, // version 36
-	{2563, 1989, 1423, 1093}, // version 37
-	{2699, 2099, 1499, 1139}, // version 38
-	{2809, 2213, 1579, 1219}, // version 39
-	{2953, 2331, 1663, 1273}, // version 40
-}
-
 // --- Data codewords table: [41][4]int, columns L/M/Q/H ---
 
 var qrDataCodewords = [41][4]int{
@@ -641,11 +595,11 @@ func encodeNumericData(data string, version int) []bool {
 		bits = appendBitsN(bits, val, 10)
 		i += 3
 	}
-	remaining := len(data) - i
-	if remaining == 2 {
+	switch remaining := len(data) - i; remaining {
+	case 2:
 		val := int(data[i]-'0')*10 + int(data[i+1]-'0')
 		bits = appendBitsN(bits, val, 7)
-	} else if remaining == 1 {
+	case 1:
 		val := int(data[i] - '0')
 		bits = appendBitsN(bits, val, 4)
 	}

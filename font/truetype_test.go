@@ -228,5 +228,5 @@ func TestStemV(t *testing.T) {
 func TestFaceInterface(t *testing.T) {
 	// Verify sfntFace implements Face at compile time
 	face := loadTestFace(t)
-	var _ Face = face
+	var _ Face = face //nolint:staticcheck // compile-time interface check
 }

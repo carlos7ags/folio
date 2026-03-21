@@ -225,10 +225,7 @@ func parseCompositeComponents(data []byte) []uint16 {
 	pos := 10
 	var components []uint16
 
-	for {
-		if pos+4 > len(data) {
-			break
-		}
+	for pos+4 <= len(data) {
 		flags := binary.BigEndian.Uint16(data[pos:])
 		glyphIdx := binary.BigEndian.Uint16(data[pos+2:])
 		components = append(components, glyphIdx)

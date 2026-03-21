@@ -18,7 +18,7 @@ func FuzzNewJPEG(f *testing.F) {
 			}
 		}()
 		// Errors are expected for random input; only panics are failures.
-		NewJPEG(data)
+		_, _ = NewJPEG(data)
 	})
 }
 
@@ -35,6 +35,6 @@ func FuzzNewPNG(f *testing.F) {
 			}
 		}()
 		// Errors are expected for random input; only panics are failures.
-		NewPNG(data)
+		_, _ = NewPNG(data)
 	})
 }

@@ -780,7 +780,6 @@ func (f *Flex) planColumn(area LayoutArea) LayoutPlan {
 		case LayoutFull:
 			// Use a small epsilon to avoid floating-point precision issues.
 			if plan.Consumed > remaining+0.01 && fittedCount > 0 {
-				allFit = false
 				return f.buildColumnResult(earlyBlocks, curY, area.Width, f.items[i:])
 			}
 			xOffset := f.columnAlignOffset(align, innerWidth, itemWidth) + item.marginLeft
@@ -816,14 +815,12 @@ func (f *Flex) planColumn(area LayoutArea) LayoutPlan {
 				})
 			}
 			overflowItems = append(overflowItems, f.items[i+1:]...)
-			allFit = false
 			return f.buildColumnResult(earlyBlocks, curY, area.Width, overflowItems)
 
 		case LayoutNothing:
 			if fittedCount == 0 {
 				return LayoutPlan{Status: LayoutNothing}
 			}
-			allFit = false
 			return f.buildColumnResult(earlyBlocks, curY, area.Width, f.items[i:])
 		}
 	}

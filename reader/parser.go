@@ -221,9 +221,8 @@ func (p *Parser) ParseIndirectObject() (objNum, genNum int, obj core.PdfObject, 
 	// Read "endobj" keyword.
 	p.tok.SkipWhitespace()
 	endTok := p.tok.Next()
-	if endTok.Type != TokenKeyword || endTok.Value != "endobj" {
-		// Some PDFs are lenient about endobj — don't fail hard.
-	}
+	// Some PDFs are lenient about endobj — don't fail hard.
+	_ = endTok
 
 	return objNum, genNum, obj, nil
 }
