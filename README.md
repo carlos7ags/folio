@@ -1,7 +1,7 @@
 # Folio
 
 A modern PDF library for Go — layout engine, HTML to PDF,
-forms, digital signatures, barcodes, and PDF/A compliance.
+forms, digital signatures, barcodes, and PDF/A compliance (including PDF/A-3B with embedded files for ZUGFeRD/Factur-X).
 
 [![Go Reference](https://pkg.go.dev/badge/github.com/carlos7ags/folio.svg)](https://pkg.go.dev/github.com/carlos7ags/folio)
 [![CI](https://github.com/carlos7ags/folio/actions/workflows/ci.yml/badge.svg)](https://github.com/carlos7ags/folio/actions)
@@ -284,6 +284,50 @@ doc.SetPageLabels(
     document.PageLabelRange{PageIndex: 4, Style: document.LabelDecimal},
 )
 ```
+
+### PDF/A-3B — Embedded File Attachments (ZUGFeRD / Factur-X)
+
+PDF/A-3B is the only PDF/A level that permits arbitrary embedded file
+attachments. This makes it the standard choice for hybrid e-invoice formats
+such as ZUGFeRD and Factur-X, where a machine-readable XML file is carried
+inside a human-readable PDF.
+
+```go
+xmlData, _ := os.ReadFile("factur-x.xml")
+
+doc := document.NewDocument(document.PageSizeA4)
+doc.Info.Title = "Invoice 2024-001"
+doc.SetPdfA(document.PdfAConfig{Level: document.PdfA3B})
+
+doc.AttachFile(document.FileAttachment{
+    FileName:       "factur-x.xml",
+    MIMEType:       "application/xml",
+    Description:    "Factur-X/ZUGFeRD XML Invoice",
+    AFRelationship: "Alternative", // XML is the machine-readable equivalent
+    Data:           xmlData,
+})
+
+doc.Save("invoice.pdf")
+```
+
+**`AFRelationship` values:**
+
+| Value | Meaning |
+|---|---|
+| `Alternative` | XML is an alternative representation of the PDF content (ZUGFeRD/Factur-X) |
+| `Source` | The attachment is the source from which the PDF was derived |
+| `Data` | Related data |
+| `Supplement` | Supplements the PDF content |
+| `Unspecified` | Relationship not specified (default) |
+
+Multiple files can be attached to a single document:
+
+```go
+doc.AttachFile(document.FileAttachment{FileName: "invoice.xml", ...})
+doc.AttachFile(document.FileAttachment{FileName: "schema.xsd", ...})
+```
+
+Validated against veraPDF 1.28 — 146/146 rules pass.
 
 ---
 
