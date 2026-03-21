@@ -73,6 +73,7 @@ type Document struct {
 	viewerPrefs   *ViewerPreferences
 	pageLabels    []PageLabelRange
 	autoBookmarks bool // if true, generate outlines from layout headings
+	attachments   []FileAttachment
 }
 
 // NewDocument creates a new PDF document with the given page size.
@@ -718,6 +719,11 @@ func (d *Document) WriteTo(w io.Writer) (int64, error) {
 			return 0, err
 		}
 
+		// /ID in the trailer is required for all PDF/A levels (ISO 19005 §6.1.3).
+		if err := writer.GenerateFileID(); err != nil {
+			return 0, err
+		}
+
 		// XMP metadata stream (required for PDF/A).
 		xmpRef := buildXMPMetadata(d.Info, d.pdfA.Level, writer.AddObject)
 		catalog.Set("Metadata", xmpRef)
@@ -725,6 +731,11 @@ func (d *Document) WriteTo(w io.Writer) (int64, error) {
 		// Output intent (required for PDF/A).
 		intentRef := buildOutputIntent(d.pdfA, writer.AddObject)
 		catalog.Set("OutputIntents", core.NewPdfArray(intentRef))
+	}
+
+	// File attachments (PDF/A-3B only; validated in validatePdfA).
+	if len(d.attachments) > 0 {
+		buildAttachments(d.attachments, catalog, writer.AddObject)
 	}
 
 	// Viewer preferences.

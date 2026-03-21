@@ -6,6 +6,7 @@
 package document
 
 import (
+	"crypto/rand"
 	"fmt"
 	"io"
 
@@ -30,6 +31,7 @@ type Writer struct {
 	info       *core.PdfIndirectReference // /Info entry in trailer (optional)
 	encryptor  *core.Encryptor            // nil if no encryption
 	encryptRef *core.PdfIndirectReference // /Encrypt entry in trailer
+	fileID     []byte                     // 16-byte file identifier for /ID in trailer
 }
 
 // NewWriter creates a Writer targeting the given PDF version.
@@ -57,6 +59,24 @@ func (w *Writer) SetRoot(ref *core.PdfIndirectReference) {
 // SetInfo sets the document info reference for the trailer /Info entry.
 func (w *Writer) SetInfo(ref *core.PdfIndirectReference) {
 	w.info = ref
+}
+
+// SetFileID sets a 16-byte file identifier written to the trailer /ID array.
+// PDF/A (all parts) requires /ID unconditionally (ISO 19005 §6.1.3).
+// If not called, no /ID is written unless encryption is active.
+func (w *Writer) SetFileID(id []byte) {
+	w.fileID = id
+}
+
+// GenerateFileID creates a random 16-byte file identifier and sets it.
+// Returns an error if the random source fails.
+func (w *Writer) GenerateFileID() error {
+	id := make([]byte, 16)
+	if _, err := rand.Read(id); err != nil {
+		return fmt.Errorf("writer: generate file ID: %w", err)
+	}
+	w.fileID = id
+	return nil
 }
 
 // SetEncryption configures encryption for the PDF output.
@@ -139,8 +159,12 @@ func (w *Writer) WriteTo(out io.Writer) (int64, error) {
 	}
 	if w.encryptor != nil {
 		trailer.Set("Encrypt", w.encryptRef)
-		// /ID array is required for encrypted documents.
+		// Encryption has its own file ID; use it and override any previously set fileID.
 		id := core.NewPdfHexString(string(w.encryptor.FileID))
+		trailer.Set("ID", core.NewPdfArray(id, id))
+	} else if len(w.fileID) > 0 {
+		// /ID is required for PDF/A (ISO 19005 §6.1.3) even without encryption.
+		id := core.NewPdfHexString(string(w.fileID))
 		trailer.Set("ID", core.NewPdfArray(id, id))
 	}
 

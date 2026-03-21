@@ -137,6 +137,11 @@ func (d *Document) validatePdfA(allPages []*Page) error {
 		}
 	}
 
+	// File attachments are only permitted in PDF/A-3B (ISO 19005-3 §6.4).
+	if len(d.attachments) > 0 && d.pdfA.Level != PdfA3B {
+		return fmt.Errorf("pdfa: file attachments are only permitted in PDF/A-3B; current level does not allow them")
+	}
+
 	// Title is required.
 	if d.Info.Title == "" {
 		return fmt.Errorf("pdfa: document Title is required for PDF/A conformance")
@@ -222,6 +227,30 @@ func buildXMPMetadata(info Info, level PdfALevel, addObject func(core.PdfObject)
 	b.WriteString("\n")
 	b.WriteString(`</rdf:Description>`)
 	b.WriteString("\n")
+
+	// PDF/A-3 requires declaring the AF property via the pdfaExtension schema.
+	// Without this block strict validators (e.g. veraPDF) report a schema error.
+	if level == PdfA3B {
+		b.WriteString(`<rdf:Description rdf:about=""`)
+		b.WriteString(` xmlns:pdfaExtension="http://www.aiim.org/pdfa/ns/extension/"`)
+		b.WriteString(` xmlns:pdfaSchema="http://www.aiim.org/pdfa/ns/schema#"`)
+		b.WriteString(` xmlns:pdfaProperty="http://www.aiim.org/pdfa/ns/property#">`)
+		b.WriteString("\n")
+		b.WriteString(`<pdfaExtension:schemas><rdf:Bag><rdf:li rdf:parseType="Resource">`)
+		b.WriteString(`<pdfaSchema:schema>PDF/A-3 Association File Attachment</pdfaSchema:schema>`)
+		b.WriteString(`<pdfaSchema:namespaceURI>http://www.aiim.org/pdfa/ns/f#</pdfaSchema:namespaceURI>`)
+		b.WriteString(`<pdfaSchema:prefix>pdfaf</pdfaSchema:prefix>`)
+		b.WriteString(`<pdfaSchema:property><rdf:Seq><rdf:li rdf:parseType="Resource">`)
+		b.WriteString(`<pdfaProperty:name>file</pdfaProperty:name>`)
+		b.WriteString(`<pdfaProperty:valueType>URI</pdfaProperty:valueType>`)
+		b.WriteString(`<pdfaProperty:category>external</pdfaProperty:category>`)
+		b.WriteString(`<pdfaProperty:description>Associated file</pdfaProperty:description>`)
+		b.WriteString(`</rdf:li></rdf:Seq></pdfaSchema:property>`)
+		b.WriteString(`</rdf:li></rdf:Bag></pdfaExtension:schemas>`)
+		b.WriteString("\n")
+		b.WriteString(`</rdf:Description>`)
+		b.WriteString("\n")
+	}
 
 	b.WriteString(`</rdf:RDF>`)
 	b.WriteString("\n")

@@ -300,6 +300,204 @@ func TestPdfA1bQpdfCheck(t *testing.T) {
 	runQpdfCheck(t, buf.Bytes())
 }
 
+func TestPdfA3bAttachXML(t *testing.T) {
+	doc := NewDocument(PageSizeLetter)
+	doc.Info.Title = "PDF/A-3B Attachment Test"
+	doc.SetPdfA(PdfAConfig{Level: PdfA3B})
+
+	doc.AttachFile(FileAttachment{
+		FileName:       "invoice.xml",
+		MIMEType:       "application/xml",
+		Description:    "Test XML attachment",
+		AFRelationship: "Alternative",
+		Data:           []byte(`<?xml version="1.0"?><invoice><id>1</id></invoice>`),
+	})
+
+	var buf bytes.Buffer
+	if _, err := doc.WriteTo(&buf); err != nil {
+		t.Fatalf("WriteTo failed: %v", err)
+	}
+
+	pdf := buf.String()
+
+	if !strings.Contains(pdf, "/EmbeddedFiles") {
+		t.Error("expected /EmbeddedFiles in output")
+	}
+	if !strings.Contains(pdf, "/AF ") {
+		t.Error("expected /AF in catalog")
+	}
+	if !strings.Contains(pdf, "/AFRelationship") {
+		t.Error("expected /AFRelationship in filespec")
+	}
+	if !strings.Contains(pdf, "/Alternative") {
+		t.Error("expected /Alternative as AFRelationship value")
+	}
+	if !strings.Contains(pdf, "invoice.xml") {
+		t.Error("expected filename in output")
+	}
+	if !strings.Contains(pdf, "/EmbeddedFile") {
+		t.Error("expected /EmbeddedFile stream type")
+	}
+	if !strings.Contains(pdf, "/UF ") {
+		t.Error("expected /UF (Unicode filename) in filespec")
+	}
+	if !strings.Contains(pdf, "pdfaExtension") {
+		t.Error("expected pdfaExtension schema declaration in XMP")
+	}
+}
+
+func TestPdfA3bAttachMultipleFiles(t *testing.T) {
+	doc := NewDocument(PageSizeLetter)
+	doc.Info.Title = "Multiple Attachments Test"
+	doc.SetPdfA(PdfAConfig{Level: PdfA3B})
+
+	doc.AttachFile(FileAttachment{
+		FileName: "first.xml",
+		MIMEType: "application/xml",
+		Data:     []byte(`<first/>`),
+	})
+	doc.AttachFile(FileAttachment{
+		FileName: "second.xml",
+		MIMEType: "application/xml",
+		Data:     []byte(`<second/>`),
+	})
+
+	var buf bytes.Buffer
+	if _, err := doc.WriteTo(&buf); err != nil {
+		t.Fatalf("WriteTo failed: %v", err)
+	}
+
+	pdf := buf.String()
+	if !strings.Contains(pdf, "first.xml") {
+		t.Error("expected first.xml in output")
+	}
+	if !strings.Contains(pdf, "second.xml") {
+		t.Error("expected second.xml in output")
+	}
+}
+
+func TestPdfA2bRejectsAttachment(t *testing.T) {
+	doc := NewDocument(PageSizeLetter)
+	doc.Info.Title = "Attachment Rejection Test"
+	doc.SetPdfA(PdfAConfig{Level: PdfA2B})
+
+	doc.AttachFile(FileAttachment{
+		FileName: "invoice.xml",
+		MIMEType: "application/xml",
+		Data:     []byte(`<invoice/>`),
+	})
+
+	var buf bytes.Buffer
+	_, err := doc.WriteTo(&buf)
+	if err == nil {
+		t.Error("expected error when attaching file to PDF/A-2B document")
+	}
+	if err != nil && !strings.Contains(err.Error(), "PDF/A-3B") {
+		t.Errorf("expected error mentioning PDF/A-3B, got: %v", err)
+	}
+}
+
+func TestPdfA3bDefaultAFRelationship(t *testing.T) {
+	doc := NewDocument(PageSizeLetter)
+	doc.Info.Title = "Default AFRelationship Test"
+	doc.SetPdfA(PdfAConfig{Level: PdfA3B})
+
+	doc.AttachFile(FileAttachment{
+		FileName: "data.xml",
+		MIMEType: "application/xml",
+		Data:     []byte(`<data/>`),
+		// AFRelationship intentionally left empty
+	})
+
+	var buf bytes.Buffer
+	if _, err := doc.WriteTo(&buf); err != nil {
+		t.Fatalf("WriteTo failed: %v", err)
+	}
+
+	if !strings.Contains(buf.String(), "/Unspecified") {
+		t.Error("expected /Unspecified as default AFRelationship")
+	}
+}
+
+func TestPdfA3bAttachNoDesc(t *testing.T) {
+	doc := NewDocument(PageSizeLetter)
+	doc.Info.Title = "No Description Test"
+	doc.SetPdfA(PdfAConfig{Level: PdfA3B})
+
+	doc.AttachFile(FileAttachment{
+		FileName: "nodesc.xml",
+		MIMEType: "application/xml",
+		Data:     []byte(`<nodesc/>`),
+		// Description intentionally left empty
+	})
+
+	var buf bytes.Buffer
+	if _, err := doc.WriteTo(&buf); err != nil {
+		t.Fatalf("WriteTo failed: %v", err)
+	}
+}
+
+func TestPdfA3bAttachMIMETypeEncoding(t *testing.T) {
+	doc := NewDocument(PageSizeLetter)
+	doc.Info.Title = "MIME Encoding Test"
+	doc.SetPdfA(PdfAConfig{Level: PdfA3B})
+
+	doc.AttachFile(FileAttachment{
+		FileName: "invoice.xml",
+		MIMEType: "application/xml",
+		Data:     []byte(`<invoice/>`),
+	})
+
+	var buf bytes.Buffer
+	if _, err := doc.WriteTo(&buf); err != nil {
+		t.Fatalf("WriteTo failed: %v", err)
+	}
+
+	pdf := buf.String()
+
+	// core.encodeName encodes '/' (a PDF delimiter) as '#2F' (uppercase hex).
+	// So "application/xml" passed to NewPdfName must appear as
+	// /application#2Fxml in the serialized output.
+	if !strings.Contains(pdf, "/application#2Fxml") {
+		t.Error("expected MIME type to be serialized as /application#2Fxml in PDF name")
+	}
+}
+
+func TestPdfA3bXMPExtensionSchema(t *testing.T) {
+	doc := NewDocument(PageSizeLetter)
+	doc.Info.Title = "XMP Extension Schema Test"
+	doc.SetPdfA(PdfAConfig{Level: PdfA3B})
+
+	var buf bytes.Buffer
+	if _, err := doc.WriteTo(&buf); err != nil {
+		t.Fatalf("WriteTo failed: %v", err)
+	}
+
+	pdf := buf.String()
+	if !strings.Contains(pdf, "http://www.aiim.org/pdfa/ns/extension/") {
+		t.Error("expected pdfaExtension namespace in XMP")
+	}
+	if !strings.Contains(pdf, "http://www.aiim.org/pdfa/ns/f#") {
+		t.Error("expected PDF/A-3 file association namespace in XMP")
+	}
+}
+
+func TestPdfA2bNoXMPExtensionSchema(t *testing.T) {
+	doc := NewDocument(PageSizeLetter)
+	doc.Info.Title = "No XMP Extension for 2B"
+	doc.SetPdfA(PdfAConfig{Level: PdfA2B})
+
+	var buf bytes.Buffer
+	if _, err := doc.WriteTo(&buf); err != nil {
+		t.Fatalf("WriteTo failed: %v", err)
+	}
+
+	// PDF/A-2B should not include the PDF/A-3 extension schema block.
+	if strings.Contains(buf.String(), "pdfaExtension") {
+		t.Error("PDF/A-2B should not contain pdfaExtension schema declaration")
+	}
+}
+
 func TestSRGBICCProfileValid(t *testing.T) {
 	profile := srgbICCProfile()
 
