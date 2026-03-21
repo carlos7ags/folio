@@ -34,13 +34,13 @@ func init() {
 
 // Error codes returned by C ABI functions.
 const (
-	errOK             = 0
-	errInvalidHandle  = -1
-	errInvalidArg     = -2
-	errIO             = -3
-	errPDF            = -4
-	errTypeMismatch   = -5
-	errInternalError  = -6
+	errOK            = 0
+	errInvalidHandle = -1
+	errInvalidArg    = -2
+	errIO            = -3
+	errPDF           = -4
+	errTypeMismatch  = -5
+	errInternalError = -6
 )
 
 // handleTable stores Go objects keyed by uint64 handle IDs.

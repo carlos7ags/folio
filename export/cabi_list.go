@@ -81,4 +81,3 @@ func loadList(h C.uint64_t) (*layout.List, C.int32_t) {
 	}
 	return l, errOK
 }
-

@@ -68,11 +68,11 @@ func buildWOFF(t *testing.T, ttfData []byte) []byte {
 
 	// Write table data (compress each table with zlib).
 	type woffEntry struct {
-		tag        uint32
-		offset     uint32
-		compLen    uint32
-		origLen    uint32
-		checksum   uint32
+		tag      uint32
+		offset   uint32
+		compLen  uint32
+		origLen  uint32
+		checksum uint32
 	}
 	woffEntries := make([]woffEntry, len(tables))
 
@@ -264,8 +264,8 @@ func TestDecodeWOFF_Errors(t *testing.T) {
 		binary.BigEndian.PutUint16(data[12:14], 1)
 		// Table entry: offset pointing way beyond file.
 		entryOff := woffHeaderSize
-		binary.BigEndian.PutUint32(data[entryOff+4:entryOff+8], 9999) // offset
-		binary.BigEndian.PutUint32(data[entryOff+8:entryOff+12], 100) // compLength
+		binary.BigEndian.PutUint32(data[entryOff+4:entryOff+8], 9999)  // offset
+		binary.BigEndian.PutUint32(data[entryOff+8:entryOff+12], 100)  // compLength
 		binary.BigEndian.PutUint32(data[entryOff+12:entryOff+16], 100) // origLength
 		_, err := decodeWOFF(data)
 		if err == nil {

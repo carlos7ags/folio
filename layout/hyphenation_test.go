@@ -79,11 +79,11 @@ func TestHyphenateCommonWords(t *testing.T) {
 		word     string
 		minBreak int // at least this many break points expected
 	}{
-		{"computer", 1},     // com-put-er
-		{"information", 2},  // in-for-ma-tion
-		{"programming", 1},  // pro-gram-ming
-		{"typography", 2},   // ty-pog-ra-phy
-		{"celebration", 2},  // cel-e-bra-tion
+		{"computer", 1},      // com-put-er
+		{"information", 2},   // in-for-ma-tion
+		{"programming", 1},   // pro-gram-ming
+		{"typography", 2},    // ty-pog-ra-phy
+		{"celebration", 2},   // cel-e-bra-tion
 		{"understanding", 2}, // un-der-stand-ing
 	}
 	for _, tt := range tests {
