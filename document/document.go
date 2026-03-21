@@ -725,7 +725,7 @@ func (d *Document) WriteTo(w io.Writer) (int64, error) {
 		}
 
 		// XMP metadata stream (required for PDF/A).
-		xmpRef := buildXMPMetadata(d.Info, d.pdfA.Level, d.pdfA.XMPExtension, writer.AddObject)
+		xmpRef := buildXMPMetadata(d.Info, d.pdfA.Level, d.pdfA.XMPSchemas, d.pdfA.XMPProperties, writer.AddObject)
 		catalog.Set("Metadata", xmpRef)
 
 		// Output intent (required for PDF/A).
