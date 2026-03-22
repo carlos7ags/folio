@@ -8,9 +8,13 @@
 //	folio merge -o output.pdf input1.pdf input2.pdf [input3.pdf ...]
 //	folio info file.pdf
 //	folio pages file.pdf
-//	folio text file.pdf [page]
-//	folio create -o output.pdf -title "Title" -text "Hello World"
-//	folio blank -o output.pdf [-size letter|a4] [-pages 1]
+//	folio text file.pdf [page_number]
+//	folio extract file.pdf [-page N] [-strategy simple|location]
+//	folio sign -cert cert.pem -key key.pem [-o signed.pdf] input.pdf
+//	folio create -o output.pdf [-title "Title"] [-text "Content"]
+//	folio blank -o output.pdf [-size letter|a4] [-pages N]
+//	folio version
+//	folio help
 package main
 
 import (
@@ -72,6 +76,7 @@ func main() {
 	}
 }
 
+// printUsage writes the CLI help text to standard output.
 func printUsage() {
 	fmt.Print(`folio — A modern PDF toolkit
 
@@ -91,7 +96,7 @@ Commands:
   info     Show PDF metadata (title, author, pages, version)
   pages    List page dimensions
   text     Extract text from a page (simple extraction)
-  extract  Extract text with strategy (simple, location, region)
+  extract  Extract text with strategy (simple, location)
   sign     Digitally sign a PDF with PAdES
   create   Create a simple PDF with text content
   blank    Create a blank PDF with N pages
@@ -99,8 +104,7 @@ Commands:
 `)
 }
 
-// --- merge ---
-
+// cmdMerge concatenates multiple PDF files into a single output file.
 func cmdMerge(args []string) error {
 	output, inputs := parseMergeArgs(args)
 	if output == "" || len(inputs) < 1 {
@@ -133,6 +137,7 @@ func cmdMerge(args []string) error {
 	return nil
 }
 
+// parseMergeArgs extracts the output path and input file paths from the merge command arguments.
 func parseMergeArgs(args []string) (output string, inputs []string) {
 	for i := 0; i < len(args); i++ {
 		if args[i] == "-o" && i+1 < len(args) {
@@ -145,8 +150,7 @@ func parseMergeArgs(args []string) (output string, inputs []string) {
 	return
 }
 
-// --- info ---
-
+// cmdInfo displays PDF metadata including title, author, version, and page count.
 func cmdInfo(args []string) error {
 	if len(args) < 1 {
 		return fmt.Errorf("usage: folio info file.pdf")
@@ -181,8 +185,7 @@ func cmdInfo(args []string) error {
 	return nil
 }
 
-// --- pages ---
-
+// cmdPages lists the dimensions and rotation of each page in the PDF.
 func cmdPages(args []string) error {
 	if len(args) < 1 {
 		return fmt.Errorf("usage: folio pages file.pdf")
@@ -208,8 +211,7 @@ func cmdPages(args []string) error {
 	return nil
 }
 
-// --- text ---
-
+// cmdText extracts text from all pages or a specific page using simple extraction.
 func cmdText(args []string) error {
 	if len(args) < 1 {
 		return fmt.Errorf("usage: folio text file.pdf [page_number]")
@@ -252,8 +254,7 @@ func cmdText(args []string) error {
 	return nil
 }
 
-// --- create ---
-
+// cmdCreate generates a new PDF with optional title and text content.
 func cmdCreate(args []string) error {
 	output := ""
 	title := ""
@@ -300,8 +301,7 @@ func cmdCreate(args []string) error {
 	return nil
 }
 
-// --- blank ---
-
+// cmdBlank creates a PDF with the specified number of empty pages and page size.
 func cmdBlank(args []string) error {
 	output := ""
 	size := "letter"
@@ -359,8 +359,7 @@ func cmdBlank(args []string) error {
 	return nil
 }
 
-// --- extract ---
-
+// cmdExtract extracts text from a PDF using a specified strategy (simple or location).
 func cmdExtract(args []string) error {
 	if len(args) < 1 {
 		return fmt.Errorf("usage: folio extract file.pdf [-page N] [-strategy simple|location]")
@@ -434,8 +433,7 @@ func cmdExtract(args []string) error {
 	return nil
 }
 
-// --- sign ---
-
+// cmdSign digitally signs a PDF using a PEM-encoded certificate and private key.
 func cmdSign(args []string) error {
 	certFile := ""
 	keyFile := ""

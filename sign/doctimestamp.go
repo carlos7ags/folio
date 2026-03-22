@@ -19,8 +19,11 @@ import (
 // It uses /SubFilter /ETSI.RFC3161 and /Type /DocTimeStamp.
 type docTimestampDict struct{}
 
+// Type returns ObjectTypeDictionary.
 func (d *docTimestampDict) Type() core.ObjectType { return core.ObjectTypeDictionary }
 
+// WriteTo serializes the document timestamp dictionary with placeholder
+// /ByteRange and /Contents values for later patching.
 func (d *docTimestampDict) WriteTo(w io.Writer) (int64, error) {
 	var total int64
 	write := func(str string) error {

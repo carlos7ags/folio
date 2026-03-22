@@ -307,6 +307,7 @@ type flexLine struct {
 	resolvedSizes []float64 // resolved width per item after grow/shrink
 }
 
+// planRow handles layout for flex-direction: row.
 func (f *Flex) planRow(area LayoutArea) LayoutPlan {
 	innerWidth := area.Width - f.padding.Left - f.padding.Right
 	innerHeight := area.Height - f.padding.Top - f.padding.Bottom - f.spaceBefore - f.spaceAfter
@@ -477,6 +478,7 @@ func (fi *FlexItem) effectiveBasis(available float64) float64 {
 	return fi.basis
 }
 
+// resolveRowBasis computes the flex-basis width for each item in a row layout.
 func (f *Flex) resolveRowBasis(innerWidth float64) []float64 {
 	widths := make([]float64, len(f.items))
 	for i, item := range f.items {
@@ -491,6 +493,7 @@ func (f *Flex) resolveRowBasis(innerWidth float64) []float64 {
 	return widths
 }
 
+// partitionRowLines groups items into flex lines based on wrapping behavior.
 func (f *Flex) partitionRowLines(basisWidths []float64, innerWidth float64) []flexLine {
 	if f.wrap == FlexNoWrap || len(f.items) == 0 {
 		return []flexLine{{items: f.items, resolvedSizes: basisWidths}}
@@ -521,6 +524,7 @@ func (f *Flex) partitionRowLines(basisWidths []float64, innerWidth float64) []fl
 	return lines
 }
 
+// resolveGrowShrink distributes free space among items using flex-grow and flex-shrink factors.
 func (f *Flex) resolveGrowShrink(line flexLine, innerWidth float64) []float64 {
 	n := len(line.items)
 	// Compute basis for this line's items.
@@ -578,6 +582,7 @@ func (f *Flex) resolveGrowShrink(line flexLine, innerWidth float64) []float64 {
 	return resolved
 }
 
+// computeJustifyOffsets computes the X offset for each item based on justify-content.
 func (f *Flex) computeJustifyOffsets(widths []float64, innerWidth float64) []float64 {
 	n := len(widths)
 	offsets := make([]float64, n)
@@ -648,6 +653,7 @@ func (f *Flex) computeJustifyOffsets(widths []float64, innerWidth float64) []flo
 	return offsets
 }
 
+// computeAlignOffset computes the cross-axis offset for an item based on align-items/align-self.
 func (f *Flex) computeAlignOffset(item *FlexItem, lineSize, itemSize float64) float64 {
 	align := f.alignItems
 	if item.alignSelf != nil {
@@ -663,6 +669,7 @@ func (f *Flex) computeAlignOffset(item *FlexItem, lineSize, itemSize float64) fl
 	}
 }
 
+// overflowFrom creates a new Flex containing the items from unfitted lines.
 func (f *Flex) overflowFrom(fittedLineCount int, lines []flexLine) *Flex {
 	var remaining []*FlexItem
 	for i := fittedLineCount; i < len(lines); i++ {
@@ -685,6 +692,7 @@ func (f *Flex) overflowFrom(fittedLineCount int, lines []flexLine) *Flex {
 
 // --- Column direction layout ---
 
+// planColumn handles layout for flex-direction: column.
 func (f *Flex) planColumn(area LayoutArea) LayoutPlan {
 	innerWidth := area.Width - f.padding.Left - f.padding.Right
 	innerHeight := area.Height - f.padding.Top - f.padding.Bottom - f.spaceBefore - f.spaceAfter
@@ -939,6 +947,7 @@ func (f *Flex) planColumn(area LayoutArea) LayoutPlan {
 	return LayoutPlan{Status: LayoutFull, Consumed: consumed, Blocks: []PlacedBlock{containerBlock}}
 }
 
+// columnAlignOffset computes the horizontal offset for cross-axis alignment in column layout.
 func (f *Flex) columnAlignOffset(align AlignItems, innerWidth, itemWidth float64) float64 {
 	switch align {
 	case CrossAlignEnd:
@@ -950,6 +959,7 @@ func (f *Flex) columnAlignOffset(align AlignItems, innerWidth, itemWidth float64
 	}
 }
 
+// buildColumnResult assembles a LayoutPlan for a column flex that needs to split across pages.
 func (f *Flex) buildColumnResult(fittedBlocks []PlacedBlock, curY, areaWidth float64, overflowItems []*FlexItem) LayoutPlan {
 	totalH := curY + f.padding.Bottom
 	consumed := f.spaceBefore + totalH + f.spaceAfter
@@ -972,6 +982,7 @@ func (f *Flex) buildColumnResult(fittedBlocks []PlacedBlock, curY, areaWidth flo
 
 // --- Shared helpers ---
 
+// makeContainerBlock creates the wrapper PlacedBlock with background and borders.
 func (f *Flex) makeContainerBlock(children []PlacedBlock, totalH, outerWidth float64) PlacedBlock {
 	capturedFlex := f
 	capturedH := totalH
@@ -994,7 +1005,8 @@ func (f *Flex) makeContainerBlock(children []PlacedBlock, totalH, outerWidth flo
 	}
 }
 
-// justifyContent also applies to column direction for Y positioning.
+// computeColumnJustifyOffsets computes the Y offset for each item in column direction
+// based on justify-content.
 func (f *Flex) computeColumnJustifyOffsets(heights []float64, innerHeight float64) []float64 {
 	n := len(heights)
 	offsets := make([]float64, n)

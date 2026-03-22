@@ -27,8 +27,8 @@ func buildDA(f *Field) string {
 		fmtNum(r), fmtNum(g), fmtNum(b))
 }
 
-// buildCheckboxAppearance creates /AP dictionary for a checkbox.
-// Contains /N (normal) dict with /Yes and /Off appearance streams.
+// buildCheckboxAppearance creates the /AP dictionary for a checkbox field.
+// The returned dictionary contains a /N (normal) sub-dictionary with /Yes and /Off appearance streams.
 func buildCheckboxAppearance(f *Field, addObject func(core.PdfObject) *core.PdfIndirectReference) *core.PdfDictionary {
 	w := f.Rect[2] - f.Rect[0]
 	h := f.Rect[3] - f.Rect[1]
@@ -77,7 +77,8 @@ func buildCheckboxAppearance(f *Field, addObject func(core.PdfObject) *core.PdfI
 	return ap
 }
 
-// buildWidgetDict creates a standalone widget annotation for radio buttons.
+// buildWidgetDict creates a standalone widget annotation dictionary for a radio button child.
+// The widget is linked to its parent field and, when valid, to the target page.
 func buildWidgetDict(child *Field, parentRef *core.PdfIndirectReference, pageRefs []*core.PdfIndirectReference) *core.PdfDictionary {
 	w := core.NewPdfDictionary()
 	w.Set("Type", core.NewPdfName("Annot"))
@@ -100,7 +101,8 @@ func buildWidgetDict(child *Field, parentRef *core.PdfIndirectReference, pageRef
 	return w
 }
 
-// fmtNum formats a number for PDF appearance strings.
+// fmtNum formats a float64 as a compact string for PDF content streams.
+// Integers are rendered without a decimal point; others use two decimal places.
 func fmtNum(v float64) string {
 	if v == float64(int(v)) {
 		return fmt.Sprintf("%d", int(v))

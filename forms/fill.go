@@ -13,6 +13,7 @@ import (
 // FormFiller reads form fields from an existing PDF and allows
 // modifying their values before saving.
 type FormFiller struct {
+	// reader is the parsed PDF whose form fields are being modified.
 	reader *reader.PdfReader
 }
 
@@ -53,8 +54,8 @@ func (ff *FormFiller) GetValue(fieldName string) (string, error) {
 }
 
 // SetValue sets the value of a form field.
-// The change is applied to the in-memory PDF objects.
-// Call reader.Merge to save the modified document.
+// The change is applied to the in-memory PDF objects. To persist the change,
+// pass the reader to reader.Merge and call SaveTo or WriteTo on the result.
 func (ff *FormFiller) SetValue(fieldName, value string) error {
 	fields, err := ff.getFieldDicts()
 	if err != nil {
@@ -107,7 +108,8 @@ func (ff *FormFiller) SetCheckbox(fieldName string, checked bool) error {
 	return fmt.Errorf("forms: field %q not found", fieldName)
 }
 
-// getFieldDicts extracts all field dictionaries from the AcroForm.
+// getFieldDicts extracts all field dictionaries from the AcroForm,
+// including child widgets of radio button groups.
 func (ff *FormFiller) getFieldDicts() ([]*core.PdfDictionary, error) {
 	catalog := ff.reader.Catalog()
 	acroFormObj := catalog.Get("AcroForm")

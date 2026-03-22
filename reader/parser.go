@@ -16,6 +16,8 @@ type Parser struct {
 	depth int // recursion depth guard
 }
 
+// maxParseDepth limits recursion depth to prevent stack overflow on
+// deeply nested or malicious PDF objects.
 const maxParseDepth = 100
 
 // NewParser creates a parser wrapping a tokenizer.

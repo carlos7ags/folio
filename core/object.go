@@ -1,8 +1,6 @@
 // Copyright 2026 Carlos Munoz and the Folio Authors
 // SPDX-License-Identifier: Apache-2.0
 
-// Package core implements the eight fundamental PDF object types
-// defined in ISO 32000 §7.3, plus indirect references.
 package core
 
 import "io"

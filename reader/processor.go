@@ -135,6 +135,7 @@ type ContentProcessor struct {
 	depth        int // recursion depth (0 = top-level call)
 }
 
+// pathSegment is a single segment of a path being constructed.
 type pathSegment struct {
 	typ    PathType
 	points [][2]float64

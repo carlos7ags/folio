@@ -53,6 +53,8 @@ func LoadTTF(path string) (Face, error) {
 	return ParseTTF(data)
 }
 
+// PostScriptName returns the PostScript name, falling back to the full name
+// if the PostScript name entry is missing or empty.
 func (f *sfntFace) PostScriptName() string {
 	name, err := f.font.Name(&f.buf, sfnt.NameIDPostScript)
 	if err != nil || name == "" {
@@ -61,10 +63,12 @@ func (f *sfntFace) PostScriptName() string {
 	return name
 }
 
+// UnitsPerEm returns the font's design units per em.
 func (f *sfntFace) UnitsPerEm() int {
 	return int(f.font.UnitsPerEm())
 }
 
+// GlyphIndex returns the glyph ID for r, or 0 if the rune is not in the font.
 func (f *sfntFace) GlyphIndex(r rune) uint16 {
 	idx, err := f.font.GlyphIndex(&f.buf, r)
 	if err != nil {
@@ -73,6 +77,7 @@ func (f *sfntFace) GlyphIndex(r rune) uint16 {
 	return uint16(idx)
 }
 
+// GlyphAdvance returns the advance width in font design units, or 0 on error.
 func (f *sfntFace) GlyphAdvance(glyphID uint16) int {
 	adv, err := f.font.GlyphAdvance(&f.buf, sfnt.GlyphIndex(glyphID), f.ppem, xfont.HintingNone)
 	if err != nil {
@@ -81,6 +86,7 @@ func (f *sfntFace) GlyphAdvance(glyphID uint16) int {
 	return fix26_6ToInt(adv)
 }
 
+// Ascent returns the typographic ascent in font design units.
 func (f *sfntFace) Ascent() int {
 	metrics, err := f.font.Metrics(&f.buf, f.ppem, xfont.HintingNone)
 	if err != nil {
@@ -89,6 +95,8 @@ func (f *sfntFace) Ascent() int {
 	return fix26_6ToInt(metrics.Ascent)
 }
 
+// Descent returns the typographic descent as a negative value in font design
+// units. The sfnt library returns descent as positive, so this method negates it.
 func (f *sfntFace) Descent() int {
 	metrics, err := f.font.Metrics(&f.buf, f.ppem, xfont.HintingNone)
 	if err != nil {
@@ -98,6 +106,8 @@ func (f *sfntFace) Descent() int {
 	return -fix26_6ToInt(metrics.Descent)
 }
 
+// BBox returns the font bounding box as [xMin, yMin, xMax, yMax] in font
+// design units, converted from sfnt's Y-down coordinates to PDF's Y-up system.
 func (f *sfntFace) BBox() [4]int {
 	bounds, err := f.font.Bounds(&f.buf, f.ppem, xfont.HintingNone)
 	if err != nil {
@@ -113,6 +123,7 @@ func (f *sfntFace) BBox() [4]int {
 	}
 }
 
+// rawTables lazily parses the raw TTF table directory and caches the result.
 func (f *sfntFace) rawTables() map[string][]byte {
 	if !f.tablesParsed {
 		f.tables, _ = parseTTFTables(f.rawData)
@@ -121,6 +132,8 @@ func (f *sfntFace) rawTables() map[string][]byte {
 	return f.tables
 }
 
+// ItalicAngle returns the italic angle by parsing the post table's Fixed 16.16
+// field at offset 4. Returns 0 if the post table is missing or too short.
 func (f *sfntFace) ItalicAngle() float64 {
 	// Parse italic angle from the post table (offset 4, Fixed 16.16).
 	tables := f.rawTables()
@@ -138,6 +151,8 @@ func (f *sfntFace) ItalicAngle() float64 {
 	return float64(intPart) + fracPart
 }
 
+// CapHeight returns the cap height from the OS/2 table (sCapHeight at offset
+// 88). Requires OS/2 version >= 2. Returns 0 if unavailable.
 func (f *sfntFace) CapHeight() int {
 	// OS/2 table, sCapHeight at offset 88 (requires version >= 2).
 	tables := f.rawTables()
@@ -156,6 +171,9 @@ func (f *sfntFace) CapHeight() int {
 	return int(int16(binary.BigEndian.Uint16(os2[88:90])))
 }
 
+// StemV derives the dominant vertical stem width from the OS/2 usWeightClass
+// using the formula: 10 + 220*(weightClass-50)/900, clamped to a minimum of 10.
+// Returns 80 as a fallback if the OS/2 table is missing.
 func (f *sfntFace) StemV() int {
 	// Derive from OS/2 usWeightClass (offset 4).
 	// Formula: StemV = 10 + 220 * (weightClass - 50) / 900
@@ -173,6 +191,8 @@ func (f *sfntFace) StemV() int {
 	return max(stemV, 10)
 }
 
+// Kern returns the kerning adjustment between two glyphs by looking up the
+// kern table. Returns 0 if no kern table exists or no pair entry is found.
 func (f *sfntFace) Kern(left, right uint16) int {
 	tables := f.rawTables()
 	if tables == nil {
@@ -289,6 +309,8 @@ func lookupKernFormat0(data []byte, left, right uint16) int {
 	return 0
 }
 
+// Flags returns the PDF font flags. Currently hardcoded to 32 (Nonsymbolic),
+// which is appropriate for TrueType fonts with Unicode cmap tables.
 func (f *sfntFace) Flags() uint32 {
 	// PDF font flags (Table 123 in ISO 32000):
 	// Bit 6 (value 32): Nonsymbolic — using standard Latin encoding.
@@ -296,10 +318,12 @@ func (f *sfntFace) Flags() uint32 {
 	return 32
 }
 
+// RawData returns the complete, unmodified font file bytes.
 func (f *sfntFace) RawData() []byte {
 	return f.rawData
 }
 
+// NumGlyphs returns the total number of glyphs in the font.
 func (f *sfntFace) NumGlyphs() int {
 	return f.font.NumGlyphs()
 }

@@ -385,6 +385,7 @@ func tokenFloat(t Token) float64 {
 	return t.Real
 }
 
+// appendSpaceIfNeeded appends a space unless the last byte is already a space or newline.
 func appendSpaceIfNeeded(b []byte) []byte {
 	if len(b) > 0 && b[len(b)-1] != ' ' && b[len(b)-1] != '\n' {
 		return append(b, ' ')
@@ -392,6 +393,7 @@ func appendSpaceIfNeeded(b []byte) []byte {
 	return b
 }
 
+// appendNewlineIfNeeded appends a newline unless the last byte is already a newline.
 func appendNewlineIfNeeded(b []byte) []byte {
 	if len(b) > 0 && b[len(b)-1] != '\n' {
 		return append(b, '\n')

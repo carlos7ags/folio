@@ -17,6 +17,8 @@ import (
 	"github.com/carlos7ags/folio/layout"
 )
 
+// folio_html_to_pdf converts an HTML string to a PDF file at the given output path.
+//
 //export folio_html_to_pdf
 func folio_html_to_pdf(htmlStr *C.char, outputPath *C.char) C.int32_t {
 	doc, err := htmlToDocument(C.GoString(htmlStr), 0, 0)
@@ -29,6 +31,8 @@ func folio_html_to_pdf(htmlStr *C.char, outputPath *C.char) C.int32_t {
 	return errOK
 }
 
+// folio_html_to_buffer converts an HTML string to an in-memory PDF buffer with optional page dimensions.
+//
 //export folio_html_to_buffer
 func folio_html_to_buffer(htmlStr *C.char, pageWidth, pageHeight C.double) C.uint64_t {
 	doc, err := htmlToDocument(C.GoString(htmlStr), float64(pageWidth), float64(pageHeight))
@@ -43,6 +47,8 @@ func folio_html_to_buffer(htmlStr *C.char, pageWidth, pageHeight C.double) C.uin
 	return C.uint64_t(ht.store(newCBuffer(buf.Bytes())))
 }
 
+// folio_html_convert converts an HTML string to a document handle for further manipulation.
+//
 //export folio_html_convert
 func folio_html_convert(htmlStr *C.char, pageWidth, pageHeight C.double) C.uint64_t {
 	doc, err := htmlToDocument(C.GoString(htmlStr), float64(pageWidth), float64(pageHeight))

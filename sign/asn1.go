@@ -45,11 +45,22 @@ var (
 type Algorithm int
 
 const (
+	// SHA256WithRSA is RSA PKCS#1 v1.5 with SHA-256.
 	SHA256WithRSA Algorithm = iota
+
+	// SHA384WithRSA is RSA PKCS#1 v1.5 with SHA-384.
 	SHA384WithRSA
+
+	// SHA512WithRSA is RSA PKCS#1 v1.5 with SHA-512.
 	SHA512WithRSA
+
+	// SHA256WithECDSA is ECDSA with SHA-256.
 	SHA256WithECDSA
+
+	// SHA384WithECDSA is ECDSA with SHA-384.
 	SHA384WithECDSA
+
+	// SHA512WithECDSA is ECDSA with SHA-512.
 	SHA512WithECDSA
 )
 

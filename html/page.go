@@ -324,6 +324,7 @@ func parseCSSLengthWithUnit(val string) *cssLength {
 	return nil
 }
 
+// parseFloat extracts a float64 from the numeric prefix of s.
 func parseFloat(s string) float64 {
 	s = strings.TrimSpace(s)
 	var v float64

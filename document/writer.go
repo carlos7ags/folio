@@ -168,6 +168,7 @@ type countingWriter struct {
 	n int64
 }
 
+// Write writes p to the underlying writer and adds the number of bytes written to the total.
 func (cw *countingWriter) Write(p []byte) (int, error) {
 	n, err := cw.w.Write(p)
 	cw.n += int64(n)

@@ -37,6 +37,7 @@ type Options struct {
 	FallbackFontPath string
 }
 
+// defaults returns a copy of Options with zero-value fields replaced by sensible defaults.
 func (o *Options) defaults() Options {
 	out := Options{DefaultFontSize: 12, PageWidth: 612, PageHeight: 792}
 	if o != nil {
@@ -73,7 +74,6 @@ type DocMetadata struct {
 	Subject     string // from <meta name="subject">
 }
 
-// PageMargins holds margin values for a page variant.
 // MarginBoxContent holds the parsed content of a CSS margin box (e.g. @top-center).
 type MarginBoxContent struct {
 	Content  string     // resolved content string (after evaluating counter(), string literals, etc.)
@@ -81,6 +81,8 @@ type MarginBoxContent struct {
 	Color    [3]float64 // RGB color (0-1 each; all zero = default gray)
 }
 
+// PageMargins holds the margin values and margin-box content for a
+// page variant (e.g. :first, :left, :right) parsed from a CSS @page rule.
 type PageMargins struct {
 	Top, Right, Bottom, Left float64
 	HasMargins               bool                        // true if any margin property was explicitly set (even to 0)
@@ -1821,7 +1823,6 @@ func (c *converter) convertFigure(n *html.Node, style computedStyle) []layout.El
 	return []layout.Element{div}
 }
 
-// convertTable converts a <table> element into a layout.Table.
 // convertCSSTable handles elements with display:table — builds a layout.Table
 // from children with display:table-row and display:table-cell.
 func (c *converter) convertCSSTable(n *html.Node, style computedStyle) []layout.Element {
@@ -1914,6 +1915,7 @@ func (c *converter) convertCSSTable(n *html.Node, style computedStyle) []layout.
 	return []layout.Element{tbl}
 }
 
+// convertTable converts a <table> element into a layout.Table.
 func (c *converter) convertTable(n *html.Node, style computedStyle) []layout.Element {
 	// Save parent containerWidth for resolving the table's own width properties.
 	parentContainerWidth := c.containerWidth
@@ -3773,6 +3775,7 @@ func collectText(n *html.Node) string {
 	return collapseWhitespace(sb.String())
 }
 
+// collectTextInto appends all text content from n and its descendants to sb.
 func collectTextInto(n *html.Node, sb *strings.Builder) {
 	if n.Type == html.TextNode {
 		sb.WriteString(n.Data)
@@ -3790,6 +3793,7 @@ func collectRawText(n *html.Node) string {
 	return sb.String()
 }
 
+// collectRawTextInto appends raw text from n and its descendants to sb, preserving whitespace.
 func collectRawTextInto(n *html.Node, sb *strings.Builder) {
 	if n.Type == html.TextNode {
 		sb.WriteString(n.Data)
@@ -3895,7 +3899,6 @@ func processWhitespace(s, whiteSpace string) string {
 	}
 }
 
-// getAttr returns the value of the named attribute, or "".
 // textContent returns the concatenated text of all descendant text nodes.
 func textContent(n *html.Node) string {
 	if n.Type == html.TextNode {
@@ -3929,6 +3932,7 @@ func (c *converter) extractMeta(n *html.Node) {
 	}
 }
 
+// getAttr returns the value of the named attribute on n, or the empty string.
 func getAttr(n *html.Node, name string) string {
 	for _, a := range n.Attr {
 		if a.Key == name {

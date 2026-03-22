@@ -9,32 +9,58 @@ import "github.com/carlos7ags/folio/core"
 type StructTag string
 
 const (
-	TagDocument   StructTag = "Document"
-	TagPart       StructTag = "Part"
-	TagSection    StructTag = "Sect"
-	TagH1         StructTag = "H1"
-	TagH2         StructTag = "H2"
-	TagH3         StructTag = "H3"
-	TagH4         StructTag = "H4"
-	TagH5         StructTag = "H5"
-	TagH6         StructTag = "H6"
-	TagP          StructTag = "P"
-	TagSpan       StructTag = "Span"
-	TagTable      StructTag = "Table"
-	TagTR         StructTag = "TR"
-	TagTH         StructTag = "TH"
-	TagTD         StructTag = "TD"
-	TagTHead      StructTag = "THead"
-	TagTBody      StructTag = "TBody"
-	TagL          StructTag = "L"     // list
-	TagLI         StructTag = "LI"    // list item
-	TagLbl        StructTag = "Lbl"   // list label (bullet/number)
-	TagLBody      StructTag = "LBody" // list item body
-	TagFigure     StructTag = "Figure"
-	TagCaption    StructTag = "Caption"
-	TagLink       StructTag = "Link"
+	// TagDocument is the root structure element for the entire document.
+	TagDocument StructTag = "Document"
+	// TagPart represents a large division of a document.
+	TagPart StructTag = "Part"
+	// TagSection represents a section within a document part.
+	TagSection StructTag = "Sect"
+	// TagH1 represents a level-1 heading.
+	TagH1 StructTag = "H1"
+	// TagH2 represents a level-2 heading.
+	TagH2 StructTag = "H2"
+	// TagH3 represents a level-3 heading.
+	TagH3 StructTag = "H3"
+	// TagH4 represents a level-4 heading.
+	TagH4 StructTag = "H4"
+	// TagH5 represents a level-5 heading.
+	TagH5 StructTag = "H5"
+	// TagH6 represents a level-6 heading.
+	TagH6 StructTag = "H6"
+	// TagP represents a paragraph.
+	TagP StructTag = "P"
+	// TagSpan represents an inline span of text.
+	TagSpan StructTag = "Span"
+	// TagTable represents a table.
+	TagTable StructTag = "Table"
+	// TagTR represents a table row.
+	TagTR StructTag = "TR"
+	// TagTH represents a table header cell.
+	TagTH StructTag = "TH"
+	// TagTD represents a table data cell.
+	TagTD StructTag = "TD"
+	// TagTHead represents a table header row group.
+	TagTHead StructTag = "THead"
+	// TagTBody represents a table body row group.
+	TagTBody StructTag = "TBody"
+	// TagL represents a list.
+	TagL StructTag = "L"
+	// TagLI represents a list item.
+	TagLI StructTag = "LI"
+	// TagLbl represents a list label (bullet or number).
+	TagLbl StructTag = "Lbl"
+	// TagLBody represents the body content of a list item.
+	TagLBody StructTag = "LBody"
+	// TagFigure represents an image or illustration.
+	TagFigure StructTag = "Figure"
+	// TagCaption represents a caption for a figure or table.
+	TagCaption StructTag = "Caption"
+	// TagLink represents a hyperlink.
+	TagLink StructTag = "Link"
+	// TagBlockQuote represents a block quotation.
 	TagBlockQuote StructTag = "BlockQuote"
-	TagDiv        StructTag = "Div"
+	// TagDiv represents a generic block-level grouping element.
+	TagDiv StructTag = "Div"
 )
 
 // structNode is a node in the document structure tree.

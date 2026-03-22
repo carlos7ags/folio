@@ -17,7 +17,7 @@ type Image struct {
 	height     int
 	colorSpace string // "DeviceRGB", "DeviceGray", "DeviceCMYK"
 	bpc        int    // bits per component (usually 8)
-	filter     string // "DCTDecode" for JPEG, "FlateDecode" for PNG
+	filter     string // "DCTDecode" for JPEG, "FlateDecode" for PNG/TIFF
 	smask      []byte // soft mask (alpha channel) for PNG with transparency
 	smaskW     int    // smask width (same as image width for alpha)
 	smaskH     int    // smask height
@@ -29,7 +29,7 @@ func (img *Image) Width() int { return img.width }
 // Height returns the image height in pixels.
 func (img *Image) Height() int { return img.height }
 
-// AspectRatio returns width/height.
+// AspectRatio returns the ratio of width to height.
 func (img *Image) AspectRatio() float64 {
 	if img.height == 0 {
 		return 1
@@ -40,7 +40,8 @@ func (img *Image) AspectRatio() float64 {
 // NewFromGoImage creates an Image from a Go image.RGBA.
 // The pixel data is extracted as raw RGB bytes for FlateDecode embedding.
 // If the image has any non-opaque pixels, an SMask is generated.
-// Returns nil if the image has zero or negative dimensions.
+// NewFromGoImage returns nil if src is nil, has non-positive dimensions,
+// or has an invalid stride.
 func NewFromGoImage(src *goimage.RGBA) *Image {
 	if src == nil {
 		return nil
@@ -94,8 +95,9 @@ func NewFromGoImage(src *goimage.RGBA) *Image {
 }
 
 // BuildXObject creates the PDF image XObject dictionary and stream.
-// Returns the XObject and optionally an SMask reference (for PNG alpha).
-// addObject is used to register indirect objects.
+// It returns the image XObject reference and, if the image has an alpha
+// channel, a separate SMask XObject reference. The addObject callback
+// registers each indirect object in the PDF file.
 func (img *Image) BuildXObject(addObject func(core.PdfObject) *core.PdfIndirectReference) (*core.PdfIndirectReference, *core.PdfIndirectReference) {
 	var stream *core.PdfStream
 	if img.filter == "DCTDecode" {

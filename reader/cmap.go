@@ -16,11 +16,13 @@ type CMap struct {
 	bfRanges        []bfRange
 }
 
+// codeSpaceRange defines a range of valid character codes and their byte width.
 type codeSpaceRange struct {
 	low, high uint32
 	bytes     int // number of bytes per code (1 or 2)
 }
 
+// bfRange maps a contiguous range of character codes to Unicode strings.
 type bfRange struct {
 	low, high uint32
 	dst       string // unicode string for low; subsequent codes increment first rune

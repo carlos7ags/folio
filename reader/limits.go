@@ -35,6 +35,7 @@ type MemoryLimits struct {
 	MaxObjectCount int
 }
 
+// Default memory limits used when the caller does not override them.
 const (
 	defaultMaxStreamSize  = 256 << 20 // 256 MB
 	defaultMaxTotalAlloc  = 1 << 30   // 1 GB
@@ -92,6 +93,7 @@ type memoryTracker struct {
 	totalUsed int64
 }
 
+// newMemoryTracker creates a memoryTracker with the given limits.
 func newMemoryTracker(limits MemoryLimits) *memoryTracker {
 	return &memoryTracker{limits: limits}
 }

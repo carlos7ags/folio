@@ -54,6 +54,7 @@ func ParseColor(s string) (Color, bool) {
 	return Color{}, false
 }
 
+// parseHexColor parses a 3- or 6-digit hex color string (without the leading '#').
 func parseHexColor(hex string) (Color, bool) {
 	switch len(hex) {
 	case 3:
@@ -80,6 +81,7 @@ func parseHexColor(hex string) (Color, bool) {
 	}
 }
 
+// parseRGB parses the arguments of an rgb() color function into a Color.
 func parseRGB(args string) (Color, bool) {
 	parts := splitColorArgs(args)
 	if len(parts) != 3 {
@@ -94,6 +96,7 @@ func parseRGB(args string) (Color, bool) {
 	return Color{R: r, G: g, B: b, A: 1}, true
 }
 
+// parseRGBA parses the arguments of an rgba() color function into a Color.
 func parseRGBA(args string) (Color, bool) {
 	parts := splitColorArgs(args)
 	if len(parts) != 4 {
@@ -118,6 +121,7 @@ func parseRGBA(args string) (Color, bool) {
 	return Color{R: r, G: g, B: b, A: a}, true
 }
 
+// splitColorArgs splits a comma-separated color argument string into its parts.
 func splitColorArgs(s string) []string {
 	return strings.Split(s, ",")
 }
@@ -141,6 +145,7 @@ func parseColorComponent(s string) (float64, bool) {
 	return v, true
 }
 
+// clamp01 clamps v to the range [0, 1].
 func clamp01(v float64) float64 {
 	if v < 0 {
 		return 0

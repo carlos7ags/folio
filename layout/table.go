@@ -752,6 +752,7 @@ func (t *Table) cellContentHeight(gc *gridCell) float64 {
 	return float64(lines)*cell.fontSize*1.2 + padH
 }
 
+// cellMeasurer returns the text measurer for a cell's font, or nil if none is set.
 func (t *Table) cellMeasurer(cell *Cell) font.TextMeasurer {
 	if cell.embedded != nil {
 		return cell.embedded
@@ -1081,6 +1082,7 @@ func drawStyledBorder(stream *content.Stream, b Border, x1, y1, x2, y2 float64) 
 	stream.RestoreState()
 }
 
+// cellTextMeasurer returns the text measurer for a cell's font, or nil if none is set.
 func cellTextMeasurer(cell *Cell) font.TextMeasurer {
 	if cell.embedded != nil {
 		return cell.embedded

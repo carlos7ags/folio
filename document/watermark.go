@@ -59,7 +59,7 @@ func (d *Document) SetWatermarkConfig(cfg WatermarkConfig) {
 	d.watermark = &cfg
 }
 
-// applyWatermark prepends watermark drawing commands to a page's content stream
+// applyWatermark appends watermark drawing commands to a page's content stream
 // and registers the required font and ExtGState resources on the page.
 func (d *Document) applyWatermark(p *Page) {
 	wm := d.watermark

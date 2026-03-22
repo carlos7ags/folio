@@ -101,6 +101,7 @@ func (h *Heading) Layout(maxWidth float64) []Line {
 	return lines
 }
 
+// headingSize returns the default font size in points for the given heading level.
 func headingSize(level HeadingLevel) float64 {
 	if level >= H1 && level <= H6 {
 		return headingSizes[level]

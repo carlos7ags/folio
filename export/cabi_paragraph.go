@@ -16,6 +16,8 @@ import (
 	"github.com/carlos7ags/folio/layout"
 )
 
+// folio_paragraph_new creates a paragraph with a standard font and returns its handle.
+//
 //export folio_paragraph_new
 func folio_paragraph_new(text *C.char, fontH C.uint64_t, fontSize C.double) C.uint64_t {
 	f, errCode := loadStandardFont(fontH)
@@ -26,6 +28,8 @@ func folio_paragraph_new(text *C.char, fontH C.uint64_t, fontSize C.double) C.ui
 	return C.uint64_t(ht.store(p))
 }
 
+// folio_paragraph_new_embedded creates a paragraph with an embedded TrueType font.
+//
 //export folio_paragraph_new_embedded
 func folio_paragraph_new_embedded(text *C.char, fontH C.uint64_t, fontSize C.double) C.uint64_t {
 	ef, errCode := loadEmbeddedFont(fontH)
@@ -36,6 +40,8 @@ func folio_paragraph_new_embedded(text *C.char, fontH C.uint64_t, fontSize C.dou
 	return C.uint64_t(ht.store(p))
 }
 
+// folio_paragraph_set_align sets the text alignment of a paragraph.
+//
 //export folio_paragraph_set_align
 func folio_paragraph_set_align(pH C.uint64_t, align C.int32_t) C.int32_t {
 	p, errCode := loadParagraph(pH)
@@ -46,6 +52,8 @@ func folio_paragraph_set_align(pH C.uint64_t, align C.int32_t) C.int32_t {
 	return errOK
 }
 
+// folio_paragraph_set_leading sets the line spacing (leading) of a paragraph in points.
+//
 //export folio_paragraph_set_leading
 func folio_paragraph_set_leading(pH C.uint64_t, leading C.double) C.int32_t {
 	p, errCode := loadParagraph(pH)
@@ -56,6 +64,8 @@ func folio_paragraph_set_leading(pH C.uint64_t, leading C.double) C.int32_t {
 	return errOK
 }
 
+// folio_paragraph_set_space_before sets the vertical spacing before a paragraph in points.
+//
 //export folio_paragraph_set_space_before
 func folio_paragraph_set_space_before(pH C.uint64_t, pts C.double) C.int32_t {
 	p, errCode := loadParagraph(pH)
@@ -66,6 +76,8 @@ func folio_paragraph_set_space_before(pH C.uint64_t, pts C.double) C.int32_t {
 	return errOK
 }
 
+// folio_paragraph_set_space_after sets the vertical spacing after a paragraph in points.
+//
 //export folio_paragraph_set_space_after
 func folio_paragraph_set_space_after(pH C.uint64_t, pts C.double) C.int32_t {
 	p, errCode := loadParagraph(pH)
@@ -76,6 +88,8 @@ func folio_paragraph_set_space_after(pH C.uint64_t, pts C.double) C.int32_t {
 	return errOK
 }
 
+// folio_paragraph_set_background sets the background color of a paragraph using RGB values in [0,1].
+//
 //export folio_paragraph_set_background
 func folio_paragraph_set_background(pH C.uint64_t, r, g, b C.double) C.int32_t {
 	p, errCode := loadParagraph(pH)
@@ -86,6 +100,8 @@ func folio_paragraph_set_background(pH C.uint64_t, r, g, b C.double) C.int32_t {
 	return errOK
 }
 
+// folio_paragraph_set_first_indent sets the first-line indentation of a paragraph in points.
+//
 //export folio_paragraph_set_first_indent
 func folio_paragraph_set_first_indent(pH C.uint64_t, pts C.double) C.int32_t {
 	p, errCode := loadParagraph(pH)
@@ -96,6 +112,8 @@ func folio_paragraph_set_first_indent(pH C.uint64_t, pts C.double) C.int32_t {
 	return errOK
 }
 
+// folio_paragraph_add_run appends a styled text run to a paragraph with the given font and color.
+//
 //export folio_paragraph_add_run
 func folio_paragraph_add_run(pH C.uint64_t, text *C.char, fontH C.uint64_t, fontSize C.double, r, g, b C.double) C.int32_t {
 	p, errCode := loadParagraph(pH)
@@ -126,12 +144,14 @@ func folio_paragraph_add_run(pH C.uint64_t, text *C.char, fontH C.uint64_t, font
 	return errOK
 }
 
+// folio_paragraph_free removes a paragraph handle from the handle table.
+//
 //export folio_paragraph_free
 func folio_paragraph_free(pH C.uint64_t) {
 	ht.delete(uint64(pH))
 }
 
-// loadParagraph loads a *layout.Paragraph from the handle table.
+// loadParagraph retrieves a *layout.Paragraph from the handle table.
 func loadParagraph(h C.uint64_t) (*layout.Paragraph, C.int32_t) {
 	v := ht.load(uint64(h))
 	if v == nil {

@@ -81,6 +81,7 @@ func Hex(hex string) Color {
 	return Color{R: float64(r) / 255, G: float64(g) / 255, B: float64(b) / 255}
 }
 
+// hexByte parses a two-character hexadecimal string into a byte.
 func hexByte(s string) byte {
 	var v byte
 	for _, c := range []byte(s) {

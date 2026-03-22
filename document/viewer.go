@@ -9,24 +9,36 @@ import "github.com/carlos7ags/folio/core"
 type PageLayout string
 
 const (
-	LayoutSinglePage     PageLayout = "SinglePage"     // one page at a time
-	LayoutOneColumn      PageLayout = "OneColumn"      // continuous scrolling
-	LayoutTwoColumnLeft  PageLayout = "TwoColumnLeft"  // two columns, odd pages left
-	LayoutTwoColumnRight PageLayout = "TwoColumnRight" // two columns, odd pages right
-	LayoutTwoPageLeft    PageLayout = "TwoPageLeft"    // two pages, odd left
-	LayoutTwoPageRight   PageLayout = "TwoPageRight"   // two pages, odd right
+	// LayoutSinglePage displays one page at a time.
+	LayoutSinglePage PageLayout = "SinglePage"
+	// LayoutOneColumn displays pages in a single continuous scrolling column.
+	LayoutOneColumn PageLayout = "OneColumn"
+	// LayoutTwoColumnLeft displays pages in two columns with odd pages on the left.
+	LayoutTwoColumnLeft PageLayout = "TwoColumnLeft"
+	// LayoutTwoColumnRight displays pages in two columns with odd pages on the right.
+	LayoutTwoColumnRight PageLayout = "TwoColumnRight"
+	// LayoutTwoPageLeft displays two pages at a time with odd pages on the left.
+	LayoutTwoPageLeft PageLayout = "TwoPageLeft"
+	// LayoutTwoPageRight displays two pages at a time with odd pages on the right.
+	LayoutTwoPageRight PageLayout = "TwoPageRight"
 )
 
 // PageMode controls what panel is visible when the document is opened.
 type PageMode string
 
 const (
-	ModeNone       PageMode = "UseNone"        // no panel (default)
-	ModeOutlines   PageMode = "UseOutlines"    // bookmarks panel
-	ModeThumbs     PageMode = "UseThumbs"      // thumbnails panel
-	ModeFullScreen PageMode = "FullScreen"     // full screen
-	ModeOC         PageMode = "UseOC"          // optional content panel
-	ModeAttach     PageMode = "UseAttachments" // attachments panel
+	// ModeNone shows no panel when the document is opened (default).
+	ModeNone PageMode = "UseNone"
+	// ModeOutlines shows the bookmarks panel when the document is opened.
+	ModeOutlines PageMode = "UseOutlines"
+	// ModeThumbs shows the page thumbnails panel when the document is opened.
+	ModeThumbs PageMode = "UseThumbs"
+	// ModeFullScreen opens the document in full-screen mode.
+	ModeFullScreen PageMode = "FullScreen"
+	// ModeOC shows the optional content panel when the document is opened.
+	ModeOC PageMode = "UseOC"
+	// ModeAttach shows the attachments panel when the document is opened.
+	ModeAttach PageMode = "UseAttachments"
 )
 
 // ViewerPreferences controls how the PDF viewer displays the document.

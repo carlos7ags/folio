@@ -28,6 +28,8 @@ type SimpleStrategy struct {
 	hadText bool
 }
 
+// ProcessSpan appends the span's text, inserting spaces for gaps and
+// newlines for line changes.
 func (s *SimpleStrategy) ProcessSpan(span TextSpan) {
 	// Skip invisible text (Tr mode 3).
 	if !span.Visible {
@@ -65,16 +67,19 @@ func (s *SimpleStrategy) ProcessSpan(span TextSpan) {
 	s.hadText = true
 }
 
+// Result returns the assembled text.
 func (s *SimpleStrategy) Result() string {
 	return string(s.result)
 }
 
+// appendSpace adds a space unless the last character is already a space or newline.
 func (s *SimpleStrategy) appendSpace() {
 	if len(s.result) > 0 && s.result[len(s.result)-1] != ' ' && s.result[len(s.result)-1] != '\n' {
 		s.result = append(s.result, ' ')
 	}
 }
 
+// appendNewline adds a newline unless the last character is already a newline.
 func (s *SimpleStrategy) appendNewline() {
 	if len(s.result) > 0 && s.result[len(s.result)-1] != '\n' {
 		s.result = append(s.result, '\n')
@@ -90,6 +95,7 @@ type LocationStrategy struct {
 	spans []TextSpan
 }
 
+// ProcessSpan collects visible spans for later spatial sorting.
 func (l *LocationStrategy) ProcessSpan(span TextSpan) {
 	if !span.Visible {
 		return
@@ -97,6 +103,7 @@ func (l *LocationStrategy) ProcessSpan(span TextSpan) {
 	l.spans = append(l.spans, span)
 }
 
+// Result sorts spans top-to-bottom, left-to-right and returns the assembled text.
 func (l *LocationStrategy) Result() string {
 	if len(l.spans) == 0 {
 		return ""
@@ -178,6 +185,7 @@ func NewRegionStrategy(x, y, w, h float64, inner ExtractionStrategy) *RegionStra
 	return &RegionStrategy{x: x, y: y, w: w, h: h, inner: inner}
 }
 
+// ProcessSpan forwards the span to the inner strategy if it overlaps the region.
 func (r *RegionStrategy) ProcessSpan(span TextSpan) {
 	// Check if span overlaps the region.
 	if span.X+span.Width < r.x || span.X > r.x+r.w {
@@ -189,6 +197,7 @@ func (r *RegionStrategy) ProcessSpan(span TextSpan) {
 	r.inner.ProcessSpan(span)
 }
 
+// Result returns the inner strategy's assembled text.
 func (r *RegionStrategy) Result() string {
 	return r.inner.Result()
 }
@@ -209,6 +218,7 @@ func NewTaggedStrategy(tree *StructureTree, pageNum int) *TaggedStrategy {
 	return &TaggedStrategy{tree: tree, pageNum: pageNum}
 }
 
+// ProcessSpan collects visible spans for later structure-tree-ordered assembly.
 func (s *TaggedStrategy) ProcessSpan(span TextSpan) {
 	if !span.Visible {
 		return
@@ -227,6 +237,8 @@ var blockLevelTags = map[string]bool{
 	"Part": true, "Sect": true, "Art": true,
 }
 
+// Result walks the structure tree and returns text assembled in logical
+// reading order, with block-level tags producing line breaks.
 func (s *TaggedStrategy) Result() string {
 	if len(s.spans) == 0 {
 		return ""

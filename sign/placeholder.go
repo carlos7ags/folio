@@ -74,8 +74,11 @@ type sigDictionary struct {
 	contactInfo string
 }
 
+// Type returns ObjectTypeDictionary.
 func (s *sigDictionary) Type() core.ObjectType { return core.ObjectTypeDictionary }
 
+// WriteTo serializes the signature dictionary with placeholder /ByteRange
+// and /Contents values for later patching.
 func (s *sigDictionary) WriteTo(w io.Writer) (int64, error) {
 	var total int64
 	write := func(str string) error {

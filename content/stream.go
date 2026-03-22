@@ -515,6 +515,8 @@ func (s *Stream) ToPdfStream() *core.PdfStream {
 
 // --- Internals ---
 
+// writeln appends a single operator line to the content stream,
+// inserting a newline separator if the buffer is non-empty.
 func (s *Stream) writeln(line string) {
 	if s.buf.Len() > 0 {
 		s.buf.WriteByte('\n')
