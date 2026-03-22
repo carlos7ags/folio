@@ -3721,3 +3721,103 @@ func TestBackgroundImageHTTPURL(t *testing.T) {
 		t.Error("expected positive consumed height")
 	}
 }
+
+func TestConvertInlineContainerWithBr(t *testing.T) {
+	// Regression: <br> tags inside an inline container (e.g. a <div> with
+	// inline children like <span>) used to panic with:
+	//   "layout.NewStyledParagraph: run 2 has nil Font and nil Embedded"
+	// because collectRuns inserts font-less TextRun{Text:"\n"} sentinels for
+	// <br> elements, which were passed unsanitised to NewStyledParagraph.
+	htmlInput := `<div style="font-family: Arial,serif; text-align: center;">
+<br><br><br>
+<span style="font-size:2em;"><b>PILOT LOGBOOK</b></span><br><br>
+<span style="font-size:1em;">Some subtitle</span>
+</div>`
+
+	elems, err := Convert(htmlInput, nil)
+	if err != nil {
+		t.Fatalf("Convert returned error: %v", err)
+	}
+	if len(elems) == 0 {
+		t.Fatal("expected at least one element")
+	}
+	// Each element must lay out without panicking and produce positive height.
+	for i, e := range elems {
+		plan := e.PlanLayout(layout.LayoutArea{Width: 400, Height: 1000})
+		if plan.Consumed <= 0 {
+			t.Errorf("element %d: expected positive consumed height, got %f", i, plan.Consumed)
+		}
+	}
+}
+
+func TestConvertInlineContainerWithBrProducesMultipleElements(t *testing.T) {
+	// Each <br> inside an inline container should split content into a
+	// separate paragraph element, so "before" and "after" end up in
+	// distinct layout elements.
+	htmlInput := `<div>before<br>after</div>`
+
+	elems, err := Convert(htmlInput, nil)
+	if err != nil {
+		t.Fatalf("Convert returned error: %v", err)
+	}
+	if len(elems) < 2 {
+		t.Fatalf("expected at least 2 elements (one per line), got %d", len(elems))
+	}
+}
+
+func TestPageBreakAfterWithBodyWidth100Percent(t *testing.T) {
+	// Regression: width:100% on body caused convertBlock to wrap body in a
+	// Div, burying AreaBreak elements where Div.PlanLayout ignores them.
+	// Result was that page-break-after:always had no effect and only the
+	// first page appeared in the PDF.
+	htmlInput := `<!DOCTYPE html><head><style>
+.pagebreak { page-break-after: always; }
+html, body { margin: 0; padding: 0; width: 100%; }
+</style></head><body>
+<div class="pagebreak"><p>Page 1</p></div>
+<div class="pagebreak"><p>Page 2</p></div>
+<div class="pagebreak"><p>Page 3</p></div>
+</body>`
+
+	elems, err := Convert(htmlInput, nil)
+	if err != nil {
+		t.Fatalf("Convert returned error: %v", err)
+	}
+
+	// Count AreaBreak elements — there should be one per pagebreak div.
+	areaBreaks := 0
+	for _, e := range elems {
+		if _, ok := e.(*layout.AreaBreak); ok {
+			areaBreaks++
+		}
+	}
+	if areaBreaks != 3 {
+		t.Errorf("expected 3 AreaBreak elements, got %d (total elements: %d) — page breaks are being swallowed by a body Div wrapper", areaBreaks, len(elems))
+	}
+}
+
+func TestPageBreakAfterWithBodyWidthNoWrap(t *testing.T) {
+	// Variant: even without width:100%, page breaks should work. Also verifies
+	// that removing width:100% is not required as a workaround.
+	htmlInput := `<!DOCTYPE html><head><style>
+.pagebreak { page-break-after: always; }
+</style></head><body>
+<div class="pagebreak"><p>Page 1</p></div>
+<div class="pagebreak"><p>Page 2</p></div>
+</body>`
+
+	elems, err := Convert(htmlInput, nil)
+	if err != nil {
+		t.Fatalf("Convert returned error: %v", err)
+	}
+
+	areaBreaks := 0
+	for _, e := range elems {
+		if _, ok := e.(*layout.AreaBreak); ok {
+			areaBreaks++
+		}
+	}
+	if areaBreaks != 2 {
+		t.Errorf("expected 2 AreaBreak elements, got %d", areaBreaks)
+	}
+}

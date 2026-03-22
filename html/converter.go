@@ -909,9 +909,40 @@ func (c *converter) convertElementInner(n *html.Node, style computedStyle) []lay
 	case atom.Html, atom.Head:
 		return c.walkChildren(n, style)
 	case atom.Body:
-		// Body is a normal block element (per CSS spec).
-		// Its padding/border/background are additive with @page margins.
-		return c.convertBlock(n, style)
+		// Body margins/padding/background are handled by @page margins in the
+		// layout engine. We walk children directly rather than wrapping in a
+		// Div so that AreaBreak elements (from page-break-after: always on
+		// child elements) reach the top-level renderer. If body were wrapped
+		// in a Div — which happens whenever any box-model property such as
+		// width:100% is present — AreaBreak children would be silently ignored
+		// by Div.PlanLayout, causing page breaks to have no effect.
+		children := c.walkChildren(n, style)
+		// Still apply body-level background/borders if set, but only by
+		// wrapping when there are actual visual properties that require it
+		// (not width/height constraints, which would bury AreaBreaks).
+		hasVisualBox := style.BackgroundColor != nil || style.hasBorder() || style.hasPadding()
+		if !hasVisualBox {
+			return children
+		}
+		div := layout.NewDiv()
+		for _, child := range children {
+			div.Add(child)
+		}
+		if style.BackgroundColor != nil {
+			div.SetBackground(*style.BackgroundColor)
+		}
+		if style.hasBorder() {
+			div.SetBorders(buildCellBorders(style))
+		}
+		if style.hasPadding() {
+			div.SetPaddingAll(layout.Padding{
+				Top:    style.PaddingTop,
+				Right:  style.PaddingRight,
+				Bottom: style.PaddingBottom,
+				Left:   style.PaddingLeft,
+			})
+		}
+		return []layout.Element{div}
 	case atom.Title:
 		c.metadata.Title = textContent(n)
 		return nil
@@ -3973,6 +4004,96 @@ func parseAttrFloat(s string) float64 {
 	}
 	v, _ := strconv.ParseFloat(s, 64)
 	return v
+}
+
+// applyBackgroundShorthand parses the CSS background shorthand property.
+// It handles background-color, url(), and gradient values.
+func (c *converter) applyBackgroundShorthand(val string, style *computedStyle) {
+	trimmed := strings.TrimSpace(val)
+	lower := strings.ToLower(trimmed)
+
+	// Check for gradient or url.
+	if strings.HasPrefix(lower, "url(") ||
+		strings.HasPrefix(lower, "linear-gradient(") ||
+		strings.HasPrefix(lower, "radial-gradient(") {
+		// Parse complex background shorthand with image/gradient.
+		c.parseBackgroundShorthandFull(trimmed, style)
+		return
+	}
+
+	// Simple case: just a color.
+	if clr, ok := parseColor(val); ok {
+		style.BackgroundColor = &clr
+	}
+}
+
+// parseBackgroundShorthandFull parses a background shorthand that contains
+// url() or gradient values, plus optional color, position, size, repeat.
+func (c *converter) parseBackgroundShorthandFull(val string, style *computedStyle) {
+	lower := strings.ToLower(val)
+
+	// Extract the url() or gradient function call.
+	var bgImageVal string
+	var remaining string
+
+	if idx := findFunctionEnd(lower, "url("); idx >= 0 {
+		bgImageVal = val[:idx]
+		remaining = strings.TrimSpace(val[idx:])
+	} else if idx := findFunctionEnd(lower, "linear-gradient("); idx >= 0 {
+		bgImageVal = val[:idx]
+		remaining = strings.TrimSpace(val[idx:])
+	} else if idx := findFunctionEnd(lower, "radial-gradient("); idx >= 0 {
+		bgImageVal = val[:idx]
+		remaining = strings.TrimSpace(val[idx:])
+	}
+
+	if bgImageVal != "" {
+		style.BackgroundImage = bgImageVal
+	}
+
+	// Parse remaining tokens for repeat, position, color.
+	tokens := strings.Fields(remaining)
+	for _, tok := range tokens {
+		tokLower := strings.ToLower(tok)
+		switch tokLower {
+		case "no-repeat", "repeat", "repeat-x", "repeat-y":
+			style.BackgroundRepeat = tokLower
+		case "center", "top", "bottom", "left", "right":
+			if style.BackgroundPosition == "" {
+				style.BackgroundPosition = tokLower
+			} else {
+				style.BackgroundPosition += " " + tokLower
+			}
+		case "cover", "contain":
+			style.BackgroundSize = tokLower
+		default:
+			// Try as color.
+			if clr, ok := parseColor(tok); ok {
+				style.BackgroundColor = &clr
+			}
+		}
+	}
+}
+
+// findFunctionEnd finds the closing parenthesis of a CSS function call
+// starting at the beginning of s. Returns the index just past the ')'.
+// Returns -1 if the function is not found at the start.
+func findFunctionEnd(s, prefix string) int {
+	if !strings.HasPrefix(strings.ToLower(s), prefix) {
+		return -1
+	}
+	depth := 0
+	for i, ch := range s {
+		if ch == '(' {
+			depth++
+		} else if ch == ')' {
+			depth--
+			if depth == 0 {
+				return i + 1
+			}
+		}
+	}
+	return -1
 }
 
 // parseBackgroundImage parses the CSS background-image value and returns
