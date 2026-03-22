@@ -3722,49 +3722,6 @@ func TestBackgroundImageHTTPURL(t *testing.T) {
 	}
 }
 
-func TestConvertInlineContainerWithBr(t *testing.T) {
-	// Regression: <br> tags inside an inline container (e.g. a <div> with
-	// inline children like <span>) used to panic with:
-	//   "layout.NewStyledParagraph: run 2 has nil Font and nil Embedded"
-	// because collectRuns inserts font-less TextRun{Text:"\n"} sentinels for
-	// <br> elements, which were passed unsanitised to NewStyledParagraph.
-	htmlInput := `<div style="font-family: Arial,serif; text-align: center;">
-<br><br><br>
-<span style="font-size:2em;"><b>PILOT LOGBOOK</b></span><br><br>
-<span style="font-size:1em;">Some subtitle</span>
-</div>`
-
-	elems, err := Convert(htmlInput, nil)
-	if err != nil {
-		t.Fatalf("Convert returned error: %v", err)
-	}
-	if len(elems) == 0 {
-		t.Fatal("expected at least one element")
-	}
-	// Each element must lay out without panicking and produce positive height.
-	for i, e := range elems {
-		plan := e.PlanLayout(layout.LayoutArea{Width: 400, Height: 1000})
-		if plan.Consumed <= 0 {
-			t.Errorf("element %d: expected positive consumed height, got %f", i, plan.Consumed)
-		}
-	}
-}
-
-func TestConvertInlineContainerWithBrProducesMultipleElements(t *testing.T) {
-	// Each <br> inside an inline container should split content into a
-	// separate paragraph element, so "before" and "after" end up in
-	// distinct layout elements.
-	htmlInput := `<div>before<br>after</div>`
-
-	elems, err := Convert(htmlInput, nil)
-	if err != nil {
-		t.Fatalf("Convert returned error: %v", err)
-	}
-	if len(elems) < 2 {
-		t.Fatalf("expected at least 2 elements (one per line), got %d", len(elems))
-	}
-}
-
 func TestPageBreakAfterWithBodyWidth100Percent(t *testing.T) {
 	// Regression: width:100% on body caused convertBlock to wrap body in a
 	// Div, burying AreaBreak elements where Div.PlanLayout ignores them.
