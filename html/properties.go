@@ -403,20 +403,30 @@ func parseBorderFull(value string, fontSize float64) (float64, string, layout.Co
 	return width, style, color
 }
 
-// parseFontFamily maps a CSS font-family to our supported families.
+// parseFontFamily normalizes a CSS font-family value by lowercasing,
+// stripping quotes, and selecting the first family from a comma-separated
+// list. The raw family name is preserved so that custom @font-face names
+// are not lost. Standard font mapping happens later in resolveFont.
 func parseFontFamily(value string) string {
 	value = strings.ToLower(strings.TrimSpace(value))
 	// Strip quotes.
 	value = strings.Trim(value, `"'`)
-	// Check first family in the list.
+	// Select the first family in the list.
 	if idx := strings.IndexByte(value, ','); idx >= 0 {
 		value = strings.TrimSpace(value[:idx])
 		value = strings.Trim(value, `"'`)
 	}
+	return value
+}
+
+// mapToStandardFamily maps a CSS font-family name to one of the three
+// standard PDF font families: "courier", "times", or "helvetica".
+// This is used as the final fallback when no @font-face match is found.
+func mapToStandardFamily(family string) string {
 	switch {
-	case strings.Contains(value, "courier") || strings.Contains(value, "monospace") || value == "mono":
+	case strings.Contains(family, "courier") || strings.Contains(family, "monospace") || family == "mono":
 		return "courier"
-	case strings.Contains(value, "times") || strings.Contains(value, "serif") && !strings.Contains(value, "sans"):
+	case strings.Contains(family, "times") || strings.Contains(family, "serif") && !strings.Contains(family, "sans"):
 		return "times"
 	default:
 		return "helvetica"

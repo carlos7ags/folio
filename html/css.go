@@ -171,7 +171,7 @@ func (ss *styleSheet) parseCSS(css string) {
 			for _, d := range decls {
 				switch d.property {
 				case "font-family":
-					ff.family = strings.Trim(strings.TrimSpace(d.value), `"'`)
+					ff.family = strings.ToLower(strings.Trim(strings.TrimSpace(d.value), `"'`))
 				case "src":
 					ff.src = parseFontFaceSrc(d.value)
 				case "font-weight":

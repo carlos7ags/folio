@@ -3767,7 +3767,7 @@ func resolveFont(style computedStyle) *font.Standard {
 	bold := style.FontWeight == "bold"
 	italic := style.FontStyle == "italic"
 
-	switch style.FontFamily {
+	switch mapToStandardFamily(style.FontFamily) {
 	case "courier":
 		switch {
 		case bold && italic:

@@ -15,6 +15,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/carlos7ags/folio/font"
 	"github.com/carlos7ags/folio/layout"
 )
 
@@ -756,18 +757,47 @@ func TestParseFontFamily(t *testing.T) {
 		want  string
 	}{
 		{"Courier", "courier"},
-		{"'Courier New', monospace", "courier"},
-		{"monospace", "courier"},
-		{"Times New Roman", "times"},
-		{"serif", "times"},
-		{"Arial", "helvetica"},
-		{"sans-serif", "helvetica"},
+		{"'Courier New', monospace", "courier new"},
+		{"monospace", "monospace"},
+		{"Times New Roman", "times new roman"},
+		{"serif", "serif"},
+		{"Arial", "arial"},
+		{"sans-serif", "sans-serif"},
 		{"Helvetica", "helvetica"},
+		{`"CustomFont"`, "customfont"},
+		{`'Noto Sans', sans-serif`, "noto sans"},
+		{`  "My Font"  `, "my font"},
 	}
 	for _, tt := range tests {
 		got := parseFontFamily(tt.input)
 		if got != tt.want {
 			t.Errorf("parseFontFamily(%q) = %q, want %q", tt.input, got, tt.want)
+		}
+	}
+}
+
+func TestMapToStandardFamily(t *testing.T) {
+	tests := []struct {
+		input string
+		want  string
+	}{
+		{"courier", "courier"},
+		{"courier new", "courier"},
+		{"monospace", "courier"},
+		{"mono", "courier"},
+		{"times new roman", "times"},
+		{"times", "times"},
+		{"serif", "times"},
+		{"arial", "helvetica"},
+		{"sans-serif", "helvetica"},
+		{"helvetica", "helvetica"},
+		{"noto sans", "helvetica"},
+		{"customfont", "helvetica"},
+	}
+	for _, tt := range tests {
+		got := mapToStandardFamily(tt.input)
+		if got != tt.want {
+			t.Errorf("mapToStandardFamily(%q) = %q, want %q", tt.input, got, tt.want)
 		}
 	}
 }
@@ -2651,6 +2681,106 @@ func TestConvertFontFaceParsing(t *testing.T) {
 	}
 	if len(elems) == 0 {
 		t.Fatal("expected elements even with missing font")
+	}
+}
+
+// TestCustomFontFamilyResolution verifies that a custom @font-face family
+// name is preserved through CSS parsing and matched against embedded fonts
+// during resolution, rather than being mapped to "helvetica". This is the
+// regression test for https://github.com/carlos7ags/folio/issues/16.
+func TestCustomFontFamilyResolution(t *testing.T) {
+	// Construct a converter with a mock embedded font entry keyed as
+	// "noto|normal|normal" — simulating a loaded @font-face with
+	// font-family: "Noto".
+	mockEF := font.NewEmbeddedFont(nil)
+	c := &converter{
+		embeddedFonts: map[string]*font.EmbeddedFont{
+			"noto|normal|normal": mockEF,
+		},
+	}
+
+	// Simulate the CSS pipeline: parseFontFamily normalizes "Noto" to "noto",
+	// then resolveFontPair should match the embedded font.
+	style := defaultStyle()
+	style.FontFamily = parseFontFamily(`"Noto"`)
+
+	if style.FontFamily != "noto" {
+		t.Fatalf("parseFontFamily(%q) = %q, want %q", `"Noto"`, style.FontFamily, "noto")
+	}
+
+	std, ef := c.resolveFontPair(style)
+	if ef != mockEF {
+		t.Errorf("expected embedded font for family %q, got standard font %v", style.FontFamily, std)
+	}
+	if std != nil {
+		t.Errorf("expected nil standard font when embedded font matches, got %v", std)
+	}
+}
+
+// TestCustomFontFamilyFallback verifies that an unknown family name that
+// does not match any @font-face still falls back to a standard font.
+func TestCustomFontFamilyFallback(t *testing.T) {
+	c := &converter{
+		embeddedFonts: make(map[string]*font.EmbeddedFont),
+	}
+
+	style := defaultStyle()
+	style.FontFamily = parseFontFamily(`"UnknownFont"`)
+
+	std, ef := c.resolveFontPair(style)
+	if ef != nil {
+		t.Error("expected nil embedded font for unknown family")
+	}
+	if std != font.Helvetica {
+		t.Errorf("expected Helvetica fallback, got %v", std)
+	}
+}
+
+// TestCustomFontFamilyWithFontShorthand verifies that the font shorthand
+// property also preserves custom family names.
+func TestCustomFontFamilyWithFontShorthand(t *testing.T) {
+	_, _, _, _, family := parseFontShorthand("12px CustomFont", 12)
+	if family != "customfont" {
+		t.Errorf("parseFontShorthand font-family = %q, want %q", family, "customfont")
+	}
+
+	_, _, _, _, family = parseFontShorthand("bold 16px 'Noto Sans', sans-serif", 12)
+	if family != "noto sans" {
+		t.Errorf("parseFontShorthand font-family = %q, want %q", family, "noto sans")
+	}
+}
+
+// TestStandardFontFamilyStillWorks verifies that standard font names
+// (courier, times, helvetica) still resolve correctly after the refactor.
+func TestStandardFontFamilyStillWorks(t *testing.T) {
+	c := &converter{
+		embeddedFonts: make(map[string]*font.EmbeddedFont),
+	}
+
+	tests := []struct {
+		family string
+		want   *font.Standard
+	}{
+		{"courier", font.Courier},
+		{"courier new", font.Courier},
+		{"monospace", font.Courier},
+		{"times", font.TimesRoman},
+		{"times new roman", font.TimesRoman},
+		{"serif", font.TimesRoman},
+		{"helvetica", font.Helvetica},
+		{"arial", font.Helvetica},
+		{"sans-serif", font.Helvetica},
+	}
+	for _, tt := range tests {
+		style := defaultStyle()
+		style.FontFamily = tt.family
+		std, ef := c.resolveFontPair(style)
+		if ef != nil {
+			t.Errorf("family %q: expected nil embedded font", tt.family)
+		}
+		if std != tt.want {
+			t.Errorf("family %q: got %v, want %v", tt.family, std.Name(), tt.want.Name())
+		}
 	}
 }
 

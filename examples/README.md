@@ -13,6 +13,7 @@ go run ./examples/hello
 ```
 examples/
 ├── hello/          # minimal one-page PDF
+├── fonts/          # standard, custom, and Unicode fonts (CJK, Cyrillic)
 └── README.md
 ```
 
