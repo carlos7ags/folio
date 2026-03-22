@@ -16,6 +16,8 @@ import (
 	"github.com/carlos7ags/folio/font"
 )
 
+// folio_page_add_text draws text on a low-level page using a standard font at the given position.
+//
 //export folio_page_add_text
 func folio_page_add_text(pageH C.uint64_t, text *C.char, fontH C.uint64_t, size, x, y C.double) C.int32_t {
 	page, errCode := loadPage(pageH)
@@ -30,6 +32,8 @@ func folio_page_add_text(pageH C.uint64_t, text *C.char, fontH C.uint64_t, size,
 	return errOK
 }
 
+// folio_page_add_text_embedded draws text on a low-level page using an embedded font at the given position.
+//
 //export folio_page_add_text_embedded
 func folio_page_add_text_embedded(pageH C.uint64_t, text *C.char, fontH C.uint64_t, size, x, y C.double) C.int32_t {
 	page, errCode := loadPage(pageH)
@@ -44,6 +48,8 @@ func folio_page_add_text_embedded(pageH C.uint64_t, text *C.char, fontH C.uint64
 	return errOK
 }
 
+// folio_page_add_link adds a URI link annotation to a page within the given rectangle.
+//
 //export folio_page_add_link
 func folio_page_add_link(pageH C.uint64_t, x1, y1, x2, y2 C.double, uri *C.char) C.int32_t {
 	page, errCode := loadPage(pageH)
@@ -54,6 +60,8 @@ func folio_page_add_link(pageH C.uint64_t, x1, y1, x2, y2 C.double, uri *C.char)
 	return errOK
 }
 
+// folio_page_set_opacity sets the global opacity for subsequent drawing operations on a page.
+//
 //export folio_page_set_opacity
 func folio_page_set_opacity(pageH C.uint64_t, alpha C.double) C.int32_t {
 	page, errCode := loadPage(pageH)
@@ -64,6 +72,8 @@ func folio_page_set_opacity(pageH C.uint64_t, alpha C.double) C.int32_t {
 	return errOK
 }
 
+// folio_page_set_rotate sets the page rotation in degrees (must be a multiple of 90).
+//
 //export folio_page_set_rotate
 func folio_page_set_rotate(pageH C.uint64_t, degrees C.int32_t) C.int32_t {
 	page, errCode := loadPage(pageH)
@@ -74,7 +84,7 @@ func folio_page_set_rotate(pageH C.uint64_t, degrees C.int32_t) C.int32_t {
 	return errOK
 }
 
-// loadPage is a helper that loads a *document.Page from the handle table.
+// loadPage retrieves a *document.Page from the handle table.
 func loadPage(h C.uint64_t) (*document.Page, C.int32_t) {
 	v := ht.load(uint64(h))
 	if v == nil {
@@ -89,7 +99,7 @@ func loadPage(h C.uint64_t) (*document.Page, C.int32_t) {
 	return page, errOK
 }
 
-// loadStandardFont loads a *font.Standard from the handle table.
+// loadStandardFont retrieves a *font.Standard from the handle table.
 func loadStandardFont(h C.uint64_t) (*font.Standard, C.int32_t) {
 	v := ht.load(uint64(h))
 	if v == nil {

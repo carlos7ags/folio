@@ -80,7 +80,7 @@ func (ef *EmbeddedFont) Kern(left, right rune) float64 {
 	return float64(kernUnits) * 1000.0 / float64(ef.face.UnitsPerEm())
 }
 
-// PdfObjects builds the complete set of PDF objects for this embedded font.
+// BuildObjects builds the complete set of PDF objects for this embedded font.
 // The caller is responsible for registering these as indirect objects.
 //
 // Returns:

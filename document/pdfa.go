@@ -273,7 +273,7 @@ func buildXMPMetadata(info Info, level PdfALevel, xmpSchemas []XMPSchema, xmpPro
 	b.WriteString(`<rdf:Description rdf:about=""`)
 	b.WriteString(` xmlns:pdfaid="http://www.aiim.org/pdfa/ns/id/">`)
 	b.WriteString("\n")
-	b.WriteString(fmt.Sprintf(`<pdfaid:part>%d</pdfaid:part>`, part))
+	fmt.Fprintf(&b, `<pdfaid:part>%d</pdfaid:part>`, part)
 	b.WriteString("\n")
 	b.WriteString(`<pdfaid:conformance>` + conf + `</pdfaid:conformance>`)
 	b.WriteString("\n")

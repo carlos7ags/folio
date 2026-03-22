@@ -30,7 +30,8 @@ const (
 	StrictnessStrict
 )
 
-// PdfReader opens and reads an existing PDF file.
+// PdfReader holds the parsed state of an existing PDF file, including
+// the cross-reference table, object resolver, document catalog, and pages.
 type PdfReader struct {
 	data       []byte
 	xref       *xrefTable

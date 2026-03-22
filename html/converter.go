@@ -37,6 +37,7 @@ type Options struct {
 	FallbackFontPath string
 }
 
+// defaults returns a copy of Options with zero-value fields replaced by sensible defaults.
 func (o *Options) defaults() Options {
 	out := Options{DefaultFontSize: 12, PageWidth: 612, PageHeight: 792}
 	if o != nil {
@@ -73,7 +74,6 @@ type DocMetadata struct {
 	Subject     string // from <meta name="subject">
 }
 
-// PageMargins holds margin values for a page variant.
 // MarginBoxContent holds the parsed content of a CSS margin box (e.g. @top-center).
 type MarginBoxContent struct {
 	Content  string     // resolved content string (after evaluating counter(), string literals, etc.)
@@ -81,6 +81,8 @@ type MarginBoxContent struct {
 	Color    [3]float64 // RGB color (0-1 each; all zero = default gray)
 }
 
+// PageMargins holds the margin values and margin-box content for a
+// page variant (e.g. :first, :left, :right) parsed from a CSS @page rule.
 type PageMargins struct {
 	Top, Right, Bottom, Left float64
 	HasMargins               bool                        // true if any margin property was explicitly set (even to 0)
@@ -1058,9 +1060,10 @@ func (c *converter) buildParagraphFromRuns(runs []layout.TextRun, style computed
 	if style.Widows > 0 {
 		p.SetWidows(style.Widows)
 	}
-	if style.Hyphens == "auto" {
+	switch style.Hyphens {
+	case "auto":
 		p.SetHyphens("auto")
-	} else if style.Hyphens == "none" {
+	case "none":
 		p.SetHyphens("none")
 	}
 	return p
@@ -1821,7 +1824,6 @@ func (c *converter) convertFigure(n *html.Node, style computedStyle) []layout.El
 	return []layout.Element{div}
 }
 
-// convertTable converts a <table> element into a layout.Table.
 // convertCSSTable handles elements with display:table — builds a layout.Table
 // from children with display:table-row and display:table-cell.
 func (c *converter) convertCSSTable(n *html.Node, style computedStyle) []layout.Element {
@@ -1914,6 +1916,7 @@ func (c *converter) convertCSSTable(n *html.Node, style computedStyle) []layout.
 	return []layout.Element{tbl}
 }
 
+// convertTable converts a <table> element into a layout.Table.
 func (c *converter) convertTable(n *html.Node, style computedStyle) []layout.Element {
 	// Save parent containerWidth for resolving the table's own width properties.
 	parentContainerWidth := c.containerWidth
@@ -3773,6 +3776,7 @@ func collectText(n *html.Node) string {
 	return collapseWhitespace(sb.String())
 }
 
+// collectTextInto appends all text content from n and its descendants to sb.
 func collectTextInto(n *html.Node, sb *strings.Builder) {
 	if n.Type == html.TextNode {
 		sb.WriteString(n.Data)
@@ -3790,6 +3794,7 @@ func collectRawText(n *html.Node) string {
 	return sb.String()
 }
 
+// collectRawTextInto appends raw text from n and its descendants to sb, preserving whitespace.
 func collectRawTextInto(n *html.Node, sb *strings.Builder) {
 	if n.Type == html.TextNode {
 		sb.WriteString(n.Data)
@@ -3895,7 +3900,6 @@ func processWhitespace(s, whiteSpace string) string {
 	}
 }
 
-// getAttr returns the value of the named attribute, or "".
 // textContent returns the concatenated text of all descendant text nodes.
 func textContent(n *html.Node) string {
 	if n.Type == html.TextNode {
@@ -3929,6 +3933,7 @@ func (c *converter) extractMeta(n *html.Node) {
 	}
 }
 
+// getAttr returns the value of the named attribute on n, or the empty string.
 func getAttr(n *html.Node, name string) string {
 	for _, a := range n.Attr {
 		if a.Key == name {
@@ -3970,96 +3975,6 @@ func parseAttrFloat(s string) float64 {
 	return v
 }
 
-// applyBackgroundShorthand parses the CSS background shorthand property.
-// It handles background-color, url(), and gradient values.
-func (c *converter) applyBackgroundShorthand(val string, style *computedStyle) {
-	trimmed := strings.TrimSpace(val)
-	lower := strings.ToLower(trimmed)
-
-	// Check for gradient or url.
-	if strings.HasPrefix(lower, "url(") ||
-		strings.HasPrefix(lower, "linear-gradient(") ||
-		strings.HasPrefix(lower, "radial-gradient(") {
-		// Parse complex background shorthand with image/gradient.
-		c.parseBackgroundShorthandFull(trimmed, style)
-		return
-	}
-
-	// Simple case: just a color.
-	if clr, ok := parseColor(val); ok {
-		style.BackgroundColor = &clr
-	}
-}
-
-// parseBackgroundShorthandFull parses a background shorthand that contains
-// url() or gradient values, plus optional color, position, size, repeat.
-func (c *converter) parseBackgroundShorthandFull(val string, style *computedStyle) {
-	lower := strings.ToLower(val)
-
-	// Extract the url() or gradient function call.
-	var bgImageVal string
-	var remaining string
-
-	if idx := findFunctionEnd(lower, "url("); idx >= 0 {
-		bgImageVal = val[:idx]
-		remaining = strings.TrimSpace(val[idx:])
-	} else if idx := findFunctionEnd(lower, "linear-gradient("); idx >= 0 {
-		bgImageVal = val[:idx]
-		remaining = strings.TrimSpace(val[idx:])
-	} else if idx := findFunctionEnd(lower, "radial-gradient("); idx >= 0 {
-		bgImageVal = val[:idx]
-		remaining = strings.TrimSpace(val[idx:])
-	}
-
-	if bgImageVal != "" {
-		style.BackgroundImage = bgImageVal
-	}
-
-	// Parse remaining tokens for repeat, position, color.
-	tokens := strings.Fields(remaining)
-	for _, tok := range tokens {
-		tokLower := strings.ToLower(tok)
-		switch tokLower {
-		case "no-repeat", "repeat", "repeat-x", "repeat-y":
-			style.BackgroundRepeat = tokLower
-		case "center", "top", "bottom", "left", "right":
-			if style.BackgroundPosition == "" {
-				style.BackgroundPosition = tokLower
-			} else {
-				style.BackgroundPosition += " " + tokLower
-			}
-		case "cover", "contain":
-			style.BackgroundSize = tokLower
-		default:
-			// Try as color.
-			if clr, ok := parseColor(tok); ok {
-				style.BackgroundColor = &clr
-			}
-		}
-	}
-}
-
-// findFunctionEnd finds the closing parenthesis of a CSS function call
-// starting at the beginning of s. Returns the index just past the ')'.
-// Returns -1 if the function is not found at the start.
-func findFunctionEnd(s, prefix string) int {
-	if !strings.HasPrefix(strings.ToLower(s), prefix) {
-		return -1
-	}
-	depth := 0
-	for i, ch := range s {
-		if ch == '(' {
-			depth++
-		} else if ch == ')' {
-			depth--
-			if depth == 0 {
-				return i + 1
-			}
-		}
-	}
-	return -1
-}
-
 // parseBackgroundImage parses the CSS background-image value and returns
 // the kind ("url", "linear-gradient", "radial-gradient") and the inner value.
 func parseBackgroundImage(val string) (kind string, inner string) {
@@ -4090,9 +4005,10 @@ func extractFunctionArgs(val string) string {
 	// Find matching close paren.
 	depth := 0
 	for i := start; i < len(val); i++ {
-		if val[i] == '(' {
+		switch val[i] {
+		case '(':
 			depth++
-		} else if val[i] == ')' {
+		case ')':
 			depth--
 			if depth == 0 {
 				return val[start+1 : i]

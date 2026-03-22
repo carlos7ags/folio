@@ -35,21 +35,21 @@ const (
 	FlagMultiline       FieldFlags = 1 << 12 // multi-line text
 	FlagPassword        FieldFlags = 1 << 13 // password (hidden chars)
 	FlagFileSelect      FieldFlags = 1 << 20 // file path input
-	FlagDoNotSpellCheck FieldFlags = 1 << 22
-	FlagDoNotScroll     FieldFlags = 1 << 23
+	FlagDoNotSpellCheck FieldFlags = 1 << 22 // disable spell check
+	FlagDoNotScroll     FieldFlags = 1 << 23 // disable scrolling for long text
 	FlagComb            FieldFlags = 1 << 24 // evenly spaced characters
-	FlagRichText        FieldFlags = 1 << 25
+	FlagRichText        FieldFlags = 1 << 25 // rich text value
 
 	// Choice field specific flags.
 	FlagCombo       FieldFlags = 1 << 17 // combo box (dropdown) vs list box
 	FlagEdit        FieldFlags = 1 << 18 // editable combo box
 	FlagSort        FieldFlags = 1 << 19 // sorted options
-	FlagMultiSelect FieldFlags = 1 << 21
+	FlagMultiSelect FieldFlags = 1 << 21 // allow multiple selections
 
 	// Button specific flags.
-	FlagNoToggleToOff  FieldFlags = 1 << 14
+	FlagNoToggleToOff  FieldFlags = 1 << 14 // one radio button must always be selected
 	FlagRadioFlag      FieldFlags = 1 << 15 // radio button (vs checkbox)
-	FlagPushButtonFlag FieldFlags = 1 << 16
+	FlagPushButtonFlag FieldFlags = 1 << 16 // push button (no persistent value)
 )
 
 // Field represents a single form field.
@@ -76,7 +76,7 @@ type Field struct {
 	// Radio/checkbox.
 	ExportValue string // /AS or /V value when checked (default "Yes")
 
-	// Children for radio button groups.
+	// children holds the individual buttons in a radio button group.
 	children []*Field
 }
 
@@ -127,7 +127,7 @@ func Checkbox(name string, rect [4]float64, pageIndex int, checked bool) *Field 
 }
 
 // RadioGroup creates a radio button group with the given options.
-// Each option is a Field that represents one radio button.
+// Each RadioOption becomes a child widget field representing one button.
 func RadioGroup(name string, options []RadioOption) *Field {
 	parent := &Field{
 		Name:  name,
@@ -152,7 +152,7 @@ func RadioGroup(name string, options []RadioOption) *Field {
 type RadioOption struct {
 	Value     string     // export value when selected
 	Rect      [4]float64 // position on page
-	PageIndex int
+	PageIndex int        // zero-based page index
 }
 
 // Dropdown creates a dropdown (combo box) field.
@@ -225,7 +225,7 @@ func (f *Field) SetBorderColor(r, g, b float64) *Field {
 	return f
 }
 
-// ftName returns the PDF field type name.
+// ftName returns the PDF /FT name for the given FieldType.
 func ftName(ft FieldType) string {
 	switch ft {
 	case FieldText:
@@ -241,8 +241,8 @@ func ftName(ft FieldType) string {
 	}
 }
 
-// ToDict converts the field to a PDF dictionary for the AcroForm.
-// Returns the field dict and any widget annotation dicts.
+// ToDict converts the field to a PDF dictionary and registers it via addObject.
+// It returns the field's indirect reference and widget info for page annotation placement.
 func (f *Field) ToDict(addObject func(core.PdfObject) *core.PdfIndirectReference, pageRefs []*core.PdfIndirectReference) (*core.PdfIndirectReference, []*widgetInfo) {
 	dict := core.NewPdfDictionary()
 	dict.Set("T", core.NewPdfLiteralString(f.Name))
@@ -336,8 +336,10 @@ func (f *Field) ToDict(addObject func(core.PdfObject) *core.PdfIndirectReference
 	return fieldRef, widgets
 }
 
-// widgetInfo tracks a widget reference and its target page.
+// widgetInfo pairs a widget annotation's indirect reference with the page it belongs to.
 type widgetInfo struct {
-	ref       *core.PdfIndirectReference
+	// ref is the indirect reference to the widget annotation object.
+	ref *core.PdfIndirectReference
+	// pageIndex is the zero-based index of the page containing this widget.
 	pageIndex int
 }

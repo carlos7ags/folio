@@ -16,6 +16,8 @@ type Parser struct {
 	depth int // recursion depth guard
 }
 
+// maxParseDepth limits recursion depth to prevent stack overflow on
+// deeply nested or malicious PDF objects.
 const maxParseDepth = 100
 
 // NewParser creates a parser wrapping a tokenizer.
@@ -221,9 +223,8 @@ func (p *Parser) ParseIndirectObject() (objNum, genNum int, obj core.PdfObject, 
 	// Read "endobj" keyword.
 	p.tok.SkipWhitespace()
 	endTok := p.tok.Next()
-	if endTok.Type != TokenKeyword || endTok.Value != "endobj" {
-		// Some PDFs are lenient about endobj — don't fail hard.
-	}
+	// Some PDFs are lenient about endobj — don't fail hard.
+	_ = endTok
 
 	return objNum, genNum, obj, nil
 }

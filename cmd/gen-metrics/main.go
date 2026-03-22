@@ -113,7 +113,7 @@ func parseAFM(path string) (*fontData, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	fd := &fontData{
 		widths: make(map[rune]int),

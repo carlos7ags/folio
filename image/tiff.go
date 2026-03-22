@@ -12,8 +12,9 @@ import (
 )
 
 // NewTIFF creates an Image from raw TIFF data.
-// Decodes the TIFF to extract pixel data, then uses FlateDecode for PDF embedding.
-// Alpha channels are not extracted; TIFF alpha is uncommon in PDF workflows.
+// It decodes the TIFF to extract pixel data, then uses FlateDecode for PDF
+// embedding. Grayscale images are preserved as DeviceGray. Alpha channels
+// are discarded because TIFF alpha is uncommon in PDF workflows.
 func NewTIFF(data []byte) (*Image, error) {
 	img, err := tiff.Decode(bytes.NewReader(data))
 	if err != nil {

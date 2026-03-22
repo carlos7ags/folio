@@ -226,6 +226,7 @@ func (tl *TabbedLine) measureSegment(text string, measurer font.TextMeasurer) []
 	return words
 }
 
+// measurer returns the text measurer for this tabbed line's font.
 func (tl *TabbedLine) measurer() font.TextMeasurer {
 	if tl.embedded != nil {
 		return tl.embedded

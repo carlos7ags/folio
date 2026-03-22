@@ -34,6 +34,7 @@ var MacRomanEncoding = makeMacRomanEncoding()
 // StandardEncoding is Adobe's standard encoding for Type1 fonts.
 var StandardEncoding = makeStandardEncoding()
 
+// makeWinAnsiEncoding builds the Windows-1252 encoding table.
 func makeWinAnsiEncoding() *Encoding {
 	var e Encoding
 	// ASCII range maps 1:1.
@@ -59,6 +60,7 @@ func makeWinAnsiEncoding() *Encoding {
 	return &e
 }
 
+// makeMacRomanEncoding builds the Mac OS Roman encoding table.
 func makeMacRomanEncoding() *Encoding {
 	var e Encoding
 	for i := range 128 {
@@ -89,6 +91,7 @@ func makeMacRomanEncoding() *Encoding {
 	return &e
 }
 
+// makeStandardEncoding builds Adobe's standard encoding table for Type1 fonts.
 func makeStandardEncoding() *Encoding {
 	var e Encoding
 	// ASCII printable range is mostly the same.

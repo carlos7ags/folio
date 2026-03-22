@@ -50,7 +50,7 @@ func (c *TSAClient) Timestamp(digest []byte, hashFunc crypto.Hash) ([]byte, erro
 	if err != nil {
 		return nil, fmt.Errorf("sign: TSA request: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("sign: TSA returned status %d", resp.StatusCode)
@@ -65,28 +65,26 @@ func (c *TSAClient) Timestamp(digest []byte, hashFunc crypto.Hash) ([]byte, erro
 	return parseTimestampResp(body)
 }
 
-// RFC 3161 ASN.1 structures.
-
-// timeStampReq is the RFC 3161 TimeStampReq.
+// timeStampReq is the ASN.1 TimeStampReq structure (RFC 3161).
 type timeStampReq struct {
 	Version        int
 	MessageImprint messageImprint
 	CertReq        bool `asn1:"optional"`
 }
 
-// messageImprint identifies the hash algorithm and digest value.
+// messageImprint identifies the hash algorithm and digest value in a timestamp request.
 type messageImprint struct {
 	HashAlgorithm algorithmIdentifier
 	HashedMessage []byte
 }
 
-// timeStampResp is the RFC 3161 TimeStampResp.
+// timeStampResp is the ASN.1 TimeStampResp structure (RFC 3161).
 type timeStampResp struct {
 	Status         pkiStatusInfo
 	TimeStampToken asn1.RawValue `asn1:"optional"`
 }
 
-// pkiStatusInfo is the status field in TimeStampResp.
+// pkiStatusInfo is the status field of a TimeStampResp.
 type pkiStatusInfo struct {
 	Status int
 }

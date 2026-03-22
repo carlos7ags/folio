@@ -56,6 +56,7 @@ func (c *Copier) CopyPage(pageIndex int) (*core.PdfIndirectReference, error) {
 	return c.addObj(copiedDict), nil
 }
 
+// copyDeep recursively copies a PDF object, remapping all indirect references.
 func (c *Copier) copyDeep(obj core.PdfObject) (core.PdfObject, error) {
 	if obj == nil {
 		return core.NewPdfNull(), nil
@@ -84,6 +85,8 @@ func (c *Copier) copyDeep(obj core.PdfObject) (core.PdfObject, error) {
 	}
 }
 
+// copyIndirectRef resolves and deep-copies an indirect reference, using a
+// placeholder to handle circular references.
 func (c *Copier) copyIndirectRef(ref *core.PdfIndirectReference) (core.PdfObject, error) {
 	// Check if already copied.
 	if newRef, ok := c.refMap[ref.ObjectNumber]; ok {
@@ -124,6 +127,7 @@ func (c *Copier) copyIndirectRef(ref *core.PdfIndirectReference) (core.PdfObject
 	return newRef, nil
 }
 
+// copyDict deep-copies a PDF dictionary, recursively copying all values.
 func (c *Copier) copyDict(dict *core.PdfDictionary) (*core.PdfDictionary, error) {
 	newDict := core.NewPdfDictionary()
 	for _, entry := range dict.Entries {
@@ -136,6 +140,7 @@ func (c *Copier) copyDict(dict *core.PdfDictionary) (*core.PdfDictionary, error)
 	return newDict, nil
 }
 
+// copyArray deep-copies a PDF array, recursively copying all elements.
 func (c *Copier) copyArray(arr *core.PdfArray) (*core.PdfArray, error) {
 	newArr := core.NewPdfArray()
 	for _, elem := range arr.Elements {
@@ -148,6 +153,7 @@ func (c *Copier) copyArray(arr *core.PdfArray) (*core.PdfArray, error) {
 	return newArr, nil
 }
 
+// copyStream deep-copies a PDF stream, including its dictionary and raw data.
 func (c *Copier) copyStream(stream *core.PdfStream) (*core.PdfStream, error) {
 	// Copy the dictionary entries.
 	newStream := core.NewPdfStream(stream.Data)

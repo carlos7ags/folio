@@ -9,15 +9,16 @@ import (
 
 // AcroForm manages the interactive form fields for a PDF document.
 type AcroForm struct {
+	// fields holds the top-level form fields in insertion order.
 	fields []*Field
 }
 
-// NewAcroForm creates an empty form.
+// NewAcroForm creates an empty AcroForm with no fields.
 func NewAcroForm() *AcroForm {
 	return &AcroForm{}
 }
 
-// Add adds a field to the form.
+// Add appends a field to the form and returns the AcroForm for chaining.
 func (af *AcroForm) Add(f *Field) *AcroForm {
 	af.fields = append(af.fields, f)
 	return af
@@ -29,8 +30,8 @@ func (af *AcroForm) Fields() []*Field {
 }
 
 // Build creates the /AcroForm dictionary and all field/widget objects.
-// Returns the AcroForm dictionary reference and a map of pageIndex → widget refs
-// (so the document layer can add them to each page's /Annots array).
+// It returns the AcroForm indirect reference and a map from page index to widget
+// references, so the document layer can add them to each page's /Annots array.
 func (af *AcroForm) Build(
 	addObject func(core.PdfObject) *core.PdfIndirectReference,
 	pageRefs []*core.PdfIndirectReference,

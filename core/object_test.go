@@ -421,7 +421,7 @@ func TestStreamCompressedDecompresses(t *testing.T) {
 	if err != nil {
 		t.Fatalf("zlib.NewReader failed: %v", err)
 	}
-	defer r.Close()
+	defer func() { _ = r.Close() }()
 	decompressed, err := io.ReadAll(r)
 	if err != nil {
 		t.Fatalf("decompress failed: %v", err)

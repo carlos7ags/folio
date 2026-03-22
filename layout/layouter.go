@@ -22,8 +22,8 @@ const (
 	// is in LayoutPlan.Blocks; the remainder is in LayoutPlan.Overflow.
 	LayoutPartial
 
-	// LayoutNothing means the element could not fit at all
-	// (the area is too small even for the first line/row).
+	// LayoutNothing means the element could not fit at all;
+	// the area is too small even for the first line or row.
 	LayoutNothing
 )
 
@@ -115,8 +115,6 @@ func maxBlockWidth(blocks []PlacedBlock) float64 {
 	return w
 }
 
-// Measurable is an optional interface that elements can implement
-// to report their intrinsic width constraints. This enables features
 // Clearable is implemented by elements that support the CSS clear property.
 type Clearable interface {
 	ClearValue() string // "left", "right", "both", or ""
@@ -130,6 +128,8 @@ type HeightSettable interface {
 	HasExplicitHeight() bool // true if element has a CSS height set
 }
 
+// Measurable is an optional interface that elements can implement
+// to report their intrinsic width constraints. This enables features
 // like auto-sizing table columns based on cell content.
 type Measurable interface {
 	// MinWidth returns the narrowest width this element can be rendered

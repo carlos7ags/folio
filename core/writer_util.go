@@ -15,12 +15,14 @@ type countingWriter struct {
 	n int64
 }
 
+// Write writes p to the underlying writer and accumulates the byte count.
 func (cw *countingWriter) Write(p []byte) (int, error) {
 	n, err := cw.w.Write(p)
 	cw.n += int64(n)
 	return n, err
 }
 
+// WriteString writes s to the underlying writer and accumulates the byte count.
 func (cw *countingWriter) WriteString(s string) (int, error) {
 	n, err := io.WriteString(cw.w, s)
 	cw.n += int64(n)

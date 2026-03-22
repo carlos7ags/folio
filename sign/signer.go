@@ -59,13 +59,18 @@ func (s *LocalSigner) SetAlgorithm(algo Algorithm) {
 	s.algo = algo
 }
 
+// Sign signs the given digest using the local private key.
 func (s *LocalSigner) Sign(digest []byte) ([]byte, error) {
 	return s.key.Sign(rand.Reader, digest, s.hashOpts())
 }
 
-func (s *LocalSigner) Algorithm() Algorithm                  { return s.algo }
+// Algorithm returns the signature algorithm.
+func (s *LocalSigner) Algorithm() Algorithm { return s.algo }
+
+// CertificateChain returns the signer's certificate chain.
 func (s *LocalSigner) CertificateChain() []*x509.Certificate { return s.certs }
 
+// hashOpts returns the crypto.SignerOpts for the configured algorithm.
 func (s *LocalSigner) hashOpts() crypto.SignerOpts {
 	return s.algo.HashFunc()
 }
@@ -93,11 +98,15 @@ func NewExternalSigner(
 	return &ExternalSigner{signFn: signFn, certs: certs, algo: algo}, nil
 }
 
+// Sign delegates signing of the given digest to the external function.
 func (s *ExternalSigner) Sign(digest []byte) ([]byte, error) {
 	return s.signFn(digest)
 }
 
-func (s *ExternalSigner) Algorithm() Algorithm                  { return s.algo }
+// Algorithm returns the signature algorithm.
+func (s *ExternalSigner) Algorithm() Algorithm { return s.algo }
+
+// CertificateChain returns the signer's certificate chain.
 func (s *ExternalSigner) CertificateChain() []*x509.Certificate { return s.certs }
 
 // LoadPKCS12 loads a PKCS#12 (.p12/.pfx) file and returns a LocalSigner.

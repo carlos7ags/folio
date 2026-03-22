@@ -94,9 +94,7 @@ func (d *Document) AddHTML(htmlStr string, opts *foliohtml.Options) error {
 	}
 
 	// Add all normal-flow elements.
-	for _, e := range result.Elements {
-		d.elements = append(d.elements, e)
-	}
+	d.elements = append(d.elements, result.Elements...)
 
 	// Add absolutely positioned elements.
 	for _, abs := range result.Absolutes {

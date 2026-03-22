@@ -49,7 +49,7 @@ func (c *OCSPClient) FetchResponse(cert, issuer *x509.Certificate) ([]byte, erro
 	if err != nil {
 		return nil, fmt.Errorf("sign: OCSP request to %s: %w", responderURL, err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("sign: OCSP responder returned status %d", resp.StatusCode)
@@ -84,20 +84,22 @@ func (c *OCSPClient) FetchChainResponses(chain []*x509.Certificate) ([][]byte, e
 	return responses, nil
 }
 
-// ASN.1 OCSP structures (RFC 6960).
-
+// ocspRequest is the ASN.1 OCSPRequest structure (RFC 6960).
 type ocspRequest struct {
 	TBSRequest tbsRequest
 }
 
+// tbsRequest is the TBSRequest body of an OCSPRequest.
 type tbsRequest struct {
 	RequestList []request
 }
 
+// request is a single entry in an OCSP request list.
 type request struct {
 	ReqCert certID
 }
 
+// certID identifies the certificate being queried in an OCSP request.
 type certID struct {
 	HashAlgorithm  algorithmIdentifier
 	IssuerNameHash []byte
@@ -105,11 +107,13 @@ type certID struct {
 	SerialNumber   asn1.RawValue
 }
 
+// ocspResponse is the ASN.1 OCSPResponse structure (RFC 6960).
 type ocspResponse struct {
 	ResponseStatus asn1.Enumerated
 	ResponseBytes  responseBytes `asn1:"explicit,tag:0,optional"`
 }
 
+// responseBytes carries the response type and DER-encoded response body.
 type responseBytes struct {
 	ResponseType asn1.ObjectIdentifier
 	Response     []byte

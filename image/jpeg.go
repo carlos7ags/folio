@@ -18,14 +18,14 @@ const (
 )
 
 // NewJPEG creates an Image from raw JPEG data.
-// Parses the JPEG header to extract dimensions and color space.
+// It parses the JPEG header to extract dimensions and color space.
 func NewJPEG(data []byte) (*Image, error) {
 	w, h, ncomp, err := parseJPEGHeader(data)
 	if err != nil {
 		return nil, fmt.Errorf("jpeg: %w", err)
 	}
 
-	cs := "DeviceRGB"
+	var cs string
 	switch ncomp {
 	case 1:
 		cs = "DeviceGray"
@@ -57,7 +57,7 @@ func LoadJPEG(path string) (*Image, error) {
 }
 
 // parseJPEGHeader reads the JPEG header to find dimensions and component count.
-// Scans for SOF0, SOF1, or SOF2 markers.
+// It scans for SOF0, SOF1, or SOF2 markers.
 func parseJPEGHeader(data []byte) (width, height, numComponents int, err error) {
 	if len(data) < 2 || binary.BigEndian.Uint16(data[0:2]) != markerSOI {
 		return 0, 0, 0, fmt.Errorf("not a JPEG file")

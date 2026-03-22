@@ -34,6 +34,8 @@ func init() {
 	}
 }
 
+// folio_font_standard returns a handle for a PDF standard font looked up by name.
+//
 //export folio_font_standard
 func folio_font_standard(name *C.char) C.uint64_t {
 	goName := C.GoString(name)
@@ -45,31 +47,43 @@ func folio_font_standard(name *C.char) C.uint64_t {
 	return C.uint64_t(id)
 }
 
+// folio_font_helvetica returns the handle for the Helvetica standard font.
+//
 //export folio_font_helvetica
 func folio_font_helvetica() C.uint64_t {
 	return C.uint64_t(standardFontHandles[font.Helvetica.Name()])
 }
 
+// folio_font_helvetica_bold returns the handle for the Helvetica-Bold standard font.
+//
 //export folio_font_helvetica_bold
 func folio_font_helvetica_bold() C.uint64_t {
 	return C.uint64_t(standardFontHandles[font.HelveticaBold.Name()])
 }
 
+// folio_font_times_roman returns the handle for the Times-Roman standard font.
+//
 //export folio_font_times_roman
 func folio_font_times_roman() C.uint64_t {
 	return C.uint64_t(standardFontHandles[font.TimesRoman.Name()])
 }
 
+// folio_font_times_bold returns the handle for the Times-Bold standard font.
+//
 //export folio_font_times_bold
 func folio_font_times_bold() C.uint64_t {
 	return C.uint64_t(standardFontHandles[font.TimesBold.Name()])
 }
 
+// folio_font_courier returns the handle for the Courier standard font.
+//
 //export folio_font_courier
 func folio_font_courier() C.uint64_t {
 	return C.uint64_t(standardFontHandles[font.Courier.Name()])
 }
 
+// folio_font_load_ttf loads a TrueType font from a file path and returns its handle.
+//
 //export folio_font_load_ttf
 func folio_font_load_ttf(path *C.char) C.uint64_t {
 	face, err := font.LoadTTF(C.GoString(path))
@@ -81,6 +95,8 @@ func folio_font_load_ttf(path *C.char) C.uint64_t {
 	return C.uint64_t(ht.store(ef))
 }
 
+// folio_font_parse_ttf parses a TrueType font from in-memory bytes and returns its handle.
+//
 //export folio_font_parse_ttf
 func folio_font_parse_ttf(data unsafe.Pointer, length C.int32_t) C.uint64_t {
 	if data == nil || length <= 0 {
@@ -97,6 +113,8 @@ func folio_font_parse_ttf(data unsafe.Pointer, length C.int32_t) C.uint64_t {
 	return C.uint64_t(ht.store(ef))
 }
 
+// folio_font_free releases an embedded font handle. Standard fonts are singletons and are not freed.
+//
 //export folio_font_free
 func folio_font_free(fontH C.uint64_t) {
 	// Standard fonts are singletons — don't delete them.
@@ -110,7 +128,7 @@ func folio_font_free(fontH C.uint64_t) {
 	ht.delete(uint64(fontH))
 }
 
-// loadEmbeddedFont loads a *font.EmbeddedFont from the handle table.
+// loadEmbeddedFont retrieves a *font.EmbeddedFont from the handle table.
 func loadEmbeddedFont(h C.uint64_t) (*font.EmbeddedFont, C.int32_t) {
 	v := ht.load(uint64(h))
 	if v == nil {

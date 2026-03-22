@@ -33,6 +33,7 @@ type List struct {
 	leading  float64
 }
 
+// listItem is a single entry in a list, optionally containing a nested sub-list.
 type listItem struct {
 	text    string
 	subList *List // optional nested list
@@ -66,7 +67,7 @@ func NewListEmbedded(ef *font.EmbeddedFont, fontSize float64) *List {
 	}
 }
 
-// SetStyle sets ordered or unordered.
+// SetStyle sets the list marker style (bullet, decimal, roman, alpha, or none).
 func (l *List) SetStyle(s ListStyle) *List {
 	l.style = s
 	return l
@@ -205,6 +206,7 @@ func (l *List) MaxWidth() float64 {
 	return l.indent + maxW
 }
 
+// measurer returns the text measurer for this list's font.
 func (l *List) measurer() font.TextMeasurer {
 	if l.embedded != nil {
 		return l.embedded
@@ -335,6 +337,7 @@ func wrapListBlocks(blocks []PlacedBlock, width, height float64) []PlacedBlock {
 	}}
 }
 
+// marker returns the marker string (bullet, number, letter) for the item at index.
 func (l *List) marker(index int) string {
 	n := index + 1
 	switch l.style {

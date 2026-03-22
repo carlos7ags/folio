@@ -384,7 +384,7 @@ func TestPatchByteRange(t *testing.T) {
 	sd := buildSigDict("", "", "", "")
 	var buf bytes.Buffer
 	buf.WriteString("5 0 obj\n")
-	sd.WriteTo(&buf)
+	_, _ = sd.WriteTo(&buf)
 	buf.WriteString("\nendobj\n")
 
 	pdf := buf.Bytes()
@@ -411,7 +411,7 @@ func TestPatchContents(t *testing.T) {
 	sd := buildSigDict("", "", "", "")
 	var buf bytes.Buffer
 	buf.WriteString("5 0 obj\n")
-	sd.WriteTo(&buf)
+	_, _ = sd.WriteTo(&buf)
 	buf.WriteString("\nendobj\n")
 
 	pdf := buf.Bytes()
@@ -437,7 +437,7 @@ func TestPatchContentsTooLarge(t *testing.T) {
 	sd := buildSigDict("", "", "", "")
 	var buf bytes.Buffer
 	buf.WriteString("5 0 obj\n")
-	sd.WriteTo(&buf)
+	_, _ = sd.WriteTo(&buf)
 	buf.WriteString("\nendobj\n")
 
 	pdf := buf.Bytes()
@@ -674,7 +674,7 @@ func TestComputeVRIKey(t *testing.T) {
 	}
 	// Must be uppercase hex.
 	for _, c := range key {
-		if !((c >= '0' && c <= '9') || (c >= 'A' && c <= 'F')) {
+		if (c < '0' || c > '9') && (c < 'A' || c > 'F') {
 			t.Errorf("VRI key has non-uppercase-hex char: %c", c)
 			break
 		}

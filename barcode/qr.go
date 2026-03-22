@@ -233,54 +233,8 @@ func QRWithECC(data string, level ECCLevel) (*Barcode, error) {
 	return &Barcode{modules: bestModules, width: size, height: size}, nil
 }
 
-// --- Byte capacity table: [41][4]int, index 0 unused, columns L/M/Q/H ---
-
-var qrByteCapacity = [41][4]int{
-	{0, 0, 0, 0},             // version 0 unused
-	{17, 14, 11, 7},          // version 1
-	{32, 26, 20, 14},         // version 2
-	{53, 42, 32, 24},         // version 3
-	{78, 62, 46, 34},         // version 4
-	{106, 84, 60, 44},        // version 5
-	{134, 106, 74, 58},       // version 6
-	{154, 122, 86, 64},       // version 7
-	{192, 152, 108, 84},      // version 8
-	{230, 180, 130, 98},      // version 9
-	{271, 213, 151, 119},     // version 10
-	{321, 251, 177, 137},     // version 11
-	{367, 287, 203, 155},     // version 12
-	{425, 331, 241, 177},     // version 13
-	{458, 362, 258, 194},     // version 14
-	{520, 412, 292, 220},     // version 15
-	{586, 450, 322, 250},     // version 16
-	{644, 504, 364, 280},     // version 17
-	{718, 560, 394, 310},     // version 18
-	{792, 624, 442, 338},     // version 19
-	{858, 666, 482, 382},     // version 20
-	{929, 711, 509, 403},     // version 21
-	{1003, 779, 565, 439},    // version 22
-	{1091, 857, 611, 461},    // version 23
-	{1171, 911, 661, 511},    // version 24
-	{1273, 997, 715, 535},    // version 25
-	{1367, 1059, 751, 593},   // version 26
-	{1465, 1125, 805, 625},   // version 27
-	{1528, 1190, 868, 658},   // version 28
-	{1628, 1264, 908, 698},   // version 29
-	{1732, 1370, 982, 742},   // version 30
-	{1840, 1452, 1030, 790},  // version 31
-	{1952, 1538, 1112, 842},  // version 32
-	{2068, 1628, 1168, 898},  // version 33
-	{2188, 1722, 1228, 958},  // version 34
-	{2303, 1809, 1283, 983},  // version 35
-	{2431, 1911, 1351, 1051}, // version 36
-	{2563, 1989, 1423, 1093}, // version 37
-	{2699, 2099, 1499, 1139}, // version 38
-	{2809, 2213, 1579, 1219}, // version 39
-	{2953, 2331, 1663, 1273}, // version 40
-}
-
-// --- Data codewords table: [41][4]int, columns L/M/Q/H ---
-
+// qrDataCodewords holds the number of data codewords for each QR version (1-40)
+// and ECC level (L/M/Q/H). Index 0 is unused.
 var qrDataCodewords = [41][4]int{
 	{0, 0, 0, 0},             // version 0 unused
 	{19, 16, 13, 9},          // version 1
@@ -325,8 +279,8 @@ var qrDataCodewords = [41][4]int{
 	{2956, 2334, 1666, 1276}, // version 40
 }
 
-// --- ECC codewords per block: [41][4]int, columns L/M/Q/H ---
-
+// qrECCPerBlock holds the number of error correction codewords per block for each
+// QR version (1-40) and ECC level (L/M/Q/H). Index 0 is unused.
 var qrECCPerBlock = [41][4]int{
 	{0, 0, 0, 0},     // version 0 unused
 	{7, 10, 13, 17},  // version 1
@@ -379,7 +333,8 @@ type qrBlockInfo struct {
 	group2DataCW int // data codewords per block in group 2 (= group1DataCW + 1, or 0)
 }
 
-// qrBlockTable: [41][4]qrBlockInfo, columns L/M/Q/H.
+// qrBlockTable holds the block structure for each QR version (1-40)
+// and ECC level (L/M/Q/H). Index 0 is unused.
 var qrBlockTable = [41][4]qrBlockInfo{
 	{}, // version 0 unused
 	// version 1
@@ -464,8 +419,8 @@ var qrBlockTable = [41][4]qrBlockInfo{
 	{{19, 118, 6, 119}, {18, 47, 31, 48}, {34, 24, 34, 25}, {20, 15, 61, 16}},
 }
 
-// --- Alignment pattern positions for versions 1-40 ---
-
+// alignmentTable holds the alignment pattern center coordinates for each QR
+// version (1-40). Version 1 has no alignment patterns. Index 0 is unused.
 var alignmentTable = [41][]int{
 	{},                             // version 0
 	{},                             // version 1 (no alignment)
@@ -510,6 +465,7 @@ var alignmentTable = [41][]int{
 	{6, 30, 58, 86, 114, 142, 170}, // version 40
 }
 
+// alignmentPositions returns the alignment pattern center coordinates for the given version.
 func alignmentPositions(version int) []int {
 	if version < 1 || version > 40 {
 		return nil
@@ -517,9 +473,8 @@ func alignmentPositions(version int) []int {
 	return alignmentTable[version]
 }
 
-// --- Format info lookup table: [4][8]uint16 — [eccLevel][maskPattern] ---
-// Pre-computed BCH(15,5) encoded with XOR mask 0x5412.
-
+// qrFormatInfo holds pre-computed BCH(15,5) format information strings for each
+// ECC level and mask pattern combination, XORed with mask 0x5412.
 var qrFormatInfo = [4][8]uint16{
 	// ECCLevelL
 	{0x77C4, 0x72F3, 0x7DAA, 0x789D, 0x662F, 0x6318, 0x6C41, 0x6976},
@@ -531,9 +486,8 @@ var qrFormatInfo = [4][8]uint16{
 	{0x1689, 0x13BE, 0x1CE7, 0x19D0, 0x0762, 0x0255, 0x0D0C, 0x083B},
 }
 
-// --- Version info lookup table for versions 7-40 ---
-// BCH(18,6) encoded with generator polynomial 0x1F25.
-
+// qrVersionInfo holds BCH(18,6) encoded version information for versions 7-40,
+// using generator polynomial 0x1F25. Versions 0-6 have no version info.
 var qrVersionInfo = [41]uint32{
 	0, 0, 0, 0, 0, 0, 0, // versions 0-6: no version info
 	0x07C94, // version 7
@@ -572,9 +526,8 @@ var qrVersionInfo = [41]uint32{
 	0x28C69, // version 40
 }
 
-// --- Finder and alignment pattern placement ---
-
-// placeFinder places a 7x7 finder pattern at (row, col).
+// placeFinder places a 7x7 finder pattern at (row, col) and reserves the
+// surrounding one-module-wide separator zone.
 func placeFinder(modules, reserved [][]bool, row, col int) {
 	for r := -1; r <= 7; r++ {
 		for c := -1; c <= 7; c++ {
@@ -613,8 +566,6 @@ func placeAlignment(modules, reserved [][]bool, row, col int) {
 	}
 }
 
-// --- Data encoding ---
-
 // appendBitsN appends the lowest n bits of val (MSB first) to bits.
 func appendBitsN(bits []bool, val, n int) []bool {
 	for i := n - 1; i >= 0; i-- {
@@ -641,11 +592,11 @@ func encodeNumericData(data string, version int) []bool {
 		bits = appendBitsN(bits, val, 10)
 		i += 3
 	}
-	remaining := len(data) - i
-	if remaining == 2 {
+	switch remaining := len(data) - i; remaining {
+	case 2:
 		val := int(data[i]-'0')*10 + int(data[i+1]-'0')
 		bits = appendBitsN(bits, val, 7)
-	} else if remaining == 1 {
+	case 1:
 		val := int(data[i] - '0')
 		bits = appendBitsN(bits, val, 4)
 	}
@@ -699,7 +650,8 @@ func encodeByteData(data string, version int) []bool {
 	return bits
 }
 
-// encodeQRData encodes data with the specified ECC level and encoding mode.
+// encodeQRData encodes data with the specified ECC level and encoding mode,
+// returning the complete bitstream including interleaved error correction codewords.
 func encodeQRData(data string, version int, level ECCLevel, mode qrMode) []bool {
 	var bits []bool
 
@@ -825,8 +777,6 @@ func appendECCInterleaved(dataBits []bool, version int, level ECCLevel) []bool {
 	return result
 }
 
-// --- GF(256) arithmetic for Reed-Solomon ---
-
 // gfExp and gfLog are lookup tables for GF(256) with primitive polynomial 0x11D.
 var gfExp [512]byte
 var gfLog [256]byte
@@ -846,6 +796,7 @@ func init() {
 	}
 }
 
+// gfMul returns the product of a and b in GF(256).
 func gfMul(a, b byte) byte {
 	if a == 0 || b == 0 {
 		return 0
@@ -867,7 +818,7 @@ func rsGeneratorPoly(n int) []byte {
 	return g
 }
 
-// rsEncode performs Reed-Solomon encoding.
+// rsEncode performs Reed-Solomon encoding, returning eccLen error correction codewords.
 func rsEncode(data []byte, generator []byte, eccLen int) []byte {
 	// Extend data with zero ECC bytes.
 	msg := make([]byte, len(data)+eccLen)
@@ -885,8 +836,6 @@ func rsEncode(data []byte, generator []byte, eccLen int) []byte {
 
 	return msg[len(data):]
 }
-
-// --- Data placement ---
 
 // placeData places data bits into the QR matrix in the zigzag pattern.
 func placeData(modules, reserved [][]bool, bits []bool, size int) {
@@ -926,8 +875,6 @@ func placeData(modules, reserved [][]bool, bits []bool, size int) {
 		upward = !upward
 	}
 }
-
-// --- Mask patterns ---
 
 // qrMaskFunc returns true if the module at (row, col) should be flipped for the given mask.
 func qrMaskFunc(mask int, row, col int) bool {
@@ -988,8 +935,8 @@ func evaluateMasks(modules, reserved [][]bool, size int) (int, [][]bool) {
 	return bestMask, bestModules
 }
 
-// --- Penalty scoring (ISO 18004 §7.8.3) ---
-
+// penaltyScore computes the total penalty score for a masked QR matrix
+// using all four rules from ISO 18004 section 7.8.3.
 func penaltyScore(modules [][]bool, size int) int {
 	return penaltyRule1(modules, size) +
 		penaltyRule2(modules, size) +
@@ -997,8 +944,8 @@ func penaltyScore(modules [][]bool, size int) int {
 		penaltyRule4(modules, size)
 }
 
-// Rule 1: Adjacent modules in row/column in same color.
-// For each run of 5+ same-colored modules: penalty = 3 + (run - 5).
+// penaltyRule1 scores adjacent same-colored modules in rows and columns.
+// Each run of 5 or more adds a penalty of 3 + (run length - 5).
 func penaltyRule1(modules [][]bool, size int) int {
 	penalty := 0
 
@@ -1041,7 +988,7 @@ func penaltyRule1(modules [][]bool, size int) int {
 	return penalty
 }
 
-// Rule 2: 2x2 blocks of same color. Penalty = 3 * count.
+// penaltyRule2 scores 2x2 blocks of same-colored modules, adding 3 per block.
 func penaltyRule2(modules [][]bool, size int) int {
 	count := 0
 	for r := range size - 1 {
@@ -1055,8 +1002,8 @@ func penaltyRule2(modules [][]bool, size int) int {
 	return 3 * count
 }
 
-// Rule 3: Finder-like patterns (1:1:3:1:1 with 4-module light on one side).
-// Penalty = 40 * count.
+// penaltyRule3 scores finder-like patterns (1:1:3:1:1 ratio with a 4-module
+// light zone on either side), adding 40 per occurrence.
 func penaltyRule3(modules [][]bool, size int) int {
 	count := 0
 	// Pattern: dark, light, dark dark dark, light, dark, light light light light
@@ -1109,7 +1056,8 @@ func penaltyRule3(modules [][]bool, size int) int {
 	return 40 * count
 }
 
-// Rule 4: Color balance. Penalty = 10 * k where k = floor(|50 - percentDark| / 5) * 2.
+// penaltyRule4 scores color imbalance. The penalty is 10 * k where
+// k = floor(|50 - percentDark| / 5) * 2.
 func penaltyRule4(modules [][]bool, size int) int {
 	dark := 0
 	total := size * size
@@ -1128,8 +1076,6 @@ func penaltyRule4(modules [][]bool, size int) int {
 	k := (diff / 5) * 2
 	return 10 * k
 }
-
-// --- Format and version info placement ---
 
 // placeFormatInfo places the 15-bit format information string.
 func placeFormatInfo(modules [][]bool, size int, level ECCLevel, mask int) {

@@ -316,6 +316,8 @@ func vecAngle(ux, uy, vx, vy float64) float64 {
 
 // --- Tokenizer ---
 
+// pathToken represents a single token from SVG path data: either a command
+// letter or a numeric value.
 type pathToken struct {
 	value     string
 	isCommand bool
@@ -431,6 +433,7 @@ func commandArgCount(cmd byte) int {
 	return 0
 }
 
+// toUpper converts a lowercase ASCII letter to uppercase.
 func toUpper(cmd byte) byte {
 	if cmd >= 'a' && cmd <= 'z' {
 		return cmd - 32

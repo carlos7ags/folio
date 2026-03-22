@@ -36,20 +36,28 @@ var (
 	oidECDSAWithSHA256 = asn1.ObjectIdentifier{1, 2, 840, 10045, 4, 3, 2}
 	oidECDSAWithSHA384 = asn1.ObjectIdentifier{1, 2, 840, 10045, 4, 3, 3}
 	oidECDSAWithSHA512 = asn1.ObjectIdentifier{1, 2, 840, 10045, 4, 3, 4}
-
-	// RSA encryption OID (used for issuer key identifier).
-	oidRSAEncryption = asn1.ObjectIdentifier{1, 2, 840, 113549, 1, 1, 1}
 )
 
 // Algorithm identifies a hash + signature algorithm pair.
 type Algorithm int
 
 const (
+	// SHA256WithRSA is RSA PKCS#1 v1.5 with SHA-256.
 	SHA256WithRSA Algorithm = iota
+
+	// SHA384WithRSA is RSA PKCS#1 v1.5 with SHA-384.
 	SHA384WithRSA
+
+	// SHA512WithRSA is RSA PKCS#1 v1.5 with SHA-512.
 	SHA512WithRSA
+
+	// SHA256WithECDSA is ECDSA with SHA-256.
 	SHA256WithECDSA
+
+	// SHA384WithECDSA is ECDSA with SHA-384.
 	SHA384WithECDSA
+
+	// SHA512WithECDSA is ECDSA with SHA-512.
 	SHA512WithECDSA
 )
 

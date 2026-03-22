@@ -94,9 +94,6 @@ type graphicsState struct {
 	currentMCID int   // -1 if not inside marked content with MCID
 	mcidStack   []int // stack of MCID values for nested BDC/BMC...EMC
 
-	// Clipping (simplified: bounding rect)
-	clipX, clipY, clipW, clipH float64
-	hasClip                    bool
 }
 
 // newGraphicsState returns the default graphics state.
@@ -135,6 +132,7 @@ type ContentProcessor struct {
 	depth        int // recursion depth (0 = top-level call)
 }
 
+// pathSegment is a single segment of a path being constructed.
 type pathSegment struct {
 	typ    PathType
 	points [][2]float64
@@ -372,9 +370,10 @@ func (p *ContentProcessor) Process(ops []ContentOp) []TextSpan {
 			}
 		case "TJ":
 			for _, operand := range op.Operands {
-				if operand.Type == TokenString || operand.Type == TokenHexString {
+				switch operand.Type {
+				case TokenString, TokenHexString:
 					p.emitText(operand)
-				} else if operand.Type == TokenNumber {
+				case TokenNumber:
 					adj := tokenFloat(operand)
 					p.state.textMatrix[4] -= adj / 1000 * p.state.fontSize
 				}

@@ -13,7 +13,7 @@ import (
 )
 
 // NewPNG creates an Image from raw PNG data.
-// Decodes the PNG to extract pixel data, then re-compresses with FlateDecode.
+// It decodes the PNG to extract pixel data, then re-compresses with FlateDecode.
 // Alpha channels are extracted into a separate SMask.
 func NewPNG(data []byte) (*Image, error) {
 	img, err := png.Decode(bytes.NewReader(data))
@@ -42,7 +42,8 @@ func LoadPNG(path string) (*Image, error) {
 	return NewPNG(data)
 }
 
-// buildRGB extracts RGB pixel data (no alpha).
+// buildRGB extracts pixel data without alpha. Grayscale images are encoded
+// as DeviceGray; all others are encoded as DeviceRGB.
 func buildRGB(img goimage.Image, w, h int) (*Image, error) {
 	bounds := img.Bounds()
 
@@ -110,7 +111,7 @@ func buildRGBA(img goimage.Image, w, h int) (*Image, error) {
 	}, nil
 }
 
-// imageHasAlpha checks if any pixel has non-opaque alpha.
+// imageHasAlpha reports whether any pixel in the image has non-opaque alpha.
 func imageHasAlpha(img goimage.Image) bool {
 	switch img.(type) {
 	case *goimage.NRGBA, *goimage.NRGBA64, *goimage.RGBA, *goimage.RGBA64:
@@ -128,7 +129,7 @@ func imageHasAlpha(img goimage.Image) bool {
 	return false
 }
 
-// isGrayscale checks if the image model is grayscale.
+// isGrayscale reports whether the image uses a grayscale color model.
 func isGrayscale(img goimage.Image) bool {
 	switch img.ColorModel() {
 	case color.GrayModel, color.Gray16Model:

@@ -54,6 +54,8 @@ type Modifier struct {
 	info      *core.PdfDictionary
 }
 
+// newModifier creates an empty Modifier with a fresh PDF 1.7 writer,
+// catalog, and page tree root.
 func newModifier() *Modifier {
 	w := document.NewWriter("1.7")
 
@@ -218,7 +220,7 @@ func (m *Modifier) SaveTo(path string) error {
 		return err
 	}
 	if _, err := m.WriteTo(f); err != nil {
-		f.Close()
+		_ = f.Close()
 		return err
 	}
 	return f.Close()

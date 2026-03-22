@@ -24,6 +24,8 @@ import (
 	"github.com/carlos7ags/folio/document"
 )
 
+// folio_document_set_header registers a C callback invoked on each page to render a header.
+//
 //export folio_document_set_header
 func folio_document_set_header(docH C.uint64_t, fn C.folio_page_decorator_fn, userData unsafe.Pointer) C.int32_t {
 	doc, errCode := loadDoc(docH)
@@ -38,6 +40,8 @@ func folio_document_set_header(docH C.uint64_t, fn C.folio_page_decorator_fn, us
 	return errOK
 }
 
+// folio_document_set_footer registers a C callback invoked on each page to render a footer.
+//
 //export folio_document_set_footer
 func folio_document_set_footer(docH C.uint64_t, fn C.folio_page_decorator_fn, userData unsafe.Pointer) C.int32_t {
 	doc, errCode := loadDoc(docH)

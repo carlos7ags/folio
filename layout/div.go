@@ -502,12 +502,10 @@ func (d *Div) PlanLayout(area LayoutArea) LayoutPlan {
 			if plan.Overflow != nil {
 				overflowElements = append(overflowElements, plan.Overflow)
 			}
-			break
 
 		case LayoutNothing:
 			allFit = false
 			overflowElements = append(overflowElements, elem)
-			break
 		}
 
 		if !allFit {

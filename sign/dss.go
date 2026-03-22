@@ -86,9 +86,8 @@ func (d *DSS) AddSignatureValidation(sigContents []byte, chain []*x509.Certifica
 }
 
 // Build creates the DSS dictionary and all referenced stream objects.
-// It returns the DSS dictionary and a slice of stream objects that must
-// be added as indirect objects. The addObject callback assigns object
-// numbers and returns indirect references.
+// The addObject callback assigns object numbers to each stream and returns
+// indirect references for embedding in the dictionary.
 func (d *DSS) Build(addObject func(core.PdfObject) *core.PdfIndirectReference) *core.PdfDictionary {
 	dss := core.NewPdfDictionary()
 
@@ -138,24 +137,28 @@ func (d *DSS) buildStreamArray(items [][]byte, addObject func(core.PdfObject) *c
 	return core.NewPdfArray(refs...)
 }
 
+// addCert appends a DER-encoded certificate if not already present.
 func (d *DSS) addCert(der []byte) {
 	if !d.containsBytes(d.Certs, der) {
 		d.Certs = append(d.Certs, der)
 	}
 }
 
+// addOCSP appends a DER-encoded OCSP response if not already present.
 func (d *DSS) addOCSP(der []byte) {
 	if !d.containsBytes(d.OCSPs, der) {
 		d.OCSPs = append(d.OCSPs, der)
 	}
 }
 
+// addCRL appends a DER-encoded CRL if not already present.
 func (d *DSS) addCRL(der []byte) {
 	if !d.containsBytes(d.CRLs, der) {
 		d.CRLs = append(d.CRLs, der)
 	}
 }
 
+// containsBytes reports whether slice already contains an entry with the same SHA-256 hash as item.
 func (d *DSS) containsBytes(slice [][]byte, item []byte) bool {
 	itemHash := hashBytes(crypto.SHA256, item)
 	for _, existing := range slice {

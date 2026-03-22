@@ -425,10 +425,12 @@ func (t *Tokenizer) AtEnd() bool {
 
 // --- Helper functions ---
 
+// isWhitespace reports whether ch is a PDF whitespace character.
 func isWhitespace(ch byte) bool {
 	return ch == ' ' || ch == '\t' || ch == '\n' || ch == '\r' || ch == '\f' || ch == 0
 }
 
+// isDelimiter reports whether ch is a PDF delimiter character.
 func isDelimiter(ch byte) bool {
 	switch ch {
 	case '(', ')', '<', '>', '[', ']', '{', '}', '/', '%':
@@ -437,10 +439,13 @@ func isDelimiter(ch byte) bool {
 	return false
 }
 
+// isDigit reports whether ch is an ASCII digit.
 func isDigit(ch byte) bool {
 	return ch >= '0' && ch <= '9'
 }
 
+// hexVal returns the numeric value of a hexadecimal digit (0-15).
+// Returns 0 for non-hex characters.
 func hexVal(ch byte) byte {
 	switch {
 	case ch >= '0' && ch <= '9':

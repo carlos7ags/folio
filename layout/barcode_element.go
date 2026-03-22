@@ -37,6 +37,8 @@ func (be *BarcodeElement) SetAlign(a Align) *BarcodeElement {
 	return be
 }
 
+// resolveHeight returns the display height, computing it from the barcode
+// aspect ratio if no explicit height was set.
 func (be *BarcodeElement) resolveHeight() float64 {
 	if be.height > 0 {
 		return be.height

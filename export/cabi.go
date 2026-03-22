@@ -51,6 +51,7 @@ type handleTable struct {
 	next    uint64
 }
 
+// ht is the global handle table shared by all C ABI functions.
 var ht = &handleTable{
 	handles: make(map[uint64]any),
 	next:    1,
@@ -127,11 +128,15 @@ func setErr(code C.int32_t, err error) C.int32_t {
 	return code
 }
 
+// folio_version returns the library version as a C string.
+//
 //export folio_version
 func folio_version() *C.char {
 	return versionCStr
 }
 
+// folio_last_error returns the most recent error message, or nil if none.
+//
 //export folio_last_error
 func folio_last_error() *C.char {
 	lastErrorMu.Lock()

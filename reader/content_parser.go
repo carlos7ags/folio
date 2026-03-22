@@ -259,12 +259,13 @@ func ExtractTextWithFonts(data []byte, fonts FontCache) string {
 			result = ts.emitPositionChange(result)
 			// Text array: mix of strings and kerning adjustments.
 			for _, operand := range op.Operands {
-				if operand.Type == TokenString || operand.Type == TokenHexString {
+				switch operand.Type {
+				case TokenString, TokenHexString:
 					raw := []byte(operand.Value)
 					text := decodeTextOperand(operand, ts.currentFont)
 					result = append(result, text...)
 					ts.advanceX(raw)
-				} else if operand.Type == TokenNumber {
+				case TokenNumber:
 					// Negative = move right (kern tighter), positive = move left.
 					// Large negative values indicate word spaces.
 					adj := tokenFloat(operand)
@@ -385,6 +386,7 @@ func tokenFloat(t Token) float64 {
 	return t.Real
 }
 
+// appendSpaceIfNeeded appends a space unless the last byte is already a space or newline.
 func appendSpaceIfNeeded(b []byte) []byte {
 	if len(b) > 0 && b[len(b)-1] != ' ' && b[len(b)-1] != '\n' {
 		return append(b, ' ')
@@ -392,6 +394,7 @@ func appendSpaceIfNeeded(b []byte) []byte {
 	return b
 }
 
+// appendNewlineIfNeeded appends a newline unless the last byte is already a newline.
 func appendNewlineIfNeeded(b []byte) []byte {
 	if len(b) > 0 && b[len(b)-1] != '\n' {
 		return append(b, '\n')

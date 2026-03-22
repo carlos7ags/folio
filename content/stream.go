@@ -84,7 +84,7 @@ func (s *Stream) ShowTextArray(elements []TextArrayElement) {
 			b.WriteString(formatNum(e.Adjustment))
 			b.WriteByte(' ')
 		} else {
-			b.WriteString(fmt.Sprintf("(%s) ", core.EscapeLiteralString(e.Text)))
+			fmt.Fprintf(&b, "(%s) ", core.EscapeLiteralString(e.Text))
 		}
 	}
 	b.WriteString("] TJ")
@@ -101,7 +101,7 @@ func (s *Stream) ShowTextArrayHex(elements []TextArrayElement) {
 			b.WriteString(formatNum(e.Adjustment))
 			b.WriteByte(' ')
 		} else {
-			b.WriteString(fmt.Sprintf("<%X> ", e.HexData))
+			fmt.Fprintf(&b, "<%X> ", e.HexData)
 		}
 	}
 	b.WriteString("] TJ")
@@ -515,6 +515,8 @@ func (s *Stream) ToPdfStream() *core.PdfStream {
 
 // --- Internals ---
 
+// writeln appends a single operator line to the content stream,
+// inserting a newline separator if the buffer is non-empty.
 func (s *Stream) writeln(line string) {
 	if s.buf.Len() > 0 {
 		s.buf.WriteByte('\n')

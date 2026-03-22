@@ -634,9 +634,6 @@ func (t *Table) buildGrid(colWidths []float64) []gridRow {
 	// Track which cells in the grid are occupied (by rowspan from above).
 	// occupied[row][col] = true if occupied by a spanning cell from a previous row.
 	// We build this dynamically as we process rows.
-	type spanInfo struct {
-		remainingRows int
-	}
 	// colOccupied tracks how many more rows each column is occupied for.
 	colOccupied := make([]int, nCols)
 
@@ -752,6 +749,7 @@ func (t *Table) cellContentHeight(gc *gridCell) float64 {
 	return float64(lines)*cell.fontSize*1.2 + padH
 }
 
+// cellMeasurer returns the text measurer for a cell's font, or nil if none is set.
 func (t *Table) cellMeasurer(cell *Cell) font.TextMeasurer {
 	if cell.embedded != nil {
 		return cell.embedded
@@ -1081,6 +1079,7 @@ func drawStyledBorder(stream *content.Stream, b Border, x1, y1, x2, y2 float64) 
 	stream.RestoreState()
 }
 
+// cellTextMeasurer returns the text measurer for a cell's font, or nil if none is set.
 func cellTextMeasurer(cell *Cell) font.TextMeasurer {
 	if cell.embedded != nil {
 		return cell.embedded

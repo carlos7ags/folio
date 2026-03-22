@@ -31,6 +31,8 @@ func newCBuffer(data []byte) *cBuffer {
 	return &cBuffer{ptr: ptr, len: n}
 }
 
+// folio_buffer_data returns a pointer to the raw bytes of a buffer handle.
+//
 //export folio_buffer_data
 func folio_buffer_data(buf C.uint64_t) unsafe.Pointer {
 	v := ht.load(uint64(buf))
@@ -44,6 +46,8 @@ func folio_buffer_data(buf C.uint64_t) unsafe.Pointer {
 	return b.ptr
 }
 
+// folio_buffer_len returns the byte length of a buffer handle.
+//
 //export folio_buffer_len
 func folio_buffer_len(buf C.uint64_t) C.int32_t {
 	v := ht.load(uint64(buf))
@@ -57,6 +61,8 @@ func folio_buffer_len(buf C.uint64_t) C.int32_t {
 	return C.int32_t(b.len)
 }
 
+// folio_buffer_free releases the C-allocated memory and removes the buffer handle.
+//
 //export folio_buffer_free
 func folio_buffer_free(buf C.uint64_t) {
 	v := ht.load(uint64(buf))

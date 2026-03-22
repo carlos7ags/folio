@@ -6,7 +6,6 @@ package layout
 import (
 	"fmt"
 
-	"github.com/carlos7ags/folio/content"
 	folioimage "github.com/carlos7ags/folio/image"
 )
 
@@ -94,17 +93,6 @@ type imageLayoutRef struct {
 	img    *folioimage.Image
 	width  float64
 	height float64
-}
-
-// renderImage draws the image into the content stream at (x, y).
-// y is the top of the image area (PDF top-down layout coords).
-func (ref *imageLayoutRef) renderImage(stream *content.Stream, resName string, x, topY float64) {
-	// PDF image placement: cm(width, 0, 0, height, x, bottomY)
-	bottomY := topY - ref.height
-	stream.SaveState()
-	stream.ConcatMatrix(ref.width, 0, 0, ref.height, x, bottomY)
-	stream.Do(resName)
-	stream.RestoreState()
 }
 
 // imageResName generates a resource name for images on a page.

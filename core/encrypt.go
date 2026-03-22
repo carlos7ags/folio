@@ -1,12 +1,6 @@
 // Copyright 2026 Carlos Munoz and the Folio Authors
 // SPDX-License-Identifier: Apache-2.0
 
-// Package core — PDF encryption support (ISO 32000 §7.6).
-//
-// Supports three standard security handler revisions:
-//   - RC4-128  (V=2, R=3): legacy, widely compatible
-//   - AES-128  (V=4, R=4): recommended minimum
-//   - AES-256  (V=5, R=6): strongest, PDF 2.0
 package core
 
 import (
@@ -135,6 +129,8 @@ func (e *Encryptor) EncryptObject(obj PdfObject, objNum, genNum int) error {
 	return e.walkEncrypt(obj, objNum, genNum)
 }
 
+// walkEncrypt recursively visits a PdfObject tree, encrypting strings and
+// stream data in place.
 func (e *Encryptor) walkEncrypt(obj PdfObject, objNum, genNum int) error {
 	switch o := obj.(type) {
 	case *PdfString:
@@ -241,6 +237,7 @@ func (e *Encryptor) BuildEncryptDict() *PdfDictionary {
 
 // --- Revision 3 (RC4-128) ---
 
+// newEncryptorR3 creates an Encryptor using RC4-128 (Revision 3).
 func newEncryptorR3(userPwd, ownerPwd string, p int32, fileID []byte) (*Encryptor, error) {
 	const keyLen = 16
 	o := computeOwnerHashR3(userPwd, ownerPwd, keyLen)
@@ -253,7 +250,8 @@ func newEncryptorR3(userPwd, ownerPwd string, p int32, fileID []byte) (*Encrypto
 	}, nil
 }
 
-// Algorithm 3: compute owner password hash (O value).
+// computeOwnerHashR3 computes the owner password hash (O value) using Algorithm 3
+// from ISO 32000 §7.6.3.3.
 func computeOwnerHashR3(userPwd, ownerPwd string, keyLen int) []byte {
 	// Step a-d: hash the owner password.
 	padded := padPassword([]byte(ownerPwd))
@@ -274,7 +272,8 @@ func computeOwnerHashR3(userPwd, ownerPwd string, keyLen int) []byte {
 	return result // 32 bytes
 }
 
-// Algorithm 2: compute file encryption key.
+// computeFileKeyR3 computes the file encryption key using Algorithm 2
+// from ISO 32000 §7.6.3.3.
 func computeFileKeyR3(userPwd string, o []byte, p int32, fileID []byte, keyLen int) []byte {
 	padded := padPassword([]byte(userPwd))
 	h := md5.New()
@@ -292,7 +291,8 @@ func computeFileKeyR3(userPwd string, o []byte, p int32, fileID []byte, keyLen i
 	return sum[:keyLen]
 }
 
-// Algorithm 5: compute user password hash (U value) for R=3.
+// computeUserHashR3 computes the user password hash (U value) for R=3 using
+// Algorithm 5 from ISO 32000 §7.6.3.4.
 func computeUserHashR3(fileKey, fileID []byte) []byte {
 	h := md5.New()
 	h.Write(pdfPadding[:])
@@ -330,6 +330,7 @@ func (e *Encryptor) objectKeyRC4(objNum, genNum int) []byte {
 
 // --- Revision 4 (AES-128) ---
 
+// newEncryptorR4 creates an Encryptor using AES-128-CBC (Revision 4).
 func newEncryptorR4(userPwd, ownerPwd string, p int32, fileID []byte) (*Encryptor, error) {
 	const keyLen = 16
 	o := computeOwnerHashR3(userPwd, ownerPwd, keyLen) // same algorithm
@@ -360,6 +361,7 @@ func (e *Encryptor) objectKeyAES(objNum, genNum int) []byte {
 
 // --- Revision 6 (AES-256) ---
 
+// newEncryptorR6 creates an Encryptor using AES-256-CBC (Revision 6, PDF 2.0).
 func newEncryptorR6(userPwd, ownerPwd string, p int32, fileID []byte) (*Encryptor, error) {
 	// Truncate passwords to 127 bytes (UTF-8).
 	uPwd := truncatePassword(userPwd)
@@ -495,12 +497,14 @@ func buildPermsBlock(p int32) []byte {
 	// Bytes 9-11: 'adb' (per spec).
 	buf[9], buf[10], buf[11] = 'a', 'd', 'b'
 	// Bytes 12-15: random.
-	rand.Read(buf[12:16])
+	_, _ = rand.Read(buf[12:16])
 	return buf
 }
 
 // --- Cryptographic helpers ---
 
+// padPassword pads or truncates pwd to exactly 32 bytes using the standard
+// PDF padding string.
 func padPassword(pwd []byte) [32]byte {
 	var result [32]byte
 	n := copy(result[:], pwd)
@@ -510,6 +514,8 @@ func padPassword(pwd []byte) [32]byte {
 	return result
 }
 
+// truncatePassword truncates a UTF-8 password to at most 127 bytes, as
+// required by ISO 32000-2 §7.6.4.3.3.
 func truncatePassword(pwd string) []byte {
 	b := []byte(pwd)
 	if len(b) > 127 {
@@ -518,6 +524,7 @@ func truncatePassword(pwd string) []byte {
 	return b
 }
 
+// rc4Encrypt encrypts (or decrypts) data using RC4 with the given key.
 func rc4Encrypt(key, data []byte) []byte {
 	c, _ := rc4.NewCipher(key)
 	dst := make([]byte, len(data))
@@ -572,6 +579,7 @@ func aesECBEncryptBlock(key, block16 []byte) []byte {
 	return dst
 }
 
+// pkcs7Pad appends PKCS#7 padding to data so its length is a multiple of blockSize.
 func pkcs7Pad(data []byte, blockSize int) []byte {
 	padding := blockSize - len(data)%blockSize
 	padded := make([]byte, len(data)+padding)
@@ -582,6 +590,7 @@ func pkcs7Pad(data []byte, blockSize int) []byte {
 	return padded
 }
 
+// randomBytes returns n cryptographically random bytes.
 func randomBytes(n int) ([]byte, error) {
 	b := make([]byte, n)
 	if _, err := rand.Read(b); err != nil {

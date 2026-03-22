@@ -64,10 +64,14 @@ type imageResource struct {
 type MarkupType int
 
 const (
-	MarkupHighlight MarkupType = iota // yellow highlight
-	MarkupUnderline                   // red underline
-	MarkupSquiggly                    // wavy underline
-	MarkupStrikeOut                   // strikethrough
+	// MarkupHighlight represents a yellow highlight annotation.
+	MarkupHighlight MarkupType = iota
+	// MarkupUnderline represents a red underline annotation.
+	MarkupUnderline
+	// MarkupSquiggly represents a wavy underline annotation.
+	MarkupSquiggly
+	// MarkupStrikeOut represents a strikethrough annotation.
+	MarkupStrikeOut
 )
 
 // Annotation represents a PDF annotation on a page.
@@ -441,6 +445,7 @@ func (p *Page) ContentStream() *content.Stream {
 	return p.stream
 }
 
+// ensureStream initializes the content stream if it has not been created yet.
 func (p *Page) ensureStream() {
 	if p.stream == nil {
 		p.stream = content.NewStream()

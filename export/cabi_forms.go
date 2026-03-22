@@ -17,13 +17,15 @@ import (
 	"github.com/carlos7ags/folio/forms"
 )
 
-// --- AcroForm ---
-
+// folio_form_new creates a new empty AcroForm and returns its handle.
+//
 //export folio_form_new
 func folio_form_new() C.uint64_t {
 	return C.uint64_t(ht.store(forms.NewAcroForm()))
 }
 
+// folio_form_add_text_field adds a text input field to the form at the given rectangle and page.
+//
 //export folio_form_add_text_field
 func folio_form_add_text_field(formH C.uint64_t, name *C.char, x1, y1, x2, y2 C.double, pageIndex C.int32_t) C.int32_t {
 	af, errCode := loadForm(formH)
@@ -35,6 +37,8 @@ func folio_form_add_text_field(formH C.uint64_t, name *C.char, x1, y1, x2, y2 C.
 	return errOK
 }
 
+// folio_form_add_checkbox adds a checkbox field to the form at the given rectangle and page.
+//
 //export folio_form_add_checkbox
 func folio_form_add_checkbox(formH C.uint64_t, name *C.char, x1, y1, x2, y2 C.double, pageIndex C.int32_t, checked C.int32_t) C.int32_t {
 	af, errCode := loadForm(formH)
@@ -46,6 +50,8 @@ func folio_form_add_checkbox(formH C.uint64_t, name *C.char, x1, y1, x2, y2 C.do
 	return errOK
 }
 
+// folio_form_add_dropdown adds a dropdown (choice) field to the form with the given options.
+//
 //export folio_form_add_dropdown
 func folio_form_add_dropdown(formH C.uint64_t, name *C.char, x1, y1, x2, y2 C.double, pageIndex C.int32_t, options **C.char, optCount C.int32_t) C.int32_t {
 	af, errCode := loadForm(formH)
@@ -65,6 +71,8 @@ func folio_form_add_dropdown(formH C.uint64_t, name *C.char, x1, y1, x2, y2 C.do
 	return errOK
 }
 
+// folio_form_add_signature adds a digital signature field to the form at the given rectangle and page.
+//
 //export folio_form_add_signature
 func folio_form_add_signature(formH C.uint64_t, name *C.char, x1, y1, x2, y2 C.double, pageIndex C.int32_t) C.int32_t {
 	af, errCode := loadForm(formH)
@@ -76,6 +84,8 @@ func folio_form_add_signature(formH C.uint64_t, name *C.char, x1, y1, x2, y2 C.d
 	return errOK
 }
 
+// folio_document_set_form attaches an AcroForm to the document.
+//
 //export folio_document_set_form
 func folio_document_set_form(docH C.uint64_t, formH C.uint64_t) C.int32_t {
 	doc, errCode := loadDoc(docH)
@@ -90,13 +100,15 @@ func folio_document_set_form(docH C.uint64_t, formH C.uint64_t) C.int32_t {
 	return errOK
 }
 
+// folio_form_free removes a form handle from the handle table.
+//
 //export folio_form_free
 func folio_form_free(formH C.uint64_t) {
 	ht.delete(uint64(formH))
 }
 
-// --- Document feature flags ---
-
+// folio_document_set_tagged enables or disables tagged PDF (accessibility) output.
+//
 //export folio_document_set_tagged
 func folio_document_set_tagged(docH C.uint64_t, enabled C.int32_t) C.int32_t {
 	doc, errCode := loadDoc(docH)
@@ -107,6 +119,8 @@ func folio_document_set_tagged(docH C.uint64_t, enabled C.int32_t) C.int32_t {
 	return errOK
 }
 
+// folio_document_set_pdfa configures PDF/A conformance at the specified level.
+//
 //export folio_document_set_pdfa
 func folio_document_set_pdfa(docH C.uint64_t, level C.int32_t) C.int32_t {
 	doc, errCode := loadDoc(docH)
@@ -117,6 +131,8 @@ func folio_document_set_pdfa(docH C.uint64_t, level C.int32_t) C.int32_t {
 	return errOK
 }
 
+// folio_document_set_encryption configures PDF encryption with user/owner passwords and an algorithm.
+//
 //export folio_document_set_encryption
 func folio_document_set_encryption(docH C.uint64_t, userPw, ownerPw *C.char, algorithm C.int32_t) C.int32_t {
 	doc, errCode := loadDoc(docH)
@@ -131,6 +147,8 @@ func folio_document_set_encryption(docH C.uint64_t, userPw, ownerPw *C.char, alg
 	return errOK
 }
 
+// folio_document_set_auto_bookmarks enables or disables automatic bookmark generation from headings.
+//
 //export folio_document_set_auto_bookmarks
 func folio_document_set_auto_bookmarks(docH C.uint64_t, enabled C.int32_t) C.int32_t {
 	doc, errCode := loadDoc(docH)
@@ -141,6 +159,7 @@ func folio_document_set_auto_bookmarks(docH C.uint64_t, enabled C.int32_t) C.int
 	return errOK
 }
 
+// loadForm retrieves a *forms.AcroForm from the handle table.
 func loadForm(h C.uint64_t) (*forms.AcroForm, C.int32_t) {
 	v := ht.load(uint64(h))
 	if v == nil {

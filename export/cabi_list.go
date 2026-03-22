@@ -15,6 +15,8 @@ import (
 	"github.com/carlos7ags/folio/layout"
 )
 
+// folio_list_new creates a new list element using a standard font and returns its handle.
+//
 //export folio_list_new
 func folio_list_new(fontH C.uint64_t, fontSize C.double) C.uint64_t {
 	f, errCode := loadStandardFont(fontH)
@@ -24,6 +26,8 @@ func folio_list_new(fontH C.uint64_t, fontSize C.double) C.uint64_t {
 	return C.uint64_t(ht.store(layout.NewList(f, float64(fontSize))))
 }
 
+// folio_list_new_embedded creates a new list element using an embedded TrueType font.
+//
 //export folio_list_new_embedded
 func folio_list_new_embedded(fontH C.uint64_t, fontSize C.double) C.uint64_t {
 	ef, errCode := loadEmbeddedFont(fontH)
@@ -33,6 +37,8 @@ func folio_list_new_embedded(fontH C.uint64_t, fontSize C.double) C.uint64_t {
 	return C.uint64_t(ht.store(layout.NewListEmbedded(ef, float64(fontSize))))
 }
 
+// folio_list_set_style sets the list style (bullet, numbered, etc.).
+//
 //export folio_list_set_style
 func folio_list_set_style(listH C.uint64_t, style C.int32_t) C.int32_t {
 	l, errCode := loadList(listH)
@@ -43,6 +49,8 @@ func folio_list_set_style(listH C.uint64_t, style C.int32_t) C.int32_t {
 	return errOK
 }
 
+// folio_list_set_indent sets the left indentation of list items in points.
+//
 //export folio_list_set_indent
 func folio_list_set_indent(listH C.uint64_t, indent C.double) C.int32_t {
 	l, errCode := loadList(listH)
@@ -53,6 +61,8 @@ func folio_list_set_indent(listH C.uint64_t, indent C.double) C.int32_t {
 	return errOK
 }
 
+// folio_list_add_item appends a text item to the list.
+//
 //export folio_list_add_item
 func folio_list_add_item(listH C.uint64_t, text *C.char) C.int32_t {
 	l, errCode := loadList(listH)
@@ -63,11 +73,14 @@ func folio_list_add_item(listH C.uint64_t, text *C.char) C.int32_t {
 	return errOK
 }
 
+// folio_list_free removes a list handle from the handle table.
+//
 //export folio_list_free
 func folio_list_free(listH C.uint64_t) {
 	ht.delete(uint64(listH))
 }
 
+// loadList retrieves a *layout.List from the handle table.
 func loadList(h C.uint64_t) (*layout.List, C.int32_t) {
 	v := ht.load(uint64(h))
 	if v == nil {

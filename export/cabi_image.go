@@ -17,6 +17,8 @@ import (
 	"github.com/carlos7ags/folio/layout"
 )
 
+// folio_image_load_jpeg loads a JPEG image from a file path and returns its handle.
+//
 //export folio_image_load_jpeg
 func folio_image_load_jpeg(path *C.char) C.uint64_t {
 	img, err := folioimage.LoadJPEG(C.GoString(path))
@@ -27,6 +29,8 @@ func folio_image_load_jpeg(path *C.char) C.uint64_t {
 	return C.uint64_t(ht.store(img))
 }
 
+// folio_image_load_png loads a PNG image from a file path and returns its handle.
+//
 //export folio_image_load_png
 func folio_image_load_png(path *C.char) C.uint64_t {
 	img, err := folioimage.LoadPNG(C.GoString(path))
@@ -37,6 +41,8 @@ func folio_image_load_png(path *C.char) C.uint64_t {
 	return C.uint64_t(ht.store(img))
 }
 
+// folio_image_parse_jpeg parses a JPEG image from in-memory bytes and returns its handle.
+//
 //export folio_image_parse_jpeg
 func folio_image_parse_jpeg(data unsafe.Pointer, length C.int32_t) C.uint64_t {
 	if data == nil || length <= 0 {
@@ -52,6 +58,8 @@ func folio_image_parse_jpeg(data unsafe.Pointer, length C.int32_t) C.uint64_t {
 	return C.uint64_t(ht.store(img))
 }
 
+// folio_image_parse_png parses a PNG image from in-memory bytes and returns its handle.
+//
 //export folio_image_parse_png
 func folio_image_parse_png(data unsafe.Pointer, length C.int32_t) C.uint64_t {
 	if data == nil || length <= 0 {
@@ -67,6 +75,8 @@ func folio_image_parse_png(data unsafe.Pointer, length C.int32_t) C.uint64_t {
 	return C.uint64_t(ht.store(img))
 }
 
+// folio_image_width returns the pixel width of an image.
+//
 //export folio_image_width
 func folio_image_width(imgH C.uint64_t) C.int32_t {
 	img, errCode := loadImage(imgH)
@@ -76,6 +86,8 @@ func folio_image_width(imgH C.uint64_t) C.int32_t {
 	return C.int32_t(img.Width())
 }
 
+// folio_image_height returns the pixel height of an image.
+//
 //export folio_image_height
 func folio_image_height(imgH C.uint64_t) C.int32_t {
 	img, errCode := loadImage(imgH)
@@ -85,11 +97,15 @@ func folio_image_height(imgH C.uint64_t) C.int32_t {
 	return C.int32_t(img.Height())
 }
 
+// folio_image_free removes an image handle from the handle table.
+//
 //export folio_image_free
 func folio_image_free(imgH C.uint64_t) {
 	ht.delete(uint64(imgH))
 }
 
+// folio_page_add_image draws an image on a low-level page at the given position and size in points.
+//
 //export folio_page_add_image
 func folio_page_add_image(pageH C.uint64_t, imgH C.uint64_t, x, y, w, h C.double) C.int32_t {
 	page, errCode := loadPage(pageH)
@@ -104,6 +120,8 @@ func folio_page_add_image(pageH C.uint64_t, imgH C.uint64_t, x, y, w, h C.double
 	return errOK
 }
 
+// folio_image_element_new wraps an image in a layout element for automatic pagination.
+//
 //export folio_image_element_new
 func folio_image_element_new(imgH C.uint64_t) C.uint64_t {
 	img, errCode := loadImage(imgH)
@@ -114,6 +132,8 @@ func folio_image_element_new(imgH C.uint64_t) C.uint64_t {
 	return C.uint64_t(ht.store(ie))
 }
 
+// folio_image_element_set_size sets the display width and height of an image element in points.
+//
 //export folio_image_element_set_size
 func folio_image_element_set_size(ieH C.uint64_t, w, h C.double) C.int32_t {
 	v := ht.load(uint64(ieH))
@@ -130,11 +150,14 @@ func folio_image_element_set_size(ieH C.uint64_t, w, h C.double) C.int32_t {
 	return errOK
 }
 
+// folio_image_element_free removes an image element handle from the handle table.
+//
 //export folio_image_element_free
 func folio_image_element_free(ieH C.uint64_t) {
 	ht.delete(uint64(ieH))
 }
 
+// loadImage retrieves a *folioimage.Image from the handle table.
 func loadImage(h C.uint64_t) (*folioimage.Image, C.int32_t) {
 	v := ht.load(uint64(h))
 	if v == nil {

@@ -9,12 +9,18 @@ import "github.com/carlos7ags/folio/core"
 type LabelStyle string
 
 const (
-	LabelDecimal    LabelStyle = "D" // 1, 2, 3, ...
-	LabelRomanUpper LabelStyle = "R" // I, II, III, ...
-	LabelRomanLower LabelStyle = "r" // i, ii, iii, ...
-	LabelAlphaUpper LabelStyle = "A" // A, B, C, ...
-	LabelAlphaLower LabelStyle = "a" // a, b, c, ...
-	LabelNone       LabelStyle = ""  // no numbering (prefix only)
+	// LabelDecimal uses decimal numbering (1, 2, 3, ...).
+	LabelDecimal LabelStyle = "D"
+	// LabelRomanUpper uses uppercase Roman numerals (I, II, III, ...).
+	LabelRomanUpper LabelStyle = "R"
+	// LabelRomanLower uses lowercase Roman numerals (i, ii, iii, ...).
+	LabelRomanLower LabelStyle = "r"
+	// LabelAlphaUpper uses uppercase alphabetic labels (A, B, C, ...).
+	LabelAlphaUpper LabelStyle = "A"
+	// LabelAlphaLower uses lowercase alphabetic labels (a, b, c, ...).
+	LabelAlphaLower LabelStyle = "a"
+	// LabelNone disables numbering, showing only the prefix.
+	LabelNone LabelStyle = ""
 )
 
 // PageLabelRange defines a page label range starting at a given page index.

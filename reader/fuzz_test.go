@@ -49,7 +49,7 @@ func FuzzParse(f *testing.F) {
 		tok := NewTokenizer(data)
 		parser := NewParser(tok)
 		// Try to parse — must not panic (errors are fine).
-		parser.ParseObject()
+		_, _ = parser.ParseObject()
 	})
 }
 
@@ -71,8 +71,8 @@ func FuzzParsePDF(f *testing.F) {
 		if r.PageCount() > 0 {
 			p, _ := r.Page(0)
 			if p != nil {
-				p.ContentStream()
-				p.ExtractText()
+				_, _ = p.ContentStream()
+				_, _ = p.ExtractText()
 			}
 		}
 	})

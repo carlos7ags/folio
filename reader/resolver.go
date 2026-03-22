@@ -23,6 +23,8 @@ type resolver struct {
 	strictness Strictness     // controls error handling behavior
 }
 
+// newResolver creates a resolver that fetches objects from data using the
+// given xref table, enforcing the specified memory limits and strictness.
 func newResolver(data []byte, xref *xrefTable, mem *memoryTracker, strictness Strictness) *resolver {
 	return &resolver{
 		data:       data,
@@ -521,6 +523,7 @@ func paethPredictor(a, b, c byte) byte {
 	return c
 }
 
+// abs returns the absolute value of x.
 func abs(x int) int {
 	if x < 0 {
 		return -x
@@ -552,7 +555,7 @@ func inflateFlateDecode(data []byte, maxBytes int64) ([]byte, error) {
 	if err != nil {
 		return nil, fmt.Errorf("FlateDecode: %w", err)
 	}
-	defer r.Close()
+	defer func() { _ = r.Close() }()
 
 	result, err := limitedReadAll(r, maxBytes)
 	if err != nil {

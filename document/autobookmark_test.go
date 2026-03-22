@@ -54,7 +54,7 @@ func TestAutoBookmarksNesting(t *testing.T) {
 	doc.Add(layout.NewHeading("Another H1", layout.H1))
 
 	var buf bytes.Buffer
-	doc.WriteTo(&buf)
+	_, _ = doc.WriteTo(&buf)
 
 	pdf := buf.String()
 
@@ -72,7 +72,7 @@ func TestAutoBookmarksDisabledByDefault(t *testing.T) {
 	doc.Add(layout.NewHeading("Title", layout.H1))
 
 	var buf bytes.Buffer
-	doc.WriteTo(&buf)
+	_, _ = doc.WriteTo(&buf)
 
 	pdf := buf.String()
 	if strings.Contains(pdf, "/Outlines") {
@@ -90,7 +90,7 @@ func TestAutoBookmarksDoesNotOverrideManual(t *testing.T) {
 	doc.Add(layout.NewHeading("Auto Heading", layout.H1))
 
 	var buf bytes.Buffer
-	doc.WriteTo(&buf)
+	_, _ = doc.WriteTo(&buf)
 
 	pdf := buf.String()
 	// Manual bookmark should be present.

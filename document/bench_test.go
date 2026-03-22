@@ -15,7 +15,7 @@ func BenchmarkBlankPage(b *testing.B) {
 	for range b.N {
 		doc := NewDocument(PageSizeLetter)
 		doc.AddPage()
-		doc.WriteTo(io.Discard)
+		_, _ = doc.WriteTo(io.Discard)
 	}
 }
 
@@ -23,7 +23,7 @@ func BenchmarkSingleParagraph(b *testing.B) {
 	for range b.N {
 		doc := NewDocument(PageSizeLetter)
 		doc.Add(layout.NewParagraph("Hello World", font.Helvetica, 12))
-		doc.WriteTo(io.Discard)
+		_, _ = doc.WriteTo(io.Discard)
 	}
 }
 
@@ -38,7 +38,7 @@ func BenchmarkTable10x3(b *testing.B) {
 			r.AddCell("Column C", font.Helvetica, 10)
 		}
 		doc.Add(tbl)
-		doc.WriteTo(io.Discard)
+		_, _ = doc.WriteTo(io.Discard)
 	}
 }
 
@@ -51,7 +51,7 @@ func BenchmarkMultiPage50(b *testing.B) {
 				font.Helvetica, 12,
 			))
 		}
-		doc.WriteTo(io.Discard)
+		_, _ = doc.WriteTo(io.Discard)
 	}
 }
 

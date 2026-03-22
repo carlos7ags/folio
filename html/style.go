@@ -202,10 +202,10 @@ type cssLength struct {
 type calcOp int
 
 const (
-	calcAdd calcOp = iota
-	calcSub
-	calcMul
-	calcDiv
+	calcAdd calcOp = iota // calcAdd represents addition (+).
+	calcSub               // calcSub represents subtraction (-).
+	calcMul               // calcMul represents multiplication (*).
+	calcDiv               // calcDiv represents division (/).
 )
 
 // calcExpr represents a parsed calc() expression tree.
