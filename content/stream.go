@@ -84,7 +84,7 @@ func (s *Stream) ShowTextArray(elements []TextArrayElement) {
 			b.WriteString(formatNum(e.Adjustment))
 			b.WriteByte(' ')
 		} else {
-			b.WriteString(fmt.Sprintf("(%s) ", core.EscapeLiteralString(e.Text)))
+			fmt.Fprintf(&b, "(%s) ", core.EscapeLiteralString(e.Text))
 		}
 	}
 	b.WriteString("] TJ")
@@ -101,7 +101,7 @@ func (s *Stream) ShowTextArrayHex(elements []TextArrayElement) {
 			b.WriteString(formatNum(e.Adjustment))
 			b.WriteByte(' ')
 		} else {
-			b.WriteString(fmt.Sprintf("<%X> ", e.HexData))
+			fmt.Fprintf(&b, "<%X> ", e.HexData)
 		}
 	}
 	b.WriteString("] TJ")

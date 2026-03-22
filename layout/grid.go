@@ -285,10 +285,9 @@ func (g *Grid) PlanLayout(area LayoutArea) LayoutPlan {
 			if plan.Consumed > rowHeights[cell.rowStart] {
 				rowHeights[cell.rowStart] = plan.Consumed
 			}
-		} else {
-			// Multi-row span: we don't subdivide — just ensure total span height is sufficient.
-			// We'll handle this after single-row items.
 		}
+		// Multi-row spans: we don't subdivide — just ensure total span height is sufficient.
+		// Handled in the second pass below for multi-row spans.
 	}
 
 	// Second pass for multi-row spans: ensure row heights accommodate them.

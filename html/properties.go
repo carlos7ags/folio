@@ -114,9 +114,10 @@ func parseCalcExpr(s string) *calcExpr {
 	depth := 0
 	for i := len(s) - 1; i > 0; i-- {
 		ch := s[i]
-		if ch == ')' {
+		switch ch {
+		case ')':
 			depth++
-		} else if ch == '(' {
+		case '(':
 			depth--
 		}
 		if depth != 0 {
@@ -144,9 +145,10 @@ func parseCalcExpr(s string) *calcExpr {
 	// Try * and / (higher precedence).
 	for i := len(s) - 1; i > 0; i-- {
 		ch := s[i]
-		if ch == ')' {
+		switch ch {
+		case ')':
 			depth++
-		} else if ch == '(' {
+		case '(':
 			depth--
 		}
 		if depth != 0 {

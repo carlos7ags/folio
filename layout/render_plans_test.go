@@ -150,7 +150,7 @@ func TestTaggedTableNesting(t *testing.T) {
 
 	tags := r.StructTags()
 	// Should have a Table tag as parent of TR tags.
-	var tableIdx int = -1
+	var tableIdx = -1
 	for i, tag := range tags {
 		if tag.Tag == "Table" {
 			tableIdx = i
@@ -190,7 +190,7 @@ func TestTaggedDivNesting(t *testing.T) {
 	}
 
 	tags := r.StructTags()
-	var divIdx int = -1
+	var divIdx = -1
 	for i, tag := range tags {
 		if tag.Tag == "Div" {
 			divIdx = i
@@ -228,7 +228,7 @@ func TestTaggedListNesting(t *testing.T) {
 	}
 
 	tags := r.StructTags()
-	var listIdx int = -1
+	var listIdx = -1
 	for i, tag := range tags {
 		if tag.Tag == "L" {
 			listIdx = i

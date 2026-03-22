@@ -3,10 +3,6 @@
 
 package layout
 
-import (
-	"github.com/carlos7ags/folio/content"
-)
-
 // LineSeparator is a layout element that draws a horizontal rule
 // across the available width. Used to visually separate sections.
 type LineSeparator struct {
@@ -104,18 +100,6 @@ type separatorLayoutRef struct {
 	color     Color
 	style     BorderStyle
 	drawWidth float64
-}
-
-// renderSeparator draws the horizontal rule into the content stream.
-func (ref *separatorLayoutRef) renderSeparator(stream *content.Stream, x, y float64) {
-	b := Border{
-		Width: ref.lineWidth,
-		Color: ref.color,
-		Style: ref.style,
-	}
-	// Draw a horizontal line at the vertical center of the line height.
-	cy := y + ref.lineWidth/2
-	drawStyledBorder(stream, b, x, cy, x+ref.drawWidth, cy)
 }
 
 // MinWidth implements Measurable. A separator has no minimum width.

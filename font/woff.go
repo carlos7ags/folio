@@ -24,19 +24,12 @@ const woffTableDirEntrySize = 20
 
 // woffHeader represents the parsed WOFF1 file header.
 type woffHeader struct {
-	signature      uint32
-	flavor         uint32
-	length         uint32
-	numTables      uint16
-	reserved       uint16
-	totalSfntSize  uint32
-	majorVersion   uint16
-	minorVersion   uint16
-	metaOffset     uint32
-	metaLength     uint32
-	metaOrigLength uint32
-	privOffset     uint32
-	privLength     uint32
+	signature     uint32
+	flavor        uint32
+	length        uint32
+	numTables     uint16
+	reserved      uint16
+	totalSfntSize uint32
 }
 
 // woffTableEntry represents a single table directory entry in a WOFF file.
@@ -103,7 +96,7 @@ func decodeWOFF(data []byte) ([]byte, error) {
 				return nil, fmt.Errorf("woff: zlib init for table %d: %w", i, err)
 			}
 			decompressed, err := io.ReadAll(r)
-			r.Close()
+			_ = r.Close()
 			if err != nil {
 				return nil, fmt.Errorf("woff: zlib decompress table %d: %w", i, err)
 			}

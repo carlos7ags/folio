@@ -27,7 +27,7 @@ func ExampleDocument_simple() {
 		fmt.Println("error:", err)
 		return
 	}
-	os.Remove("hello.pdf")
+	_ = os.Remove("hello.pdf")
 	fmt.Println("Created hello.pdf")
 	// Output:
 	// Created hello.pdf
@@ -51,8 +51,8 @@ func ExampleDocument_table() {
 	r1.AddCell("$250.00", font.Helvetica, 10)
 
 	doc.Add(tbl)
-	doc.Save("invoice.pdf")
-	os.Remove("invoice.pdf")
+	_ = doc.Save("invoice.pdf")
+	_ = os.Remove("invoice.pdf")
 	fmt.Println("Created invoice")
 	// Output:
 	// Created invoice
@@ -68,8 +68,8 @@ func ExampleDocument_taggedPdfA() {
 
 	doc.AddPage() // blank page — PDF/A requires embedded fonts for text
 
-	doc.Save("accessible.pdf")
-	os.Remove("accessible.pdf")
+	_ = doc.Save("accessible.pdf")
+	_ = os.Remove("accessible.pdf")
 	fmt.Println("Created accessible PDF/A")
 	// Output:
 	// Created accessible PDF/A

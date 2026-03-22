@@ -4,12 +4,10 @@
 package sign
 
 import (
-	"bytes"
 	"crypto"
 	"errors"
 	"fmt"
 	"io"
-	"strings"
 
 	"github.com/carlos7ags/folio/core"
 	"github.com/carlos7ags/folio/reader"
@@ -276,47 +274,4 @@ func AddDSS(pdfBytes []byte, dss *DSS) ([]byte, error) {
 	iw.addObject(catalogObjNum, updatedCatalog)
 
 	return iw.write()
-}
-
-// extractSignatureContents finds the /Contents hex string value of a
-// signature in the PDF. This is needed to compute VRI keys.
-func extractSignatureContents(pdf []byte, sigDictObjNum int) ([]byte, error) {
-	objHeader := fmt.Sprintf("%d 0 obj", sigDictObjNum)
-	objStart := bytes.Index(pdf, []byte(objHeader))
-	if objStart < 0 {
-		return nil, fmt.Errorf("sign: could not find object %d", sigDictObjNum)
-	}
-
-	searchArea := pdf[objStart:]
-	marker := []byte("/Contents <")
-	idx := bytes.Index(searchArea, marker)
-	if idx < 0 {
-		return nil, errors.New("sign: could not find /Contents in signature dict")
-	}
-
-	// Find the hex string between < and >.
-	hexStart := idx + len("/Contents <")
-	hexArea := searchArea[hexStart:]
-	hexEnd := bytes.IndexByte(hexArea, '>')
-	if hexEnd < 0 {
-		return nil, errors.New("sign: unterminated /Contents hex string")
-	}
-
-	hexStr := string(hexArea[:hexEnd])
-	// Remove trailing zero padding.
-	hexStr = strings.TrimRight(hexStr, "0")
-	if len(hexStr)%2 != 0 {
-		hexStr += "0"
-	}
-
-	// Decode hex to bytes.
-	result := make([]byte, len(hexStr)/2)
-	for i := 0; i < len(hexStr); i += 2 {
-		_, err := fmt.Sscanf(hexStr[i:i+2], "%02x", &result[i/2])
-		if err != nil {
-			return nil, fmt.Errorf("sign: decode hex at %d: %w", i, err)
-		}
-	}
-
-	return result, nil
 }

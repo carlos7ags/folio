@@ -49,7 +49,7 @@ func (c *OCSPClient) FetchResponse(cert, issuer *x509.Certificate) ([]byte, erro
 	if err != nil {
 		return nil, fmt.Errorf("sign: OCSP request to %s: %w", responderURL, err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("sign: OCSP responder returned status %d", resp.StatusCode)

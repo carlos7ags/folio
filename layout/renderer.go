@@ -99,7 +99,6 @@ type Renderer struct {
 	absolutes        []absoluteItem
 	tagged           bool            // if true, emit BDC/EMC marked content
 	structTags       []StructTagInfo // collected during rendering
-	mcidCount        []int           // per-page MCID counter
 }
 
 // MarginBox holds the content template for a CSS margin box.
@@ -255,33 +254,6 @@ func (r *Renderer) SetTagged(enabled bool) {
 // StructTags returns the structure tags collected during rendering.
 func (r *Renderer) StructTags() []StructTagInfo {
 	return r.structTags
-}
-
-// allocMCID allocates the next MCID for the given page index.
-func (r *Renderer) allocMCID(pageIndex int) int {
-	for len(r.mcidCount) <= pageIndex {
-		r.mcidCount = append(r.mcidCount, 0)
-	}
-	mcid := r.mcidCount[pageIndex]
-	r.mcidCount[pageIndex]++
-	return mcid
-}
-
-// tagLine assigns a structure tag and MCID to a line if tagging is enabled.
-func (r *Renderer) tagLine(line *Line, tag string, pageIndex int) {
-	if !r.tagged || tag == "" {
-		return
-	}
-	mcid := r.allocMCID(pageIndex)
-	line.Tagged = true
-	line.StructTag = tag
-	line.MCID = mcid
-	r.structTags = append(r.structTags, StructTagInfo{
-		Tag:         tag,
-		MCID:        mcid,
-		PageIndex:   pageIndex,
-		ParentIndex: -1, // top-level (line-based path doesn't support nesting)
-	})
 }
 
 // Add appends an element to the layout queue.

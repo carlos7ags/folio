@@ -19,7 +19,7 @@ func ExampleParse() {
 	p := doc.AddPage()
 	p.AddText("Hello World", font.Helvetica, 12, 72, 700)
 	var buf bytes.Buffer
-	doc.WriteTo(&buf)
+	_, _ = doc.WriteTo(&buf)
 
 	// Parse it back.
 	r, err := reader.Parse(buf.Bytes())
@@ -46,7 +46,7 @@ func ExampleMerge() {
 		doc.Info.Title = title
 		doc.AddPage()
 		var buf bytes.Buffer
-		doc.WriteTo(&buf)
+		_, _ = doc.WriteTo(&buf)
 		return buf.Bytes()
 	}
 
@@ -57,7 +57,7 @@ func ExampleMerge() {
 	m.SetInfo("Combined", "Folio")
 
 	var out bytes.Buffer
-	m.WriteTo(&out)
+	_, _ = m.WriteTo(&out)
 
 	result, _ := reader.Parse(out.Bytes())
 	fmt.Println("Merged pages:", result.PageCount())
