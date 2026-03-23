@@ -1440,6 +1440,14 @@ func (c *converter) convertBlock(n *html.Node, style computedStyle) []layout.Ele
 		return children
 	}
 
+	// If any child is an AreaBreak, split into multiple Divs separated
+	// by the breaks. AreaBreak only works at the top level (the renderer
+	// checks for it by type assertion), so burying one inside a Div
+	// would silently suppress the page break.
+	if containsAreaBreak(children) {
+		return c.splitOnAreaBreaks(children, style)
+	}
+
 	div := layout.NewDiv()
 	for _, child := range children {
 		div.Add(child)
@@ -1452,6 +1460,52 @@ func (c *converter) convertBlock(n *html.Node, style computedStyle) []layout.Ele
 	}
 
 	return []layout.Element{div}
+}
+
+// containsAreaBreak reports whether any element in the slice is an AreaBreak.
+func containsAreaBreak(elems []layout.Element) bool {
+	for _, e := range elems {
+		if _, ok := e.(*layout.AreaBreak); ok {
+			return true
+		}
+	}
+	return false
+}
+
+// splitOnAreaBreaks produces a sequence of Divs separated by AreaBreak
+// elements. Each Div gets the same styles applied. This ensures AreaBreak
+// elements appear at the top level where the renderer can act on them.
+func (c *converter) splitOnAreaBreaks(children []layout.Element, style computedStyle) []layout.Element {
+	var result []layout.Element
+	var group []layout.Element
+
+	flush := func() {
+		if len(group) == 0 {
+			return
+		}
+		div := layout.NewDiv()
+		for _, child := range group {
+			div.Add(child)
+		}
+		applyDivStyles(div, style, c.containerWidth)
+		if bgImg := c.resolveBackgroundImage(style); bgImg != nil {
+			div.SetBackgroundImage(bgImg)
+		}
+		result = append(result, div)
+		group = nil
+	}
+
+	for _, child := range children {
+		if _, ok := child.(*layout.AreaBreak); ok {
+			flush()
+			result = append(result, child)
+		} else {
+			group = append(group, child)
+		}
+	}
+	flush()
+
+	return result
 }
 
 // applyDivStyles applies common computed style properties to a layout.Div.
