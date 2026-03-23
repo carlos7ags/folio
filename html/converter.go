@@ -928,34 +928,28 @@ func (c *converter) convertElementInner(n *html.Node, style computedStyle) []lay
 
 // convertHeading creates a layout.Heading from an <h1>-<h6> element.
 func (c *converter) convertHeading(n *html.Node, style computedStyle, level layout.HeadingLevel) []layout.Element {
-	text := collectText(n)
-	if text == "" {
+	// Use collectRuns instead of collectText so that inline elements
+	// like <a href="..."> are preserved as styled TextRuns with LinkURI.
+	runs := c.collectRuns(n, style)
+	if len(runs) == 0 {
 		return nil
 	}
-	text = applyTextTransform(text, style.TextTransform)
 
-	stdFont, embFont := c.resolveFontPair(style)
-	run := layout.TextRun{
-		Text:            text,
-		Font:            stdFont,
-		Embedded:        embFont,
-		FontSize:        style.FontSize,
-		Color:           style.Color,
-		Decoration:      style.TextDecoration,
-		DecorationColor: style.TextDecorationColor,
-		DecorationStyle: style.TextDecorationStyle,
-		LetterSpacing:   style.LetterSpacing,
-		WordSpacing:     style.WordSpacing,
-		BaselineShift:   baselineShiftFromStyle(style),
+	// Apply text-transform to each run.
+	for i := range runs {
+		runs[i].Text = applyTextTransform(runs[i].Text, style.TextTransform)
 	}
+
+	text := collectText(n)
+	stdFont, embFont := c.resolveFontPair(style)
 	var h *layout.Heading
 	if embFont != nil {
 		h = layout.NewHeadingEmbedded(text, level, embFont)
 	} else {
 		h = layout.NewHeadingWithFont(text, level, stdFont, style.FontSize)
 	}
-	// Replace the default run with the fully styled one.
-	h.SetRuns([]layout.TextRun{run})
+	// Replace the default run with the fully styled runs from collectRuns.
+	h.SetRuns(runs)
 	h.SetAlign(style.TextAlign)
 
 	// Wrap in a Div if the heading has box-model properties.
