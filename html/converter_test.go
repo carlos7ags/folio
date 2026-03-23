@@ -4121,3 +4121,54 @@ func TestBackgroundImageHTTPURL(t *testing.T) {
 		t.Error("expected positive consumed height")
 	}
 }
+
+func TestConvertInlineContainerWithBr(t *testing.T) {
+	// Regression: <br> tags inside an inline container (e.g. a <div> with
+	// inline children like <span>) used to panic with:
+	//   "layout.NewStyledParagraph: run 2 has nil Font and nil Embedded"
+	// because collectRuns inserts font-less TextRun{Text:"\n"} sentinels for
+	// <br> elements, which were passed unsanitised to NewStyledParagraph.
+	htmlInput := `<div>
+			<br>
+			<span><b>Title</b></span><br><br>
+			<span>Subtitle</span>
+			<span>Another <br> subtitle</span>
+		      </div>`
+
+	elems, err := Convert(htmlInput, nil)
+	if err != nil {
+		t.Fatalf("Convert returned error: %v", err)
+	}
+	if len(elems) == 0 {
+		t.Fatal("expected at least one element")
+	}
+	// Elements from bare <br> tags are empty paragraphs with zero height —
+	// that is expected. Only check that elements with text have positive height.
+	nonEmpty := 0
+	for i, e := range elems {
+		plan := e.PlanLayout(layout.LayoutArea{Width: 400, Height: 1000})
+		if plan.Consumed > 0 {
+			nonEmpty++
+		} else if plan.Status != layout.LayoutFull {
+			t.Errorf("element %d: zero-height element has unexpected status %v", i, plan.Status)
+		}
+	}
+	if nonEmpty == 0 {
+		t.Error("expected at least one element with positive consumed height")
+	}
+}
+
+func TestConvertInlineContainerWithBrProducesMultipleElements(t *testing.T) {
+	// Each <br> inside an inline container should split content into a
+	// separate paragraph element, so "before" and "after" end up in
+	// distinct layout elements.
+	htmlInput := `<div>before<br>after</div>`
+
+	elems, err := Convert(htmlInput, nil)
+	if err != nil {
+		t.Fatalf("Convert returned error: %v", err)
+	}
+	if len(elems) < 2 {
+		t.Fatalf("expected at least 2 elements (one per line), got %d", len(elems))
+	}
+}
