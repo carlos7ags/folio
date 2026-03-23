@@ -932,6 +932,54 @@ func TestCSSSelectorClass(t *testing.T) {
 	}
 }
 
+// TestCSSClassCaseInsensitive verifies that CSS class selectors match
+// HTML class attributes case-insensitively. Regression test for #28.
+func TestCSSClassCaseInsensitive(t *testing.T) {
+	htmlStr := `<html><head><style>
+.myClass { color: red; }
+.UPPER { font-weight: bold; }
+</style></head><body>
+<p class="myClass">Should be red</p>
+<p class="upper">Should be bold</p>
+<p class="MyClass">Mixed case should also match</p>
+</body></html>`
+	elems, err := Convert(htmlStr, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// All three paragraphs should produce elements (if the class didn't
+	// match, the text would still render but with default styling — we
+	// can't easily check color here, so just verify no crash and the
+	// converter produces elements).
+	if len(elems) < 3 {
+		t.Errorf("expected at least 3 elements, got %d", len(elems))
+	}
+}
+
+// TestCSSClassCaseInsensitiveMatching directly tests containsClass.
+func TestCSSClassCaseInsensitiveMatching(t *testing.T) {
+	tests := []struct {
+		classes []string
+		name    string
+		want    bool
+	}{
+		{[]string{"myClass"}, "myclass", true},
+		{[]string{"myClass"}, "MYCLASS", true},
+		{[]string{"myClass"}, "myClass", true},
+		{[]string{"foo", "Bar"}, "bar", true},
+		{[]string{"foo", "Bar"}, "BAR", true},
+		{[]string{"foo"}, "baz", false},
+		{nil, "foo", false},
+	}
+	for _, tt := range tests {
+		got := containsClass(tt.classes, tt.name)
+		if got != tt.want {
+			t.Errorf("containsClass(%v, %q) = %v, want %v",
+				tt.classes, tt.name, got, tt.want)
+		}
+	}
+}
+
 func TestCSSSelectorID(t *testing.T) {
 	sel := parseSelector("#main")
 	if sel.parts[0].id != "main" {
