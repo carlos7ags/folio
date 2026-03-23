@@ -539,3 +539,237 @@ func TestPdfA2bUsesVersion17(t *testing.T) {
 		t.Error("expected PDF 1.7 for PDF/A-2b")
 	}
 }
+
+// TestXMPTitleAuthorEscaping verifies that XML-reserved characters in document
+// metadata (title, author) are properly escaped in the XMP stream.
+// This is the pre-existing surface area identified in the PR review.
+func TestXMPTitleAuthorEscaping(t *testing.T) {
+	doc := NewDocument(PageSizeLetter)
+	doc.Info.Title = "Invoice <Test> & More"
+	doc.Info.Author = "Smith & Jones <Ltd>"
+	doc.Info.Creator = `Tool "maker" & Co`
+	doc.SetPdfA(PdfAConfig{Level: PdfA2B})
+
+	var buf bytes.Buffer
+	if _, err := doc.WriteTo(&buf); err != nil {
+		t.Fatalf("WriteTo failed: %v", err)
+	}
+
+	pdf := buf.String()
+
+	// The raw strings will legitimately appear in the PDF Info dictionary
+	// (a PDF literal string, not XML). What matters is that the XMP stream
+	// contains the properly escaped versions.
+	if !strings.Contains(pdf, "Invoice &lt;Test&gt; &amp; More") {
+		t.Error("expected XML-escaped title in XMP")
+	}
+
+	if !strings.Contains(pdf, "Smith &amp; Jones &lt;Ltd&gt;") {
+		t.Error("expected XML-escaped author in XMP")
+	}
+
+	if !strings.Contains(pdf, `Tool &quot;maker&quot; &amp; Co`) {
+		t.Error("expected XML-escaped creator tool in XMP")
+	}
+}
+
+// TestXMPSchemaFieldEscaping verifies that XML-reserved characters in
+// caller-supplied XMPSchema fields (schema name, namespace URI, property
+// descriptions) are properly escaped before being written into the XMP stream.
+func TestXMPSchemaFieldEscaping(t *testing.T) {
+	doc := NewDocument(PageSizeLetter)
+	doc.Info.Title = "Schema Escaping Test"
+	doc.SetPdfA(PdfAConfig{
+		Level: PdfA3B,
+		XMPSchemas: []XMPSchema{
+			{
+				Schema:       "Acme & Partners <Custom> Schema",
+				NamespaceURI: "urn:acme:ns:v1&ext#",
+				Prefix:       "acme",
+				Properties: []XMPSchemaProperty{
+					{
+						Name:        "DocumentType",
+						ValueType:   "Text",
+						Category:    "external",
+						Description: "Type of document <invoice> or & credit note",
+					},
+				},
+			},
+		},
+	})
+
+	var buf bytes.Buffer
+	if _, err := doc.WriteTo(&buf); err != nil {
+		t.Fatalf("WriteTo failed: %v", err)
+	}
+
+	pdf := buf.String()
+
+	// Schema name must be escaped.
+	if strings.Contains(pdf, "Acme & Partners <Custom> Schema") {
+		t.Error("schema name must not contain raw '&' or '<' in XMP output")
+	}
+	if !strings.Contains(pdf, "Acme &amp; Partners &lt;Custom&gt; Schema") {
+		t.Error("expected XML-escaped schema name in XMP")
+	}
+
+	// Namespace URI must be escaped.
+	if strings.Contains(pdf, "urn:acme:ns:v1&ext#") {
+		t.Error("namespace URI must not contain raw '&' in XMP output")
+	}
+	if !strings.Contains(pdf, "urn:acme:ns:v1&amp;ext#") {
+		t.Error("expected XML-escaped namespace URI in XMP")
+	}
+
+	// Property description must be escaped.
+	if strings.Contains(pdf, "invoice> or &") {
+		t.Error("property description must not contain raw '<' or '&' in XMP output")
+	}
+	if !strings.Contains(pdf, "Type of document &lt;invoice&gt; or &amp; credit note") {
+		t.Error("expected XML-escaped property description in XMP")
+	}
+}
+
+// TestXMPPropertyValueEscaping verifies that XML-reserved characters in
+// caller-supplied XMPPropertyBlock values are properly escaped. This covers
+// use-cases like ZUGFeRD/Factur-X where fx:DocumentFileName is written as
+// an XMP property and could contain characters like '&'.
+func TestXMPPropertyValueEscaping(t *testing.T) {
+	doc := NewDocument(PageSizeLetter)
+	doc.Info.Title = "Property Value Escaping Test"
+	doc.SetPdfA(PdfAConfig{
+		Level: PdfA3B,
+		XMPSchemas: []XMPSchema{
+			{
+				Schema:       "Test Schema",
+				NamespaceURI: "urn:test:ns#",
+				Prefix:       "test",
+				Properties: []XMPSchemaProperty{
+					{Name: "FileName", ValueType: "Text", Category: "external", Description: "File name"},
+					{Name: "Note", ValueType: "Text", Category: "external", Description: "Note"},
+				},
+			},
+		},
+		XMPProperties: []XMPPropertyBlock{
+			{
+				Namespace: "urn:test:ns#",
+				Prefix:    "test",
+				Properties: []XMPProperty{
+					{Name: "FileName", Value: "report <Q1> & summary.xml"},
+					{Name: "Note", Value: `version "1.0" & final`},
+				},
+			},
+		},
+	})
+
+	var buf bytes.Buffer
+	if _, err := doc.WriteTo(&buf); err != nil {
+		t.Fatalf("WriteTo failed: %v", err)
+	}
+
+	pdf := buf.String()
+
+	// Raw special characters must not appear in element text content.
+	if strings.Contains(pdf, "report <Q1>") {
+		t.Error("property value must not contain raw '<' in XMP output")
+	}
+	if !strings.Contains(pdf, "report &lt;Q1&gt; &amp; summary.xml") {
+		t.Error("expected XML-escaped FileName property value in XMP")
+	}
+
+	if strings.Contains(pdf, `version "1.0" & final`) {
+		t.Error("property value must not contain raw '\"' or '&' in XMP output")
+	}
+	if !strings.Contains(pdf, "version &quot;1.0&quot; &amp; final") {
+		t.Error("expected XML-escaped Note property value in XMP")
+	}
+}
+
+// TestAttachFileSpecialCharFilename verifies that file attachments with
+// names containing spaces, Unicode characters, and XML-reserved characters
+// are handled correctly. The filename lives in PDF literal strings (not XMP
+// text nodes), so it must round-trip without corruption.
+func TestAttachFileSpecialCharFilename(t *testing.T) {
+	tests := []struct {
+		name     string
+		filename string
+	}{
+		{"spaces", "my invoice document.xml"},
+		{"unicode", "rechnung_März_2025.xml"},
+		{"ampersand", "Smith & Jones Invoice.xml"},
+		{"mixed", "Ärger & Ö <GmbH> report.xml"},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			doc := NewDocument(PageSizeLetter)
+			doc.Info.Title = "Special Filename Test"
+			doc.SetPdfA(PdfAConfig{Level: PdfA3B})
+
+			doc.AttachFile(FileAttachment{
+				FileName: tc.filename,
+				MIMEType: "application/xml",
+				Data:     []byte(`<data/>`),
+			})
+
+			var buf bytes.Buffer
+			if _, err := doc.WriteTo(&buf); err != nil {
+				t.Fatalf("WriteTo failed for filename %q: %v", tc.filename, err)
+			}
+
+			// The filename is stored in PDF literal strings; verify the
+			// document was produced without error and has the expected
+			// /EmbeddedFiles structure.
+			pdf := buf.String()
+			if !strings.Contains(pdf, "/EmbeddedFiles") {
+				t.Errorf("expected /EmbeddedFiles in output for filename %q", tc.filename)
+			}
+			if !strings.Contains(pdf, "/AF ") {
+				t.Errorf("expected /AF in catalog for filename %q", tc.filename)
+			}
+		})
+	}
+}
+
+// TestXMPPropertyBlockNamespaceEscaping checks that the namespace URI used as
+// an XML attribute value in the rdf:Description opening tag is properly escaped
+// when it contains characters such as '&'.
+func TestXMPPropertyBlockNamespaceEscaping(t *testing.T) {
+	doc := NewDocument(PageSizeLetter)
+	doc.Info.Title = "Namespace Attribute Escaping"
+	doc.SetPdfA(PdfAConfig{
+		Level: PdfA3B,
+		XMPSchemas: []XMPSchema{
+			{
+				Schema:       "Edge Schema",
+				NamespaceURI: "urn:edge:ns&v2#",
+				Prefix:       "edge",
+			},
+		},
+		XMPProperties: []XMPPropertyBlock{
+			{
+				Namespace: "urn:edge:ns&v2#",
+				Prefix:    "edge",
+				Properties: []XMPProperty{
+					{Name: "Val", Value: "ok"},
+				},
+			},
+		},
+	})
+
+	var buf bytes.Buffer
+	if _, err := doc.WriteTo(&buf); err != nil {
+		t.Fatalf("WriteTo failed: %v", err)
+	}
+
+	pdf := buf.String()
+
+	// The namespace URI is placed inside an XML attribute value; '&' must be
+	// escaped to '&amp;' so the XMP stream is well-formed XML.
+	if strings.Contains(pdf, `xmlns:edge="urn:edge:ns&v2#"`) {
+		t.Error("namespace URI in xmlns attribute must not contain raw '&'")
+	}
+	if !strings.Contains(pdf, `xmlns:edge="urn:edge:ns&amp;v2#"`) {
+		t.Error("expected XML-escaped namespace URI in xmlns attribute")
+	}
+}
