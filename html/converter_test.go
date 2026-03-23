@@ -952,6 +952,62 @@ func TestConvertPageBreakAfter(t *testing.T) {
 	}
 }
 
+// TestPageBreakInsideBodyWithWidth verifies that page-break-after works
+// when <body> has width: 100%, which causes convertBlock to wrap children
+// in a Div. AreaBreak elements must be hoisted out of the Div so the
+// renderer can see them. Regression test for #21.
+func TestPageBreakInsideBodyWithWidth(t *testing.T) {
+	htmlStr := `<!DOCTYPE html><head><style>
+.pagebreak { page-break-after: always; }
+html, body { width: 100%; margin: 0; padding: 0; }
+</style></head><body>
+<div class="pagebreak"><p>Page 1</p></div>
+<div class="pagebreak"><p>Page 2</p></div>
+<div class="pagebreak"><p>Page 3</p></div>
+</body>`
+	elems, err := Convert(htmlStr, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	breakCount := 0
+	for _, e := range elems {
+		if _, ok := e.(*layout.AreaBreak); ok {
+			breakCount++
+		}
+	}
+	if breakCount < 3 {
+		t.Errorf("expected at least 3 AreaBreaks, got %d (elements: %d)", breakCount, len(elems))
+		for i, e := range elems {
+			t.Logf("  [%d] %T", i, e)
+		}
+	}
+}
+
+// TestPageBreakInsideDivWrapper verifies that page-break-after works
+// even when the parent has box-model properties that trigger a Div wrapper.
+func TestPageBreakInsideDivWrapper(t *testing.T) {
+	htmlStr := `<div style="padding: 10px; background-color: #eee">
+<div style="page-break-after: always"><p>Section 1</p></div>
+<div style="page-break-after: always"><p>Section 2</p></div>
+</div>`
+	elems, err := Convert(htmlStr, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	breakCount := 0
+	for _, e := range elems {
+		if _, ok := e.(*layout.AreaBreak); ok {
+			breakCount++
+		}
+	}
+	if breakCount < 2 {
+		t.Errorf("expected at least 2 AreaBreaks hoisted from Div, got %d", breakCount)
+		for i, e := range elems {
+			t.Logf("  [%d] %T", i, e)
+		}
+	}
+}
+
 // --- !important ---
 
 func TestCSSImportant(t *testing.T) {
