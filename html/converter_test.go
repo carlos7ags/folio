@@ -53,6 +53,65 @@ func TestConvertHeadings(t *testing.T) {
 	}
 }
 
+// TestConvertHeadingWithLink verifies that <a href> inside headings
+// produces clickable link annotations. Regression test for #26.
+func TestConvertHeadingWithLink(t *testing.T) {
+	htmlStr := `<h2><a href="https://example.com">Linked Heading</a></h2>`
+	elems, err := Convert(htmlStr, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(elems) == 0 {
+		t.Fatal("expected at least 1 element")
+	}
+	plan := elems[0].PlanLayout(layout.LayoutArea{Width: 400, Height: 1000})
+	if !planContainsLink(plan, "https://example.com") {
+		t.Error("expected link annotation with URI 'https://example.com' on heading")
+	}
+}
+
+// TestConvertHeadingMixedTextAndLink verifies that a heading with both
+// plain text and an inline link produces a link only for the linked part.
+func TestConvertHeadingMixedTextAndLink(t *testing.T) {
+	htmlStr := `<h3>Read the <a href="https://example.com/docs">documentation</a> first</h3>`
+	elems, err := Convert(htmlStr, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(elems) == 0 {
+		t.Fatal("expected at least 1 element")
+	}
+	plan := elems[0].PlanLayout(layout.LayoutArea{Width: 400, Height: 1000})
+	if !planContainsLink(plan, "https://example.com/docs") {
+		t.Error("expected link annotation for 'https://example.com/docs' in heading")
+	}
+}
+
+// planContainsLink recursively searches a LayoutPlan's blocks (including
+// children) for a link annotation with the given URI.
+func planContainsLink(plan layout.LayoutPlan, uri string) bool {
+	for _, b := range plan.Blocks {
+		if blockContainsLink(b, uri) {
+			return true
+		}
+	}
+	return false
+}
+
+func blockContainsLink(b layout.PlacedBlock, uri string) bool {
+	for _, link := range b.Links {
+		if link.URI == uri {
+			return true
+		}
+	}
+	for _, child := range b.Children {
+		if blockContainsLink(child, uri) {
+			return true
+		}
+	}
+	return false
+}
+
 func TestConvertInlineStyles(t *testing.T) {
 	html := `<p>Normal <strong>bold</strong> <em>italic</em> text.</p>`
 	elems, err := Convert(html, nil)
