@@ -34,9 +34,12 @@ type List struct {
 }
 
 // listItem is a single entry in a list, optionally containing a nested sub-list.
+// When runs is non-nil, the item renders as a styled paragraph (supporting
+// links, mixed fonts, etc.); otherwise it uses the plain text field.
 type listItem struct {
 	text    string
-	subList *List // optional nested list
+	runs    []TextRun // styled runs (nil = use plain text)
+	subList *List     // optional nested list
 }
 
 // listLayoutRef carries list-specific rendering info on a Line.
@@ -91,6 +94,28 @@ func (l *List) AddItem(text string) *List {
 	return l
 }
 
+// AddItemRuns adds an item with styled text runs, supporting links,
+// mixed fonts, and other inline formatting within the list item.
+func (l *List) AddItemRuns(runs []TextRun) *List {
+	l.items = append(l.items, listItem{runs: runs})
+	return l
+}
+
+// AddItemRunsWithSubList adds a styled-runs item and returns a nested
+// sub-list under it.
+func (l *List) AddItemRunsWithSubList(runs []TextRun) *List {
+	sub := &List{
+		style:    ListUnordered,
+		font:     l.font,
+		embedded: l.embedded,
+		fontSize: l.fontSize,
+		indent:   l.indent,
+		leading:  l.leading,
+	}
+	l.items = append(l.items, listItem{runs: runs, subList: sub})
+	return sub
+}
+
 // AddItemWithSubList adds a text item and returns a nested sub-list
 // under that item. The sub-list inherits the parent's font and font size.
 func (l *List) AddItemWithSubList(text string) *List {
@@ -133,12 +158,7 @@ func (l *List) layoutAt(maxWidth float64, baseIndent float64) []Line {
 		markerLines := markerPara.Layout(l.indent)
 
 		// Create a paragraph for the item text.
-		var textPara *Paragraph
-		if l.embedded != nil {
-			textPara = NewParagraphEmbedded(item.text, l.embedded, l.fontSize)
-		} else {
-			textPara = NewParagraph(item.text, l.font, l.fontSize)
-		}
+		textPara := l.itemParagraph(item)
 		textPara.SetLeading(l.leading)
 		textLines := textPara.Layout(itemWidth)
 
@@ -182,8 +202,9 @@ func (l *List) layoutAt(maxWidth float64, baseIndent float64) []Line {
 func (l *List) MinWidth() float64 {
 	maxW := 0.0
 	for _, item := range l.items {
+		text := l.itemText(item)
 		measurer := l.measurer()
-		for _, w := range splitWords(item.text) {
+		for _, w := range splitWords(text) {
 			ww := measurer.MeasureString(w, l.fontSize)
 			if ww > maxW {
 				maxW = ww
@@ -198,12 +219,37 @@ func (l *List) MaxWidth() float64 {
 	maxW := 0.0
 	measurer := l.measurer()
 	for _, item := range l.items {
-		ww := measurer.MeasureString(item.text, l.fontSize)
+		text := l.itemText(item)
+		ww := measurer.MeasureString(text, l.fontSize)
 		if ww > maxW {
 			maxW = ww
 		}
 	}
 	return l.indent + maxW
+}
+
+// itemParagraph creates a Paragraph for a list item's text content.
+// Uses styled runs when available, falling back to plain text.
+func (l *List) itemParagraph(item listItem) *Paragraph {
+	if len(item.runs) > 0 {
+		return NewStyledParagraph(item.runs...)
+	}
+	if l.embedded != nil {
+		return NewParagraphEmbedded(item.text, l.embedded, l.fontSize)
+	}
+	return NewParagraph(item.text, l.font, l.fontSize)
+}
+
+// itemText returns the plain text of a list item for measurement.
+func (l *List) itemText(item listItem) string {
+	if len(item.runs) > 0 {
+		var s string
+		for _, r := range item.runs {
+			s += r.Text
+		}
+		return s
+	}
+	return item.text
 }
 
 // measurer returns the text measurer for this list's font.
@@ -249,12 +295,7 @@ func (l *List) planAt(area LayoutArea, baseIndent float64) LayoutPlan {
 		markerWords, _ := markerPara.measureWords(l.indent)
 
 		// Measure and wrap item text directly.
-		var textPara *Paragraph
-		if l.embedded != nil {
-			textPara = NewParagraphEmbedded(item.text, l.embedded, l.fontSize)
-		} else {
-			textPara = NewParagraph(item.text, l.font, l.fontSize)
-		}
+		textPara := l.itemParagraph(item)
 		textPara.SetLeading(l.leading)
 		textWords, maxFS := textPara.measureWords(itemWidth)
 		lineHeight := maxFS * l.leading
@@ -277,9 +318,10 @@ func (l *List) planAt(area LayoutArea, baseIndent float64) LayoutPlan {
 				capturedMarker = markerWords
 			}
 
-			blocks = append(blocks, PlacedBlock{
+			block := PlacedBlock{
 				X: 0, Y: curY, Width: lineWidth(wl), Height: lineHeight,
-				Tag: "LI",
+				Tag:   "LI",
+				Links: linkSpans(wl),
 				Draw: func(ctx DrawContext, absX, absTopY float64) {
 					baselineY := absTopY - capturedHeight
 					if len(capturedMarker) > 0 {
@@ -287,7 +329,13 @@ func (l *List) planAt(area LayoutArea, baseIndent float64) LayoutPlan {
 					}
 					drawTextLine(ctx, capturedWords, absX+capturedIndent, baselineY, capturedMaxW-capturedIndent, AlignLeft, capturedIsLast)
 				},
-			})
+			}
+			// Offset link annotation x-coords by the indent since the
+			// text starts after the marker column.
+			for k := range block.Links {
+				block.Links[k].X += capturedIndent
+			}
+			blocks = append(blocks, block)
 			curY += lineHeight
 		}
 

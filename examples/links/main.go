@@ -74,11 +74,17 @@ hr { margin: 6px 0; }
 <p><b><a href="https://example.com/bold" style="color: #1e40af;">Bold blue link</a></b></p>
 <p class="subtle">Subtle style: <a href="https://example.com/subtle">no underline, muted color</a></p>
 
+<h2><a href="https://example.com/heading-link">Linked Heading (clickable)</a></h2>
+
+<h2>Links in Lists</h2>
+<ul>
+<li><a href="https://example.com/li1">Linked item</a></li>
+<li>Text with <a href="https://example.com/li2">inline link</a></li>
+</ul>
+
 <h2>Edge Cases</h2>
 <p><a href="https://example.com/start">Link at start</a> then text, and text then <a href="https://example.com/end">link at end</a></p>
-<p><a href="https://example.com/full">This entire paragraph is one clickable link</a></p>
-<p><a href="https://example.com/adj-a">Adjacent</a><a href="https://example.com/adj-b">Links</a> — two links with no space between them.</p>
-<p><a href="https://example.com/nested"><b>Bold</b> and <i>italic</i> inside one link</a></p>
+<p><a href="https://example.com/adj-a">Adjacent</a><a href="https://example.com/adj-b">Links</a> with no gap between them.</p>
 
 
 </body></html>`
@@ -151,11 +157,42 @@ hr { margin: 6px 0; }
 		font.HelveticaBold, 11,
 	).SetColor(layout.RGB(0.58, 0.17, 0.83)).SetUnderline())
 
-	// Edge cases via layout API
+	// Linked heading via layout API
 	doc.Add(spacer(4))
-	doc.Add(sectionHeading("Edge Cases"))
+	doc.Add(sectionHeading("Linked Heading"))
+	h2 := layout.NewHeadingWithFont("Resources", layout.H3, font.HelveticaBold, 13)
+	h2.SetRuns([]layout.TextRun{
+		layout.Run("Resources", font.HelveticaBold, 13).
+			WithColor(layout.RGB(0.15, 0.39, 0.92)).
+			WithDecoration(layout.DecorationUnderline).
+			WithLinkURI("https://example.com/resources"),
+	})
+	doc.Add(h2)
 
-	// Two different links in one styled paragraph
+	// Linked list items via layout API
+	doc.Add(spacer(2))
+	doc.Add(sectionHeading("Linked List Items"))
+	list := layout.NewList(font.Helvetica, 10)
+	list.AddItemRuns([]layout.TextRun{
+		layout.Run("Folio repository", font.Helvetica, 10).
+			WithColor(layout.RGB(0.15, 0.39, 0.92)).
+			WithDecoration(layout.DecorationUnderline).
+			WithLinkURI("https://github.com/carlos7ags/folio"),
+	})
+	list.AddItemRuns([]layout.TextRun{
+		layout.Run("See the ", font.Helvetica, 10),
+		layout.Run("Go docs", font.HelveticaBold, 10).
+			WithColor(layout.RGB(0.15, 0.39, 0.92)).
+			WithDecoration(layout.DecorationUnderline).
+			WithLinkURI("https://pkg.go.dev"),
+		layout.Run(" for details.", font.Helvetica, 10),
+	})
+	list.AddItem("Plain item (no link)")
+	doc.Add(list)
+
+	// Multiple links on one line
+	doc.Add(spacer(4))
+	doc.Add(sectionHeading("Multiple Links Per Line"))
 	doc.Add(layout.NewStyledParagraph(
 		layout.Run("Compare ", font.Helvetica, 10),
 		layout.Run("GitHub", font.HelveticaBold, 10).
@@ -169,14 +206,6 @@ hr { margin: 6px 0; }
 			WithLinkURI("https://gitlab.com"),
 		layout.Run(" for hosting.", font.Helvetica, 10),
 	))
-
-	// Link with different font
-	doc.Add(spacer(2))
-	doc.Add(layout.NewLink(
-		"Link in Times font",
-		"https://example.com/times",
-		font.TimesRoman, 10,
-	).SetColor(layout.RGB(0.15, 0.39, 0.92)).SetUnderline())
 
 	// Register named destinations and bookmarks.
 	doc.AddNamedDest(document.NamedDest{

@@ -1694,30 +1694,72 @@ func (c *converter) convertList(n *html.Node, style computedStyle, ordered bool)
 }
 
 // populateList fills a list with items from <li> children, handling nesting.
+// Uses collectRuns (instead of collectDirectText) so inline elements like
+// <a href="..."> are preserved as styled TextRuns with LinkURI.
 func (c *converter) populateList(n *html.Node, list *layout.List, style computedStyle) {
 	for child := n.FirstChild; child != nil; child = child.NextSibling {
 		if child.Type != html.ElementNode || child.DataAtom != atom.Li {
 			continue
 		}
 
-		text := collectDirectText(child)
+		runs := c.collectListItemRuns(child, style)
 		nestedList := findNestedList(child)
 
 		if nestedList != nil {
-			if text == "" {
-				text = " "
+			if len(runs) == 0 {
+				runs = []layout.TextRun{{Text: " ", Font: font.Helvetica, FontSize: style.FontSize}}
 			}
-			sub := list.AddItemWithSubList(text)
+			sub := list.AddItemRunsWithSubList(runs)
 			if nestedList.DataAtom == atom.Ol {
 				sub.SetStyle(layout.ListOrdered)
 			}
 			c.populateList(nestedList, sub, style)
 		} else {
-			if text != "" {
-				list.AddItem(text)
+			if len(runs) > 0 {
+				list.AddItemRuns(runs)
 			}
 		}
 	}
+}
+
+// collectListItemRuns collects styled TextRuns from a <li> element,
+// skipping nested <ul>/<ol> elements (which are handled as sub-lists).
+func (c *converter) collectListItemRuns(li *html.Node, style computedStyle) []layout.TextRun {
+	var runs []layout.TextRun
+	for child := li.FirstChild; child != nil; child = child.NextSibling {
+		if child.Type == html.ElementNode &&
+			(child.DataAtom == atom.Ul || child.DataAtom == atom.Ol) {
+			continue // skip nested lists
+		}
+		switch child.Type {
+		case html.TextNode:
+			text := processWhitespace(child.Data, style.WhiteSpace)
+			if text == "" {
+				continue
+			}
+			stdFont, embFont := c.resolveFontForText(style, text)
+			runs = append(runs, layout.TextRun{
+				Text:     text,
+				Font:     stdFont,
+				Embedded: embFont,
+				FontSize: style.FontSize,
+				Color:    style.Color,
+			})
+		case html.ElementNode:
+			childStyle := c.computeElementStyle(child, style)
+			childRuns := c.collectRuns(child, childStyle)
+			if child.DataAtom == atom.A {
+				href := getAttr(child, "href")
+				if href != "" {
+					for i := range childRuns {
+						childRuns[i].LinkURI = href
+					}
+				}
+			}
+			runs = append(runs, childRuns...)
+		}
+	}
+	return runs
 }
 
 // convertBlockquote renders a <blockquote> as an indented block with a left border.
@@ -3860,22 +3902,6 @@ func collectRawTextInto(n *html.Node, sb *strings.Builder) {
 	for child := n.FirstChild; child != nil; child = child.NextSibling {
 		collectRawTextInto(child, sb)
 	}
-}
-
-// collectDirectText collects text only from direct text node children,
-// skipping nested <ul>/<ol> elements (for list item text extraction).
-func collectDirectText(n *html.Node) string {
-	var sb strings.Builder
-	for child := n.FirstChild; child != nil; child = child.NextSibling {
-		if child.Type == html.TextNode {
-			sb.WriteString(child.Data)
-		} else if child.Type == html.ElementNode &&
-			child.DataAtom != atom.Ul && child.DataAtom != atom.Ol {
-			// Recurse into inline elements but not nested lists.
-			collectTextInto(child, &sb)
-		}
-	}
-	return collapseWhitespace(sb.String())
 }
 
 // findNestedList finds the first <ul> or <ol> child of a node.

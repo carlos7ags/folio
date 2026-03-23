@@ -153,6 +153,40 @@ func TestConvertOrderedList(t *testing.T) {
 	}
 }
 
+// TestConvertListItemWithLink verifies that <a href> inside <li> produces
+// clickable link annotations. Regression test for #27.
+func TestConvertListItemWithLink(t *testing.T) {
+	htmlStr := `<ul><li><a href="https://example.com">Linked item</a></li></ul>`
+	elems, err := Convert(htmlStr, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(elems) == 0 {
+		t.Fatal("expected at least 1 element")
+	}
+	plan := elems[0].PlanLayout(layout.LayoutArea{Width: 400, Height: 1000})
+	if !planContainsLink(plan, "https://example.com") {
+		t.Error("expected link annotation with URI 'https://example.com' in list item")
+	}
+}
+
+// TestConvertListItemMixedTextAndLink verifies inline links within list
+// item text produce link annotations.
+func TestConvertListItemMixedTextAndLink(t *testing.T) {
+	htmlStr := `<ul><li>Visit <a href="https://example.com">our site</a> today</li></ul>`
+	elems, err := Convert(htmlStr, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(elems) == 0 {
+		t.Fatal("expected at least 1 element")
+	}
+	plan := elems[0].PlanLayout(layout.LayoutArea{Width: 400, Height: 1000})
+	if !planContainsLink(plan, "https://example.com") {
+		t.Error("expected link annotation in list item with mixed text")
+	}
+}
+
 func TestConvertDiv(t *testing.T) {
 	html := `<div style="padding: 10px; background-color: #f0f0f0"><p>Inside div</p></div>`
 	elems, err := Convert(html, nil)
