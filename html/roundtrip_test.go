@@ -94,11 +94,21 @@ func extractAllText(t *testing.T, r *reader.PdfReader) string {
 // assertTextContains checks that extracted PDF text contains all expected strings.
 func assertTextContains(t *testing.T, text string, expected ...string) {
 	t.Helper()
+	// Normalize whitespace so line breaks from word-wrapping don't cause
+	// false negatives when checking for multi-word phrases.
+	normalized := normalizeWhitespace(text)
 	for _, s := range expected {
-		if !strings.Contains(text, s) {
-			t.Errorf("extracted text missing %q (got %d chars: %q...)", s, len(text), truncate(text, 200))
+		if !strings.Contains(normalized, s) {
+			t.Errorf("extracted text missing %q (got %d chars: %q...)", s, len(normalized), truncate(normalized, 200))
 		}
 	}
+}
+
+// normalizeWhitespace collapses all runs of whitespace (including newlines)
+// into a single space. This makes text assertions resilient to line-break
+// changes caused by word-width differences.
+func normalizeWhitespace(s string) string {
+	return strings.Join(strings.Fields(s), " ")
 }
 
 func truncate(s string, maxLen int) string {

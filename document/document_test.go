@@ -583,11 +583,11 @@ func TestPageAddInternalLink(t *testing.T) {
 	}
 
 	pdf := buf.String()
-	if !strings.Contains(pdf, "/GoTo") {
-		t.Error("missing GoTo action for internal link")
-	}
-	if !strings.Contains(pdf, "section1") {
-		t.Error("missing destination name")
+	// Internal links with resolvable named destinations use a direct
+	// /Dest [pageRef /Fit] array for maximum viewer compatibility,
+	// rather than a /GoTo action with a string destination name.
+	if !strings.Contains(pdf, "/Dest") {
+		t.Error("missing /Dest entry for internal link")
 	}
 	if !strings.Contains(pdf, "/Dests") {
 		t.Error("missing Dests in catalog")

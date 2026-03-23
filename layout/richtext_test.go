@@ -209,3 +209,147 @@ func TestRGBConstructor(t *testing.T) {
 		t.Errorf("unexpected color: %+v", c)
 	}
 }
+
+// TestPunctuationMergedAcrossRuns verifies that a period at the start of
+// a new run is merged into the last word of the previous run, producing
+// "here." as one word instead of "here" + "." as two separate words.
+// Regression test for #25.
+func TestPunctuationMergedAcrossRuns(t *testing.T) {
+	p := NewStyledParagraph(
+		Run("click here", font.HelveticaBold, 12),
+		Run(". Then continue.", font.Helvetica, 12),
+	)
+	words, _ := p.measureWords(400)
+	// Expected words: ["click", "here.", "Then", "continue."]
+	// NOT: ["click", "here", ".", "Then", "continue."]
+	for _, w := range words {
+		if w.Text == "." {
+			t.Errorf("period should be merged into previous word, but found standalone '.' word")
+		}
+	}
+	foundHereDot := false
+	for _, w := range words {
+		if w.Text == "here." {
+			foundHereDot = true
+		}
+	}
+	if !foundHereDot {
+		texts := make([]string, len(words))
+		for i, w := range words {
+			texts[i] = w.Text
+		}
+		t.Errorf("expected word 'here.' but got words: %v", texts)
+	}
+}
+
+// TestPunctuationMergeMatchesSingleRun verifies that cross-run punctuation
+// merging produces identical words to a single-run paragraph with the same
+// text. This ensures the merge is a true root fix, not a rendering patch.
+func TestPunctuationMergeMatchesSingleRun(t *testing.T) {
+	single := NewParagraph("click here. Then continue.", font.Helvetica, 12)
+	multi := NewStyledParagraph(
+		Run("click here", font.Helvetica, 12),
+		Run(". Then continue.", font.Helvetica, 12),
+	)
+	singleWords, _ := single.measureWords(400)
+	multiWords, _ := multi.measureWords(400)
+	if len(singleWords) != len(multiWords) {
+		t.Fatalf("word count differs: single=%d multi=%d", len(singleWords), len(multiWords))
+	}
+	for i := range singleWords {
+		if singleWords[i].Text != multiWords[i].Text {
+			t.Errorf("word %d: single=%q multi=%q", i, singleWords[i].Text, multiWords[i].Text)
+		}
+	}
+}
+
+// TestPunctuationCommaAfterStyledRun verifies that a comma at a style
+// boundary merges into the preceding word.
+func TestPunctuationCommaAfterStyledRun(t *testing.T) {
+	p := NewStyledParagraph(
+		Run("see ", font.Helvetica, 12),
+		Run("this", font.HelveticaBold, 12),
+		Run(", that.", font.Helvetica, 12),
+	)
+	words, _ := p.measureWords(400)
+	foundThisComma := false
+	for _, w := range words {
+		if w.Text == "this," {
+			foundThisComma = true
+		}
+		if w.Text == "," {
+			t.Error("comma should be merged, not standalone")
+		}
+	}
+	if !foundThisComma {
+		texts := make([]string, len(words))
+		for i, w := range words {
+			texts[i] = w.Text
+		}
+		t.Errorf("expected word 'this,' but got: %v", texts)
+	}
+}
+
+// TestPunctuationLeadingSpaceNotMerged verifies that when a run starts
+// with whitespace before punctuation (e.g. " . word"), the space acts as
+// a word boundary and the period is NOT merged into the previous word.
+func TestPunctuationLeadingSpaceNotMerged(t *testing.T) {
+	p := NewStyledParagraph(
+		Run("word", font.Helvetica, 12),
+		Run(" . separate", font.Helvetica, 12),
+	)
+	words, _ := p.measureWords(400)
+	// The "." should be a standalone word because the run starts with a space.
+	foundStandaloneDot := false
+	for _, w := range words {
+		if w.Text == "." {
+			foundStandaloneDot = true
+		}
+	}
+	if !foundStandaloneDot {
+		texts := make([]string, len(words))
+		for i, w := range words {
+			texts[i] = w.Text
+		}
+		t.Errorf("expected standalone '.' word (space prevents merge), got: %v", texts)
+	}
+}
+
+// TestPunctuationMultipleChars verifies that multiple leading punctuation
+// characters (e.g. ")." or "...") are all merged.
+func TestPunctuationMultipleChars(t *testing.T) {
+	p := NewStyledParagraph(
+		Run("end", font.Helvetica, 12),
+		Run(").", font.Helvetica, 12),
+	)
+	words, _ := p.measureWords(400)
+	foundMerged := false
+	for _, w := range words {
+		if w.Text == "end)." {
+			foundMerged = true
+		}
+	}
+	if !foundMerged {
+		texts := make([]string, len(words))
+		for i, w := range words {
+			texts[i] = w.Text
+		}
+		t.Errorf("expected 'end).' but got: %v", texts)
+	}
+}
+
+// TestPunctuationFirstRunNotMerged verifies that punctuation at the very
+// start of the paragraph (no preceding word) is not merged anywhere.
+func TestPunctuationFirstRunNotMerged(t *testing.T) {
+	p := NewStyledParagraph(
+		Run("...start", font.Helvetica, 12),
+	)
+	words, _ := p.measureWords(400)
+	if len(words) != 1 || words[0].Text != "...start" {
+		texts := make([]string, len(words))
+		for i, w := range words {
+			texts[i] = w.Text
+		}
+		t.Errorf("expected ['...start'] but got: %v", texts)
+	}
+}

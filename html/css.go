@@ -171,7 +171,7 @@ func (ss *styleSheet) parseCSS(css string) {
 			for _, d := range decls {
 				switch d.property {
 				case "font-family":
-					ff.family = strings.Trim(strings.TrimSpace(d.value), `"'`)
+					ff.family = strings.ToLower(strings.Trim(strings.TrimSpace(d.value), `"'`))
 				case "src":
 					ff.src = parseFontFaceSrc(d.value)
 				case "font-weight":
@@ -953,9 +953,12 @@ func nodeClasses(n *html.Node) []string {
 }
 
 // containsClass checks if a class list contains a class name.
+// The comparison is case-insensitive because CSS class selectors are
+// lowercased during parsing, and HTML class names are conventionally
+// treated as case-insensitive by browsers.
 func containsClass(classes []string, name string) bool {
 	for _, c := range classes {
-		if c == name {
+		if strings.EqualFold(c, name) {
 			return true
 		}
 	}

@@ -114,6 +114,7 @@ type TextRun struct {
 	LetterSpacing   float64 // extra space between characters (points, from CSS letter-spacing)
 	WordSpacing     float64 // extra space between words (points, from CSS word-spacing)
 	BaselineShift   float64 // vertical offset in points (positive = up for super, negative = down for sub)
+	LinkURI         string  // if non-empty, this run is part of a hyperlink
 }
 
 // Run creates a TextRun with a standard font.
@@ -141,6 +142,19 @@ func (r TextRun) WithUnderline() TextRun {
 // WithStrikethrough returns a copy of the run with strikethrough decoration.
 func (r TextRun) WithStrikethrough() TextRun {
 	r.Decoration |= DecorationStrikethrough
+	return r
+}
+
+// WithDecoration returns a copy of the run with the given decoration flags.
+func (r TextRun) WithDecoration(d TextDecoration) TextRun {
+	r.Decoration |= d
+	return r
+}
+
+// WithLinkURI returns a copy of the run marked as a hyperlink.
+// Words from this run will produce a clickable annotation in the PDF.
+func (r TextRun) WithLinkURI(uri string) TextRun {
+	r.LinkURI = uri
 	return r
 }
 
@@ -222,6 +236,10 @@ type Word struct {
 	LetterSpacing float64 // extra inter-character space (Tc operator)
 	WordSpacing   float64 // extra inter-word space added to SpaceAfter
 	BaselineShift float64 // vertical offset (positive = up, negative = down)
+
+	// LinkURI is the hyperlink target for this word. If non-empty, the
+	// renderer creates a link annotation covering this word's area.
+	LinkURI string
 
 	// InlineBlock fields: when set, this Word represents an inline-block
 	// element (e.g., a Div) that flows within a paragraph like a "big word".

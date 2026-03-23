@@ -7,6 +7,7 @@
 
 # Go build output
 /folio
+*.wasm
 /samples
 /showcase
 /cmd/*/cmd

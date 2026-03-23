@@ -1,0 +1,28 @@
+# Examples
+
+Each subdirectory is a self-contained example that produces a PDF.
+
+## Running
+
+```bash
+go run ./examples/hello
+```
+
+## Structure
+
+```
+examples/
+├── hello/          # minimal one-page PDF
+├── fonts/          # standard, custom, and Unicode fonts (CJK, Cyrillic)
+├── links/          # hyperlinks, bookmarks, internal navigation
+└── README.md
+```
+
+## Adding an example
+
+1. Create a new directory under `examples/` (e.g., `examples/invoice/`).
+2. Add a single `main.go` that produces one PDF.
+3. Include any required data files in the same directory (XML, images, etc.).
+4. Keep it self-contained — no shared code between examples.
+5. Add a doc comment at the top of `main.go` describing what the example does and how to run it.
+6. Add the directory to the structure list above.

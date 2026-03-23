@@ -110,7 +110,7 @@ func TestLinkEmbedded(t *testing.T) {
 	if plan.Status != LayoutFull {
 		t.Errorf("expected LayoutFull, got %d", plan.Status)
 	}
-	if len(plan.Blocks) == 0 || plan.Blocks[0].Link == nil {
+	if len(plan.Blocks) == 0 || len(plan.Blocks[0].Links) == 0 {
 		t.Error("expected link metadata")
 	}
 }

@@ -75,8 +75,10 @@ type PlacedBlock struct {
 	// cells within a table row). The renderer draws them in order.
 	Children []PlacedBlock
 
-	// Link carries link metadata for this block (nil if not a link).
-	Link *LinkArea
+	// Links carries link annotations for this block. Each entry
+	// describes a clickable region. A single line of text may contain
+	// multiple links with different URIs.
+	Links []LinkArea
 
 	// floatInfo carries float positioning data (nil if not a float).
 	floatInfo *floatBlockInfo

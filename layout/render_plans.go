@@ -326,15 +326,23 @@ func drawBlockNested(block PlacedBlock, baseX, topY float64, ctx *DrawContext, t
 		})
 	}
 
-	// Record link annotation.
-	if block.Link != nil {
+	// Record link annotations.
+	for _, link := range block.Links {
+		// Use the precise link span if available, otherwise fall back to
+		// the full block dimensions.
+		linkX := pdfX
+		linkW := block.Width
+		if link.W > 0 {
+			linkX = pdfX + link.X
+			linkW = link.W
+		}
 		ctx.Page.Links = append(ctx.Page.Links, LinkArea{
-			X:        pdfX,
+			X:        linkX,
 			Y:        pdfY - block.Height,
-			W:        block.Width,
+			W:        linkW,
 			H:        block.Height,
-			URI:      block.Link.URI,
-			DestName: block.Link.DestName,
+			URI:      link.URI,
+			DestName: link.DestName,
 		})
 	}
 

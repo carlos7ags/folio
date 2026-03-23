@@ -15,6 +15,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/carlos7ags/folio/font"
 	"github.com/carlos7ags/folio/layout"
 )
 
@@ -50,6 +51,65 @@ func TestConvertHeadings(t *testing.T) {
 			t.Errorf("element %d: expected positive consumed, got %f", i, plan.Consumed)
 		}
 	}
+}
+
+// TestConvertHeadingWithLink verifies that <a href> inside headings
+// produces clickable link annotations. Regression test for #26.
+func TestConvertHeadingWithLink(t *testing.T) {
+	htmlStr := `<h2><a href="https://example.com">Linked Heading</a></h2>`
+	elems, err := Convert(htmlStr, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(elems) == 0 {
+		t.Fatal("expected at least 1 element")
+	}
+	plan := elems[0].PlanLayout(layout.LayoutArea{Width: 400, Height: 1000})
+	if !planContainsLink(plan, "https://example.com") {
+		t.Error("expected link annotation with URI 'https://example.com' on heading")
+	}
+}
+
+// TestConvertHeadingMixedTextAndLink verifies that a heading with both
+// plain text and an inline link produces a link only for the linked part.
+func TestConvertHeadingMixedTextAndLink(t *testing.T) {
+	htmlStr := `<h3>Read the <a href="https://example.com/docs">documentation</a> first</h3>`
+	elems, err := Convert(htmlStr, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(elems) == 0 {
+		t.Fatal("expected at least 1 element")
+	}
+	plan := elems[0].PlanLayout(layout.LayoutArea{Width: 400, Height: 1000})
+	if !planContainsLink(plan, "https://example.com/docs") {
+		t.Error("expected link annotation for 'https://example.com/docs' in heading")
+	}
+}
+
+// planContainsLink recursively searches a LayoutPlan's blocks (including
+// children) for a link annotation with the given URI.
+func planContainsLink(plan layout.LayoutPlan, uri string) bool {
+	for _, b := range plan.Blocks {
+		if blockContainsLink(b, uri) {
+			return true
+		}
+	}
+	return false
+}
+
+func blockContainsLink(b layout.PlacedBlock, uri string) bool {
+	for _, link := range b.Links {
+		if link.URI == uri {
+			return true
+		}
+	}
+	for _, child := range b.Children {
+		if blockContainsLink(child, uri) {
+			return true
+		}
+	}
+	return false
 }
 
 func TestConvertInlineStyles(t *testing.T) {
@@ -90,6 +150,40 @@ func TestConvertOrderedList(t *testing.T) {
 	}
 	if len(elems) != 1 {
 		t.Fatalf("expected 1 element, got %d", len(elems))
+	}
+}
+
+// TestConvertListItemWithLink verifies that <a href> inside <li> produces
+// clickable link annotations. Regression test for #27.
+func TestConvertListItemWithLink(t *testing.T) {
+	htmlStr := `<ul><li><a href="https://example.com">Linked item</a></li></ul>`
+	elems, err := Convert(htmlStr, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(elems) == 0 {
+		t.Fatal("expected at least 1 element")
+	}
+	plan := elems[0].PlanLayout(layout.LayoutArea{Width: 400, Height: 1000})
+	if !planContainsLink(plan, "https://example.com") {
+		t.Error("expected link annotation with URI 'https://example.com' in list item")
+	}
+}
+
+// TestConvertListItemMixedTextAndLink verifies inline links within list
+// item text produce link annotations.
+func TestConvertListItemMixedTextAndLink(t *testing.T) {
+	htmlStr := `<ul><li>Visit <a href="https://example.com">our site</a> today</li></ul>`
+	elems, err := Convert(htmlStr, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(elems) == 0 {
+		t.Fatal("expected at least 1 element")
+	}
+	plan := elems[0].PlanLayout(layout.LayoutArea{Width: 400, Height: 1000})
+	if !planContainsLink(plan, "https://example.com") {
+		t.Error("expected link annotation in list item with mixed text")
 	}
 }
 
@@ -339,6 +433,79 @@ func TestConvertLinkInParagraph(t *testing.T) {
 	}
 	if len(elems) < 1 {
 		t.Fatalf("expected at least 1 element, got %d", len(elems))
+	}
+}
+
+// TestConvertLinkInParagraphProducesAnnotation verifies that <a href="...">
+// inside a <p> produces a PlacedBlock with a Link annotation, so the
+// document layer can create a clickable PDF annotation. Regression test for #23.
+func TestConvertLinkInParagraphProducesAnnotation(t *testing.T) {
+	htmlStr := `<p><a href="https://example.com">Click here</a></p>`
+	elems, err := Convert(htmlStr, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(elems) == 0 {
+		t.Fatal("expected at least 1 element")
+	}
+	plan := elems[0].PlanLayout(layout.LayoutArea{Width: 400, Height: 1000})
+	found := false
+	for _, b := range plan.Blocks {
+		for _, link := range b.Links {
+			if link.URI == "https://example.com" {
+				found = true
+			}
+		}
+	}
+	if !found {
+		t.Error("expected a PlacedBlock with Links containing URI 'https://example.com'")
+	}
+}
+
+// TestConvertMixedTextAndLinkInParagraph verifies that a paragraph with
+// both plain text and a link produces link annotations only for the linked part.
+func TestConvertMixedTextAndLinkInParagraph(t *testing.T) {
+	htmlStr := `<p>Visit <a href="https://example.com">our site</a> for more.</p>`
+	elems, err := Convert(htmlStr, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(elems) == 0 {
+		t.Fatal("expected at least 1 element")
+	}
+	plan := elems[0].PlanLayout(layout.LayoutArea{Width: 400, Height: 1000})
+	linkCount := 0
+	for _, b := range plan.Blocks {
+		linkCount += len(b.Links)
+	}
+	if linkCount == 0 {
+		t.Error("expected at least one block with a Link annotation")
+	}
+}
+
+// TestConvertMultipleLinksOnSameLine verifies that multiple distinct links
+// on the same line each get their own annotation. Regression test for the
+// per-line single-link limitation.
+func TestConvertMultipleLinksOnSameLine(t *testing.T) {
+	htmlStr := `<p><a href="https://a.com">A</a> and <a href="https://b.com">B</a> and <a href="https://c.com">C</a></p>`
+	elems, err := Convert(htmlStr, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(elems) == 0 {
+		t.Fatal("expected at least 1 element")
+	}
+	plan := elems[0].PlanLayout(layout.LayoutArea{Width: 400, Height: 1000})
+	uris := make(map[string]bool)
+	for _, b := range plan.Blocks {
+		for _, link := range b.Links {
+			uris[link.URI] = true
+		}
+	}
+	for _, want := range []string{"https://a.com", "https://b.com", "https://c.com"} {
+		if !uris[want] {
+			t.Errorf("missing link annotation for %s (found: %v)", want, uris)
+		}
 	}
 }
 
@@ -756,18 +923,47 @@ func TestParseFontFamily(t *testing.T) {
 		want  string
 	}{
 		{"Courier", "courier"},
-		{"'Courier New', monospace", "courier"},
-		{"monospace", "courier"},
-		{"Times New Roman", "times"},
-		{"serif", "times"},
-		{"Arial", "helvetica"},
-		{"sans-serif", "helvetica"},
+		{"'Courier New', monospace", "courier new"},
+		{"monospace", "monospace"},
+		{"Times New Roman", "times new roman"},
+		{"serif", "serif"},
+		{"Arial", "arial"},
+		{"sans-serif", "sans-serif"},
 		{"Helvetica", "helvetica"},
+		{`"CustomFont"`, "customfont"},
+		{`'Noto Sans', sans-serif`, "noto sans"},
+		{`  "My Font"  `, "my font"},
 	}
 	for _, tt := range tests {
 		got := parseFontFamily(tt.input)
 		if got != tt.want {
 			t.Errorf("parseFontFamily(%q) = %q, want %q", tt.input, got, tt.want)
+		}
+	}
+}
+
+func TestMapToStandardFamily(t *testing.T) {
+	tests := []struct {
+		input string
+		want  string
+	}{
+		{"courier", "courier"},
+		{"courier new", "courier"},
+		{"monospace", "courier"},
+		{"mono", "courier"},
+		{"times new roman", "times"},
+		{"times", "times"},
+		{"serif", "times"},
+		{"arial", "helvetica"},
+		{"sans-serif", "helvetica"},
+		{"helvetica", "helvetica"},
+		{"noto sans", "helvetica"},
+		{"customfont", "helvetica"},
+	}
+	for _, tt := range tests {
+		got := mapToStandardFamily(tt.input)
+		if got != tt.want {
+			t.Errorf("mapToStandardFamily(%q) = %q, want %q", tt.input, got, tt.want)
 		}
 	}
 }
@@ -826,6 +1022,54 @@ func TestCSSSelectorClass(t *testing.T) {
 	sel := parseSelector(".highlight")
 	if sel.parts[0].class != "highlight" {
 		t.Errorf("expected class 'highlight', got %q", sel.parts[0].class)
+	}
+}
+
+// TestCSSClassCaseInsensitive verifies that CSS class selectors match
+// HTML class attributes case-insensitively. Regression test for #28.
+func TestCSSClassCaseInsensitive(t *testing.T) {
+	htmlStr := `<html><head><style>
+.myClass { color: red; }
+.UPPER { font-weight: bold; }
+</style></head><body>
+<p class="myClass">Should be red</p>
+<p class="upper">Should be bold</p>
+<p class="MyClass">Mixed case should also match</p>
+</body></html>`
+	elems, err := Convert(htmlStr, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// All three paragraphs should produce elements (if the class didn't
+	// match, the text would still render but with default styling — we
+	// can't easily check color here, so just verify no crash and the
+	// converter produces elements).
+	if len(elems) < 3 {
+		t.Errorf("expected at least 3 elements, got %d", len(elems))
+	}
+}
+
+// TestCSSClassCaseInsensitiveMatching directly tests containsClass.
+func TestCSSClassCaseInsensitiveMatching(t *testing.T) {
+	tests := []struct {
+		classes []string
+		name    string
+		want    bool
+	}{
+		{[]string{"myClass"}, "myclass", true},
+		{[]string{"myClass"}, "MYCLASS", true},
+		{[]string{"myClass"}, "myClass", true},
+		{[]string{"foo", "Bar"}, "bar", true},
+		{[]string{"foo", "Bar"}, "BAR", true},
+		{[]string{"foo"}, "baz", false},
+		{nil, "foo", false},
+	}
+	for _, tt := range tests {
+		got := containsClass(tt.classes, tt.name)
+		if got != tt.want {
+			t.Errorf("containsClass(%v, %q) = %v, want %v",
+				tt.classes, tt.name, got, tt.want)
+		}
 	}
 }
 
@@ -949,6 +1193,62 @@ func TestConvertPageBreakAfter(t *testing.T) {
 	}
 	if !found {
 		t.Error("expected an AreaBreak element for page-break-after: always")
+	}
+}
+
+// TestPageBreakInsideBodyWithWidth verifies that page-break-after works
+// when <body> has width: 100%, which causes convertBlock to wrap children
+// in a Div. AreaBreak elements must be hoisted out of the Div so the
+// renderer can see them. Regression test for #21.
+func TestPageBreakInsideBodyWithWidth(t *testing.T) {
+	htmlStr := `<!DOCTYPE html><head><style>
+.pagebreak { page-break-after: always; }
+html, body { width: 100%; margin: 0; padding: 0; }
+</style></head><body>
+<div class="pagebreak"><p>Page 1</p></div>
+<div class="pagebreak"><p>Page 2</p></div>
+<div class="pagebreak"><p>Page 3</p></div>
+</body>`
+	elems, err := Convert(htmlStr, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	breakCount := 0
+	for _, e := range elems {
+		if _, ok := e.(*layout.AreaBreak); ok {
+			breakCount++
+		}
+	}
+	if breakCount < 3 {
+		t.Errorf("expected at least 3 AreaBreaks, got %d (elements: %d)", breakCount, len(elems))
+		for i, e := range elems {
+			t.Logf("  [%d] %T", i, e)
+		}
+	}
+}
+
+// TestPageBreakInsideDivWrapper verifies that page-break-after works
+// even when the parent has box-model properties that trigger a Div wrapper.
+func TestPageBreakInsideDivWrapper(t *testing.T) {
+	htmlStr := `<div style="padding: 10px; background-color: #eee">
+<div style="page-break-after: always"><p>Section 1</p></div>
+<div style="page-break-after: always"><p>Section 2</p></div>
+</div>`
+	elems, err := Convert(htmlStr, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	breakCount := 0
+	for _, e := range elems {
+		if _, ok := e.(*layout.AreaBreak); ok {
+			breakCount++
+		}
+	}
+	if breakCount < 2 {
+		t.Errorf("expected at least 2 AreaBreaks hoisted from Div, got %d", breakCount)
+		for i, e := range elems {
+			t.Logf("  [%d] %T", i, e)
+		}
 	}
 }
 
@@ -2595,6 +2895,106 @@ func TestConvertFontFaceParsing(t *testing.T) {
 	}
 	if len(elems) == 0 {
 		t.Fatal("expected elements even with missing font")
+	}
+}
+
+// TestCustomFontFamilyResolution verifies that a custom @font-face family
+// name is preserved through CSS parsing and matched against embedded fonts
+// during resolution, rather than being mapped to "helvetica". This is the
+// regression test for https://github.com/carlos7ags/folio/issues/16.
+func TestCustomFontFamilyResolution(t *testing.T) {
+	// Construct a converter with a mock embedded font entry keyed as
+	// "noto|normal|normal" — simulating a loaded @font-face with
+	// font-family: "Noto".
+	mockEF := font.NewEmbeddedFont(nil)
+	c := &converter{
+		embeddedFonts: map[string]*font.EmbeddedFont{
+			"noto|normal|normal": mockEF,
+		},
+	}
+
+	// Simulate the CSS pipeline: parseFontFamily normalizes "Noto" to "noto",
+	// then resolveFontPair should match the embedded font.
+	style := defaultStyle()
+	style.FontFamily = parseFontFamily(`"Noto"`)
+
+	if style.FontFamily != "noto" {
+		t.Fatalf("parseFontFamily(%q) = %q, want %q", `"Noto"`, style.FontFamily, "noto")
+	}
+
+	std, ef := c.resolveFontPair(style)
+	if ef != mockEF {
+		t.Errorf("expected embedded font for family %q, got standard font %v", style.FontFamily, std)
+	}
+	if std != nil {
+		t.Errorf("expected nil standard font when embedded font matches, got %v", std)
+	}
+}
+
+// TestCustomFontFamilyFallback verifies that an unknown family name that
+// does not match any @font-face still falls back to a standard font.
+func TestCustomFontFamilyFallback(t *testing.T) {
+	c := &converter{
+		embeddedFonts: make(map[string]*font.EmbeddedFont),
+	}
+
+	style := defaultStyle()
+	style.FontFamily = parseFontFamily(`"UnknownFont"`)
+
+	std, ef := c.resolveFontPair(style)
+	if ef != nil {
+		t.Error("expected nil embedded font for unknown family")
+	}
+	if std != font.Helvetica {
+		t.Errorf("expected Helvetica fallback, got %v", std)
+	}
+}
+
+// TestCustomFontFamilyWithFontShorthand verifies that the font shorthand
+// property also preserves custom family names.
+func TestCustomFontFamilyWithFontShorthand(t *testing.T) {
+	_, _, _, _, family := parseFontShorthand("12px CustomFont", 12)
+	if family != "customfont" {
+		t.Errorf("parseFontShorthand font-family = %q, want %q", family, "customfont")
+	}
+
+	_, _, _, _, family = parseFontShorthand("bold 16px 'Noto Sans', sans-serif", 12)
+	if family != "noto sans" {
+		t.Errorf("parseFontShorthand font-family = %q, want %q", family, "noto sans")
+	}
+}
+
+// TestStandardFontFamilyStillWorks verifies that standard font names
+// (courier, times, helvetica) still resolve correctly after the refactor.
+func TestStandardFontFamilyStillWorks(t *testing.T) {
+	c := &converter{
+		embeddedFonts: make(map[string]*font.EmbeddedFont),
+	}
+
+	tests := []struct {
+		family string
+		want   *font.Standard
+	}{
+		{"courier", font.Courier},
+		{"courier new", font.Courier},
+		{"monospace", font.Courier},
+		{"times", font.TimesRoman},
+		{"times new roman", font.TimesRoman},
+		{"serif", font.TimesRoman},
+		{"helvetica", font.Helvetica},
+		{"arial", font.Helvetica},
+		{"sans-serif", font.Helvetica},
+	}
+	for _, tt := range tests {
+		style := defaultStyle()
+		style.FontFamily = tt.family
+		std, ef := c.resolveFontPair(style)
+		if ef != nil {
+			t.Errorf("family %q: expected nil embedded font", tt.family)
+		}
+		if std != tt.want {
+			t.Errorf("family %q: got %v, want %v", tt.family, std.Name(), tt.want.Name())
+		}
 	}
 }
 

@@ -93,10 +93,10 @@ func (l *Link) PlanLayout(area LayoutArea) LayoutPlan {
 	// Attach link metadata to every block.
 	for i := range plan.Blocks {
 		plan.Blocks[i].Tag = "Link"
-		plan.Blocks[i].Link = &LinkArea{
+		plan.Blocks[i].Links = []LinkArea{{
 			URI:      l.uri,
 			DestName: l.destName,
-		}
+		}}
 	}
 
 	// If there's overflow, wrap it as a Link too.

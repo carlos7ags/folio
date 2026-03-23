@@ -88,21 +88,43 @@ func drawTextLine(ctx DrawContext, words []Word, x, baselineY, maxWidth float64,
 		}
 		ctx.Stream.EndText()
 
-		if word.Decoration != DecorationNone {
-			drawDecorations(ctx.Stream, word, curX, baselineY)
-		}
-
+		// Compute the advance to the next word (used for spacing and underline extension).
+		var advance float64
 		if i < len(words)-1 {
 			if align == AlignJustify && !isLast {
-				curX += word.Width + extraSpace
+				advance = word.Width + extraSpace
 			} else {
 				spaceW := word.SpaceAfter
 				if spaceW == 0 && len(words) > 0 {
 					spaceW = words[0].SpaceAfter
 				}
-				curX += word.Width + spaceW
+				advance = word.Width + spaceW
 			}
 		}
+
+		if word.Decoration != DecorationNone {
+			decoWord := word
+			// Extend the decoration through the trailing space when the next
+			// word carries the same decoration and belongs to the same visual
+			// phrase (same LinkURI and decoration color). This produces a
+			// continuous underline for multi-word links while keeping a gap
+			// between adjacent links with different URIs.
+			if i < len(words)-1 {
+				next := words[i+1]
+				sameDecoration := next.Decoration&word.Decoration != 0
+				sameLink := word.LinkURI == next.LinkURI
+				sameColor := word.Color == next.Color
+				if word.DecorationColor != nil && next.DecorationColor != nil {
+					sameColor = *word.DecorationColor == *next.DecorationColor
+				}
+				if sameDecoration && sameLink && sameColor {
+					decoWord.Width = advance
+				}
+			}
+			drawDecorations(ctx.Stream, decoWord, curX, baselineY)
+		}
+
+		curX += advance
 	}
 }
 

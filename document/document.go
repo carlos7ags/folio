@@ -301,6 +301,17 @@ func (d *Document) buildAllPages() (all []*Page, structTags []layout.StructTagIn
 					dict: gsDict,
 				})
 			}
+			// Convert layout link areas into PDF link annotations.
+			for _, link := range res.Links {
+				ann := Annotation{
+					subtype:  "Link",
+					rect:     [4]float64{link.X, link.Y, link.X + link.W, link.Y + link.H},
+					uri:      link.URI,
+					dest:     link.DestName,
+					destPage: -1,
+				}
+				p.annotations = append(p.annotations, ann)
+			}
 			all = append(all, p)
 		}
 
@@ -556,11 +567,27 @@ func (d *Document) WriteTo(w io.Writer) (int64, error) {
 					action.Set("URI", core.NewPdfLiteralString(ann.uri))
 					annotDict.Set("A", action)
 				} else if ann.dest != "" {
-					action := core.NewPdfDictionary()
-					action.Set("Type", core.NewPdfName("Action"))
-					action.Set("S", core.NewPdfName("GoTo"))
-					action.Set("D", core.NewPdfLiteralString(ann.dest))
-					annotDict.Set("A", action)
+					// Resolve named destination to a direct page reference
+					// for maximum viewer compatibility (macOS Preview does
+					// not reliably follow string-based GoTo destinations).
+					resolved := false
+					for _, nd := range d.namedDests {
+						if nd.Name == ann.dest && nd.PageIndex >= 0 && nd.PageIndex < len(pageRefs) {
+							annotDict.Set("Dest", core.NewPdfArray(
+								pageRefs[nd.PageIndex],
+								core.NewPdfName("Fit"),
+							))
+							resolved = true
+							break
+						}
+					}
+					if !resolved {
+						action := core.NewPdfDictionary()
+						action.Set("Type", core.NewPdfName("Action"))
+						action.Set("S", core.NewPdfName("GoTo"))
+						action.Set("D", core.NewPdfLiteralString(ann.dest))
+						annotDict.Set("A", action)
+					}
 				} else if ann.destPage >= 0 && ann.destPage < len(pageRefs) {
 					annotDict.Set("Dest", core.NewPdfArray(
 						pageRefs[ann.destPage],
