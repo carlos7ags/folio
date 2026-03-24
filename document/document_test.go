@@ -43,25 +43,26 @@ func TestAddTextSingleLine(t *testing.T) {
 	}
 
 	pdf := buf.String()
+	cs := decompressedContentStreams(t, buf.Bytes())
 
-	// Should have a content stream with text operators
-	if !strings.Contains(pdf, "BT") {
+	// Should have a content stream with text operators (in decompressed stream)
+	if !strings.Contains(cs, "BT") {
 		t.Error("missing BT operator")
 	}
-	if !strings.Contains(pdf, "ET") {
+	if !strings.Contains(cs, "ET") {
 		t.Error("missing ET operator")
 	}
-	if !strings.Contains(pdf, "/F1 12 Tf") {
+	if !strings.Contains(cs, "/F1 12 Tf") {
 		t.Error("missing Tf operator")
 	}
-	if !strings.Contains(pdf, "100 700 Td") {
+	if !strings.Contains(cs, "100 700 Td") {
 		t.Error("missing Td operator")
 	}
-	if !strings.Contains(pdf, "(Hello World) Tj") {
+	if !strings.Contains(cs, "(Hello World) Tj") {
 		t.Error("missing Tj operator")
 	}
 
-	// Should have font resource
+	// Should have font resource (in raw PDF, not compressed)
 	if !strings.Contains(pdf, "/BaseFont /Helvetica") {
 		t.Error("missing Helvetica font object")
 	}
@@ -103,9 +104,10 @@ func TestAddTextMultipleFonts(t *testing.T) {
 		}
 	}
 
-	// Should have two BT/ET blocks
-	if strings.Count(pdf, "BT") != 2 {
-		t.Errorf("expected 2 BT operators, got %d", strings.Count(pdf, "BT"))
+	// Should have two BT/ET blocks (check decompressed stream)
+	cs := decompressedContentStreams(t, buf.Bytes())
+	if strings.Count(cs, "BT") != 2 {
+		t.Errorf("expected 2 BT operators, got %d", strings.Count(cs, "BT"))
 	}
 }
 
@@ -144,11 +146,12 @@ func TestAddTextMultiplePages(t *testing.T) {
 	}
 
 	pdf := buf.String()
+	cs := decompressedContentStreams(t, buf.Bytes())
 
-	if !strings.Contains(pdf, "(Page 1) Tj") {
+	if !strings.Contains(cs, "(Page 1) Tj") {
 		t.Error("missing page 1 text")
 	}
-	if !strings.Contains(pdf, "(Page 2) Tj") {
+	if !strings.Contains(cs, "(Page 2) Tj") {
 		t.Error("missing page 2 text")
 	}
 	if !strings.Contains(pdf, "/BaseFont /Helvetica") {
@@ -194,9 +197,9 @@ func TestTextEscapingInDocument(t *testing.T) {
 		t.Fatalf("WriteTo failed: %v", err)
 	}
 
-	pdf := buf.String()
-	if !strings.Contains(pdf, `(Price: $100 \(net\)) Tj`) {
-		t.Errorf("text not properly escaped in PDF output:\n%s", pdf)
+	cs := decompressedContentStreams(t, buf.Bytes())
+	if !strings.Contains(cs, `(Price: $100 \(net\)) Tj`) {
+		t.Errorf("text not properly escaped in PDF output:\n%s", cs)
 	}
 }
 
@@ -218,7 +221,8 @@ func TestSaveTextPDF(t *testing.T) {
 	if !strings.HasPrefix(string(data), "%PDF-1.7") {
 		t.Error("saved file missing PDF header")
 	}
-	if !strings.Contains(string(data), "(Hello World) Tj") {
+	cs := decompressedContentStreams(t, data)
+	if !strings.Contains(cs, "(Hello World) Tj") {
 		t.Error("saved file missing text content")
 	}
 }
@@ -280,8 +284,9 @@ func TestAddTextEmbedded(t *testing.T) {
 	if !strings.Contains(pdf, "/ToUnicode") {
 		t.Error("missing /ToUnicode reference")
 	}
-	// Content stream should use hex encoding
-	if !strings.Contains(pdf, "> Tj") {
+	// Content stream should use hex encoding (check decompressed stream)
+	cs := decompressedContentStreams(t, buf.Bytes())
+	if !strings.Contains(cs, "> Tj") {
 		t.Error("missing hex-encoded Tj operator")
 	}
 }
@@ -882,9 +887,10 @@ func TestWatermarkBasic(t *testing.T) {
 	}
 
 	pdf := buf.String()
+	cs := decompressedContentStreams(t, buf.Bytes())
 
 	// The watermark text should appear in the PDF content stream.
-	if !strings.Contains(pdf, "(DRAFT) Tj") {
+	if !strings.Contains(cs, "(DRAFT) Tj") {
 		t.Error("missing watermark text '(DRAFT) Tj' in PDF output")
 	}
 
@@ -894,7 +900,7 @@ func TestWatermarkBasic(t *testing.T) {
 	}
 
 	// Page content should also be present.
-	if !strings.Contains(pdf, "(Hello World) Tj") {
+	if !strings.Contains(cs, "(Hello World) Tj") {
 		t.Error("missing page content text")
 	}
 }
@@ -920,25 +926,25 @@ func TestWatermarkCustomConfig(t *testing.T) {
 		t.Fatalf("WriteTo failed: %v", err)
 	}
 
-	pdf := buf.String()
+	cs := decompressedContentStreams(t, buf.Bytes())
 
 	// The custom watermark text should appear.
-	if !strings.Contains(pdf, "(CONFIDENTIAL) Tj") {
+	if !strings.Contains(cs, "(CONFIDENTIAL) Tj") {
 		t.Error("missing watermark text '(CONFIDENTIAL) Tj' in PDF output")
 	}
 
 	// Should have custom font size (80).
-	if !strings.Contains(pdf, "80 Tf") {
+	if !strings.Contains(cs, "80 Tf") {
 		t.Error("missing custom font size '80 Tf' in PDF output")
 	}
 
 	// Should have custom red color (1 0 0 rg).
-	if !strings.Contains(pdf, "1 0 0 rg") {
+	if !strings.Contains(cs, "1 0 0 rg") {
 		t.Error("missing custom red color '1 0 0 rg' in PDF output")
 	}
 
 	// Page content should also be present.
-	if !strings.Contains(pdf, "(Secret stuff) Tj") {
+	if !strings.Contains(cs, "(Secret stuff) Tj") {
 		t.Error("missing page content text")
 	}
 }
@@ -956,10 +962,10 @@ func TestWatermarkMultiplePages(t *testing.T) {
 		t.Fatalf("WriteTo failed: %v", err)
 	}
 
-	pdf := buf.String()
+	cs := decompressedContentStreams(t, buf.Bytes())
 
 	// Watermark should appear twice (once per page).
-	count := strings.Count(pdf, "(SAMPLE) Tj")
+	count := strings.Count(cs, "(SAMPLE) Tj")
 	if count != 2 {
 		t.Errorf("expected watermark on 2 pages, got %d occurrences", count)
 	}

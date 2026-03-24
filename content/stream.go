@@ -507,10 +507,10 @@ func (s *Stream) Bytes() []byte {
 	return s.buf.Bytes()
 }
 
-// ToPdfStream wraps the content stream bytes in a core.PdfStream
-// with the /Length key set automatically.
+// ToPdfStream wraps the content stream bytes in a compressed core.PdfStream.
+// FlateDecode compression typically reduces content stream size by 60-80%.
 func (s *Stream) ToPdfStream() *core.PdfStream {
-	return core.NewPdfStream(s.Bytes())
+	return core.NewPdfStreamCompressed(s.Bytes())
 }
 
 // --- Internals ---

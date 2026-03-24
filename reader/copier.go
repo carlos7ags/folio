@@ -155,14 +155,38 @@ func (c *Copier) copyArray(arr *core.PdfArray) (*core.PdfArray, error) {
 
 // copyStream deep-copies a PDF stream, including its dictionary and raw data.
 func (c *Copier) copyStream(stream *core.PdfStream) (*core.PdfStream, error) {
-	// Copy the dictionary entries.
-	newStream := core.NewPdfStream(stream.Data)
-	for _, entry := range stream.Dict.Entries {
-		copied, err := c.copyDeep(entry.Value)
-		if err != nil {
-			return nil, err
+	// The resolver stores decompressed streams without /Filter (data is
+	// plaintext, marked for re-compression). Streams with unknown filters
+	// (e.g. DCTDecode for JPEG) keep their original /Filter and raw data.
+	hasFilter := stream.Dict.Get("Filter") != nil
+
+	var newStream *core.PdfStream
+	if hasFilter {
+		// Unknown filter — preserve raw data and dict entries as-is.
+		newStream = core.NewPdfStream(stream.Data)
+		for _, entry := range stream.Dict.Entries {
+			if entry.Key.Value == "Length" {
+				continue
+			}
+			copied, err := c.copyDeep(entry.Value)
+			if err != nil {
+				return nil, err
+			}
+			newStream.Dict.Set(entry.Key.Value, copied)
 		}
-		newStream.Dict.Set(entry.Key.Value, copied)
+	} else {
+		// Decompressed stream — re-compress with FlateDecode on write.
+		newStream = core.NewPdfStreamCompressed(stream.Data)
+		for _, entry := range stream.Dict.Entries {
+			if entry.Key.Value == "Length" {
+				continue
+			}
+			copied, err := c.copyDeep(entry.Value)
+			if err != nil {
+				return nil, err
+			}
+			newStream.Dict.Set(entry.Key.Value, copied)
+		}
 	}
 	return newStream, nil
 }

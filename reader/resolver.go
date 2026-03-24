@@ -323,9 +323,31 @@ func (r *resolver) resolveStream(stream *core.PdfStream, objOffset int64) (*core
 				return nil, fmt.Errorf("reader: decompress stream: %w", err)
 			}
 
-			result := core.NewPdfStream(data)
-			for _, entry := range stream.Dict.Entries {
-				result.Dict.Set(entry.Key.Value, entry.Value)
+			// If decompression changed the data, the old /Filter and
+			// /DecodeParms are stale — skip them and re-compress with
+			// FlateDecode on write. If data is unchanged (unknown filter
+			// like DCTDecode), preserve the original dictionary as-is.
+			decompressed := len(data) != len(rawData) || !bytes.Equal(data, rawData)
+			var result *core.PdfStream
+			if decompressed {
+				result = core.NewPdfStreamCompressed(data)
+				for _, entry := range stream.Dict.Entries {
+					switch entry.Key.Value {
+					case "Filter", "DecodeParms", "Length":
+						continue
+					default:
+						result.Dict.Set(entry.Key.Value, entry.Value)
+					}
+				}
+			} else {
+				// Unknown filter — preserve raw data and original dict.
+				result = core.NewPdfStream(rawData)
+				for _, entry := range stream.Dict.Entries {
+					if entry.Key.Value == "Length" {
+						continue // WriteTo recalculates Length
+					}
+					result.Dict.Set(entry.Key.Value, entry.Value)
+				}
 			}
 			return result, nil
 		}

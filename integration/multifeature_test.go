@@ -623,10 +623,11 @@ func TestMultiFeatureRawContentStream(t *testing.T) {
 
 	pdfData := renderDoc(t, doc)
 
-	// Verify the raw PDF contains our operators
-	raw := string(pdfData)
-	if !strings.Contains(raw, "Direct Drawing") {
-		t.Error("expected 'Direct Drawing' in raw PDF")
+	// Verify the decompressed content stream contains our operators
+	r := parsePDF(t, pdfData)
+	text := extractAllText(t, r)
+	if !strings.Contains(text, "Direct Drawing") {
+		t.Error("expected 'Direct Drawing' in extracted text")
 	}
 }
 

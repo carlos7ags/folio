@@ -74,7 +74,8 @@ func TestPageAddImageJPEG(t *testing.T) {
 	if !strings.Contains(pdf, "/XObject") {
 		t.Error("missing /XObject in resources")
 	}
-	if !strings.Contains(pdf, "Do") {
+	cs := decompressedContentStreams(t, buf.Bytes())
+	if !strings.Contains(cs, "Do") {
 		t.Error("missing Do operator in content stream")
 	}
 }
@@ -121,9 +122,9 @@ func TestPageAddImageAutoSize(t *testing.T) {
 	if err != nil {
 		t.Fatalf("WriteTo: %v", err)
 	}
-	// Should have Do operator with the image dimensions.
-	pdf := buf.String()
-	if !strings.Contains(pdf, "200 0 0 100") {
+	// Should have Do operator with the image dimensions (check decompressed stream).
+	cs := decompressedContentStreams(t, buf.Bytes())
+	if !strings.Contains(cs, "200 0 0 100") {
 		t.Error("expected natural size 200x100 in cm operator")
 	}
 }

@@ -44,16 +44,17 @@ func TestTaggedPDFBasic(t *testing.T) {
 		t.Error("expected /S /P structure element for paragraph")
 	}
 
-	// Should have marked content operators in the stream.
-	if !strings.Contains(pdf, "BDC") {
+	// Should have marked content operators in the stream (check decompressed).
+	cs := decompressedContentStreams(t, buf.Bytes())
+	if !strings.Contains(cs, "BDC") {
 		t.Error("expected BDC marked content operator")
 	}
-	if !strings.Contains(pdf, "EMC") {
+	if !strings.Contains(cs, "EMC") {
 		t.Error("expected EMC marked content operator")
 	}
 
 	// Should have MCID in BDC.
-	if !strings.Contains(pdf, "/MCID") {
+	if !strings.Contains(cs, "/MCID") {
 		t.Error("expected /MCID in BDC operator")
 	}
 
@@ -103,7 +104,8 @@ func TestTaggedPDFDisabledByDefault(t *testing.T) {
 	if strings.Contains(pdf, "/StructTreeRoot") {
 		t.Error("untagged document should not have StructTreeRoot")
 	}
-	if strings.Contains(pdf, "BDC") {
+	cs := decompressedContentStreams(t, buf.Bytes())
+	if strings.Contains(cs, "BDC") {
 		t.Error("untagged document should not have BDC operators")
 	}
 }

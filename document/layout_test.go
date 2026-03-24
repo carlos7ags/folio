@@ -23,10 +23,11 @@ func TestDocumentAddParagraph(t *testing.T) {
 		t.Fatalf("WriteTo failed: %v", err)
 	}
 
-	pdf := buf.String()
-	if !strings.Contains(pdf, "BT") {
+	cs := decompressedContentStreams(t, buf.Bytes())
+	if !strings.Contains(cs, "BT") {
 		t.Error("missing BT operator")
 	}
+	pdf := buf.String()
 	if !strings.Contains(pdf, "/BaseFont /Helvetica") {
 		t.Error("missing Helvetica font")
 	}
@@ -88,8 +89,8 @@ func TestDocumentLayoutAlignment(t *testing.T) {
 		t.Fatalf("WriteTo failed: %v", err)
 	}
 
-	pdf := buf.String()
-	if !strings.Contains(pdf, "BT") {
+	cs := decompressedContentStreams(t, buf.Bytes())
+	if !strings.Contains(cs, "BT") {
 		t.Error("missing text operators")
 	}
 }
@@ -104,7 +105,8 @@ func TestDocumentSetMargins(t *testing.T) {
 	if err != nil {
 		t.Fatalf("WriteTo failed: %v", err)
 	}
-	if !strings.Contains(buf.String(), "BT") {
+	cs := decompressedContentStreams(t, buf.Bytes())
+	if !strings.Contains(cs, "BT") {
 		t.Error("missing text content")
 	}
 }
@@ -237,11 +239,11 @@ func TestDocumentHeaderFooter(t *testing.T) {
 		t.Fatalf("WriteTo: %v", err)
 	}
 
-	pdf := buf.String()
-	if !strings.Contains(pdf, "Header") {
+	text := extractAllTextDoc(t, buf.Bytes())
+	if !strings.Contains(text, "Header") {
 		t.Error("missing header text")
 	}
-	if !strings.Contains(pdf, "Page 1 of 1") {
+	if !strings.Contains(text, "Page 1 of 1") {
 		t.Error("missing footer text with page numbers")
 	}
 }
@@ -273,12 +275,12 @@ func TestDocumentHeaderFooterMultiPage(t *testing.T) {
 		t.Errorf("expected footer on multiple pages, got %d", len(pagesSeen))
 	}
 
-	pdf := buf.String()
+	text := extractAllTextDoc(t, buf.Bytes())
 	// Should contain page numbers for all pages.
 	totalPages := len(pagesSeen)
 	for i := range totalPages {
 		expected := fmt.Sprintf("Page %d of %d", i+1, totalPages)
-		if !strings.Contains(pdf, expected) {
+		if !strings.Contains(text, expected) {
 			t.Errorf("missing %q in PDF", expected)
 		}
 	}
@@ -356,9 +358,9 @@ func TestDocumentKerning(t *testing.T) {
 		t.Fatalf("WriteTo failed: %v", err)
 	}
 
-	pdf := buf.String()
+	cs := decompressedContentStreams(t, buf.Bytes())
 	// Should use TJ operator for kerned text.
-	if !strings.Contains(pdf, "TJ") {
+	if !strings.Contains(cs, "TJ") {
 		t.Error("expected TJ operator for kerned text, got only Tj")
 	}
 }
@@ -419,9 +421,9 @@ func TestDocumentUnderlineStrikethrough(t *testing.T) {
 		t.Fatalf("WriteTo failed: %v", err)
 	}
 
-	pdf := buf.String()
+	cs := decompressedContentStreams(t, buf.Bytes())
 	// Should contain line drawing operators for underline.
-	if !strings.Contains(pdf, " l\n") && !strings.Contains(pdf, " l ") {
+	if !strings.Contains(cs, " l\n") && !strings.Contains(cs, " l ") {
 		t.Error("expected line operators for underline decoration")
 	}
 }
@@ -542,13 +544,12 @@ func TestDocumentAbsolutePositioning(t *testing.T) {
 	if _, err := doc.WriteTo(&buf); err != nil {
 		t.Fatalf("WriteTo failed: %v", err)
 	}
-	pdfStr := buf.String()
+	text := extractAllTextDoc(t, buf.Bytes())
 	// Both flow and absolute text should appear in the output.
-	// With kerning, text may be split across TJ array elements, so check fragments.
-	if !strings.Contains(pdfStr, "Normal") && !strings.Contains(pdfStr, "Nor") {
+	if !strings.Contains(text, "Normal") {
 		t.Error("PDF should contain flow text")
 	}
-	if !strings.Contains(pdfStr, "Overlay") && !strings.Contains(pdfStr, "Ov") {
+	if !strings.Contains(text, "Overlay") {
 		t.Error("PDF should contain absolute text")
 	}
 }

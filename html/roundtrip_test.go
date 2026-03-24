@@ -507,8 +507,21 @@ func TestRoundtrip_SVGInline(t *testing.T) {
 		<p>After SVG</p>
 	`, document.PageSizeLetter)
 
-	// SVG renders as vector operators — look for color/path operators.
-	if !bytes.Contains(pdf, []byte("rg")) {
+	// SVG renders as vector operators — look for color/path operators in
+	// decompressed content stream.
+	r, err := reader.Parse(pdf)
+	if err != nil {
+		t.Fatalf("reader.Parse: %v", err)
+	}
+	page, err := r.Page(0)
+	if err != nil {
+		t.Fatalf("Page(0): %v", err)
+	}
+	cs, err := page.ContentStream()
+	if err != nil {
+		t.Fatalf("ContentStream: %v", err)
+	}
+	if !bytes.Contains(cs, []byte("rg")) {
 		t.Error("PDF missing fill color operators (expected from SVG)")
 	}
 }
