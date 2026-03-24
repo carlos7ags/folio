@@ -15,6 +15,7 @@ examples/
 ├── hello/          # minimal one-page PDF
 ├── fonts/          # standard, custom, and Unicode fonts (CJK, Cyrillic)
 ├── links/          # hyperlinks, bookmarks, internal navigation
+├── zugferd/        # PDF/A-3B invoice with Factur-X XML attachment
 └── README.md
 ```
 

@@ -762,7 +762,7 @@ func (d *Document) WriteTo(w io.Writer) (int64, error) {
 
 	// File attachments (PDF/A-3B only; validated in validatePdfA).
 	if len(d.attachments) > 0 {
-		buildAttachments(d.attachments, catalog, writer.AddObject)
+		buildAttachments(d.attachments, catalog, writer.AddObject, d.Info.CreationDate)
 	}
 
 	// Viewer preferences.
