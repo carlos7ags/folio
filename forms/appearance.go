@@ -33,9 +33,11 @@ func buildCheckboxAppearance(f *Field, addObject func(core.PdfObject) *core.PdfI
 	w := f.Rect[2] - f.Rect[0]
 	h := f.Rect[3] - f.Rect[1]
 
-	// "Yes" appearance: checkmark.
+	// "Yes" appearance: border + checkmark.
 	yesStream := core.NewPdfStream([]byte(
-		fmt.Sprintf("q\n0 0 0 rg\nBT\n/ZaDb %s Tf\n%s %s Td\n(4) Tj\nET\nQ",
+		fmt.Sprintf("q\n0.6 0.6 0.6 RG\n0.5 w\n0 0 %s %s re S\n"+
+			"0 0 0 rg\nBT\n/ZaDb %s Tf\n%s %s Td\n(4) Tj\nET\nQ",
+			fmtNum(w), fmtNum(h),
 			fmtNum(h*0.8), fmtNum(w*0.15), fmtNum(h*0.15)),
 	))
 	yesStream.Dict.Set("Type", core.NewPdfName("XObject"))
@@ -57,8 +59,10 @@ func buildCheckboxAppearance(f *Field, addObject func(core.PdfObject) *core.PdfI
 	yesStream.Dict.Set("Resources", resDict)
 	yesRef := addObject(yesStream)
 
-	// "Off" appearance: empty box.
-	offStream := core.NewPdfStream([]byte(""))
+	// "Off" appearance: border only.
+	offStream := core.NewPdfStream([]byte(
+		fmt.Sprintf("q\n0.6 0.6 0.6 RG\n0.5 w\n0 0 %s %s re S\nQ", fmtNum(w), fmtNum(h)),
+	))
 	offStream.Dict.Set("Type", core.NewPdfName("XObject"))
 	offStream.Dict.Set("Subtype", core.NewPdfName("Form"))
 	offStream.Dict.Set("BBox", core.NewPdfArray(
@@ -79,7 +83,7 @@ func buildCheckboxAppearance(f *Field, addObject func(core.PdfObject) *core.PdfI
 
 // buildWidgetDict creates a standalone widget annotation dictionary for a radio button child.
 // The widget is linked to its parent field and, when valid, to the target page.
-func buildWidgetDict(child *Field, parentRef *core.PdfIndirectReference, pageRefs []*core.PdfIndirectReference) *core.PdfDictionary {
+func buildWidgetDict(child *Field, parentRef *core.PdfIndirectReference, pageRefs []*core.PdfIndirectReference, addObject func(core.PdfObject) *core.PdfIndirectReference) *core.PdfDictionary {
 	w := core.NewPdfDictionary()
 	w.Set("Type", core.NewPdfName("Annot"))
 	w.Set("Subtype", core.NewPdfName("Widget"))
@@ -98,7 +102,66 @@ func buildWidgetDict(child *Field, parentRef *core.PdfIndirectReference, pageRef
 	// Appearance state.
 	w.Set("AS", core.NewPdfName("Off"))
 
+	// Radio button appearance: each widget needs its own /AP with a
+	// unique export value key so the viewer can select them independently.
+	exportVal := child.ExportValue
+	if exportVal == "" {
+		exportVal = "Yes"
+	}
+	rw := child.Rect[2] - child.Rect[0]
+	rh := child.Rect[3] - child.Rect[1]
+	ap := buildRadioAppearance(exportVal, rw, rh, addObject)
+	w.Set("AP", ap)
+
 	return w
+}
+
+// buildRadioAppearance creates an /AP dictionary for a radio button widget.
+// The /N sub-dictionary contains an appearance for the export value (filled
+// circle) and /Off (empty circle).
+func buildRadioAppearance(exportVal string, w, h float64, addObject func(core.PdfObject) *core.PdfIndirectReference) *core.PdfDictionary {
+	cx := w / 2
+	cy := h / 2
+	r := min(w, h) / 2 * 0.8
+
+	// "On" appearance: outlined box with a filled dot in the center.
+	dotR := r * 0.5
+	onContent := fmt.Sprintf(
+		"q\n0.6 0.6 0.6 RG\n0.5 w\n%s %s %s %s re S\n"+
+			"0 0 0 rg\n%s %s %s %s re f\nQ",
+		fmtNum(cx-r), fmtNum(cy-r), fmtNum(r*2), fmtNum(r*2),
+		fmtNum(cx-dotR), fmtNum(cy-dotR), fmtNum(dotR*2), fmtNum(dotR*2),
+	)
+	onStream := core.NewPdfStream([]byte(onContent))
+	onStream.Dict.Set("Type", core.NewPdfName("XObject"))
+	onStream.Dict.Set("Subtype", core.NewPdfName("Form"))
+	onStream.Dict.Set("BBox", core.NewPdfArray(
+		core.NewPdfInteger(0), core.NewPdfInteger(0),
+		core.NewPdfReal(w), core.NewPdfReal(h),
+	))
+	onRef := addObject(onStream)
+
+	// "Off" appearance: empty box.
+	offContent := fmt.Sprintf(
+		"q\n0.6 0.6 0.6 RG\n0.5 w\n%s %s %s %s re S\nQ",
+		fmtNum(cx-r), fmtNum(cy-r), fmtNum(r*2), fmtNum(r*2),
+	)
+	offStream := core.NewPdfStream([]byte(offContent))
+	offStream.Dict.Set("Type", core.NewPdfName("XObject"))
+	offStream.Dict.Set("Subtype", core.NewPdfName("Form"))
+	offStream.Dict.Set("BBox", core.NewPdfArray(
+		core.NewPdfInteger(0), core.NewPdfInteger(0),
+		core.NewPdfReal(w), core.NewPdfReal(h),
+	))
+	offRef := addObject(offStream)
+
+	nDict := core.NewPdfDictionary()
+	nDict.Set(exportVal, onRef)
+	nDict.Set("Off", offRef)
+
+	ap := core.NewPdfDictionary()
+	ap.Set("N", nDict)
+	return ap
 }
 
 // fmtNum formats a float64 as a compact string for PDF content streams.

@@ -274,7 +274,7 @@ func (f *Field) ToDict(addObject func(core.PdfObject) *core.PdfIndirectReference
 	if f.Type == FieldRadio && len(f.children) > 0 {
 		kids := core.NewPdfArray()
 		for _, child := range f.children {
-			wDict := buildWidgetDict(child, fieldRef, pageRefs)
+			wDict := buildWidgetDict(child, fieldRef, pageRefs, addObject)
 			wRef := addObject(wDict)
 			kids.Add(wRef)
 			if child.PageIndex >= 0 && child.PageIndex < len(pageRefs) {

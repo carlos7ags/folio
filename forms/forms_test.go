@@ -102,6 +102,109 @@ func TestRadioGroupCreation(t *testing.T) {
 	}
 }
 
+// TestRadioGroupUniqueAppearances verifies that each radio widget gets its
+// own /AP with a unique export value. Without this, selecting one radio
+// button would visually select all of them.
+func TestRadioGroupUniqueAppearances(t *testing.T) {
+	form := NewAcroForm()
+	form.Add(RadioGroup("pref", []RadioOption{
+		{Value: "A", Rect: [4]float64{72, 580, 92, 600}, PageIndex: 0},
+		{Value: "B", Rect: [4]float64{102, 580, 122, 600}, PageIndex: 0},
+		{Value: "C", Rect: [4]float64{132, 580, 152, 600}, PageIndex: 0},
+	}))
+
+	data := generateFormPDF(t, form)
+	pdf := string(data)
+
+	// Each export value must appear as a Name key in an /N appearance dict.
+	for _, val := range []string{"/A ", "/B ", "/C "} {
+		if !strings.Contains(pdf, val) {
+			t.Errorf("expected radio export value %s in PDF", val)
+		}
+	}
+	// Every radio widget should have /AP.
+	apCount := strings.Count(pdf, "/AP")
+	if apCount < 3 {
+		t.Errorf("expected at least 3 /AP entries (one per radio), got %d", apCount)
+	}
+	// All widgets start as /Off.
+	offCount := strings.Count(pdf, "/AS /Off")
+	if offCount < 3 {
+		t.Errorf("expected 3 /AS /Off entries, got %d", offCount)
+	}
+}
+
+// TestCheckboxAppearancesHaveBorder verifies that checkbox appearance
+// streams draw visible borders (not empty content).
+func TestCheckboxAppearancesHaveBorder(t *testing.T) {
+	form := NewAcroForm()
+	form.Add(Checkbox("test", [4]float64{72, 680, 92, 700}, 0, false))
+
+	data := generateFormPDF(t, form)
+	pdf := string(data)
+
+	// Should have /AP dictionary.
+	if !strings.Contains(pdf, "/AP") {
+		t.Error("expected /AP dictionary on checkbox widget")
+	}
+	// The Off appearance should have content (border drawing).
+	// Before the fix, the Off stream was empty.
+	if strings.Count(pdf, "/AP") < 1 {
+		t.Error("checkbox missing appearance dictionary")
+	}
+	// The appearance streams should contain drawing operators.
+	// "re S" = rectangle stroke (the border).
+	if !strings.Contains(pdf, "re S") {
+		t.Error("expected border drawing (re S) in checkbox appearance")
+	}
+}
+
+// TestDropdownOptions verifies that the /Opt array contains all options.
+func TestDropdownOptions(t *testing.T) {
+	opts := []string{"USA", "Canada", "Mexico", "Brazil"}
+	form := NewAcroForm()
+	form.Add(Dropdown("country", [4]float64{72, 620, 250, 640}, 0, opts))
+
+	data := generateFormPDF(t, form)
+	pdf := string(data)
+
+	if !strings.Contains(pdf, "/Opt") {
+		t.Error("expected /Opt array in dropdown")
+	}
+	for _, opt := range opts {
+		if !strings.Contains(pdf, opt) {
+			t.Errorf("expected option %q in PDF", opt)
+		}
+	}
+}
+
+// TestListBoxOptions verifies that list box has /Opt array and is not
+// a combo box (no /Combo flag).
+func TestListBoxOptions(t *testing.T) {
+	opts := []string{"Go", "Rust", "Python"}
+	form := NewAcroForm()
+	form.Add(ListBox("lang", [4]float64{72, 400, 250, 500}, 0, opts))
+
+	data := generateFormPDF(t, form)
+	pdf := string(data)
+
+	if !strings.Contains(pdf, "/FT /Ch") {
+		t.Error("expected /FT /Ch for list box")
+	}
+	if !strings.Contains(pdf, "/Opt") {
+		t.Error("expected /Opt array")
+	}
+	for _, opt := range opts {
+		if !strings.Contains(pdf, opt) {
+			t.Errorf("expected option %q in PDF", opt)
+		}
+	}
+	// Combo box flag (bit 17 = 0x20000) should NOT be set for a list box.
+	if strings.Contains(pdf, "/Ff 131072") {
+		t.Error("list box should not have combo flag")
+	}
+}
+
 func TestMultilineTextField(t *testing.T) {
 	form := NewAcroForm()
 	f := MultilineTextField("comments", [4]float64{72, 500, 400, 600}, 0)
