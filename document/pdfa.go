@@ -51,6 +51,58 @@ type PdfAConfig struct {
 	// OutputCondition is the output condition identifier
 	// (e.g. "sRGB IEC61966-2.1"). Defaults to "sRGB IEC61966-2.1".
 	OutputCondition string
+
+	// XMPSchemas is an optional list of additional schema entries to declare
+	// inside the single pdfaExtension:schemas <rdf:Bag>. Each entry is injected
+	// as an <rdf:li rdf:parseType="Resource"> block alongside the built-in
+	// pdfaf schema entry. Use this to declare custom namespaces such as the
+	// Factur-X fx: schema required by ZUGFeRD validators.
+	// There must be exactly one pdfaExtension:schemas block in the XMP stream —
+	// this field merges into that block rather than adding a second one.
+	XMPSchemas []XMPSchema
+
+	// XMPProperties is an optional list of rdf:Description blocks carrying
+	// actual property values (e.g. fx:DocumentType, fx:Version). Each entry
+	// is injected verbatim as a separate rdf:Description inside rdf:RDF,
+	// after the pdfaExtension:schemas block. The Namespace and Prefix fields
+	// are used to build the xmlns attribute; Properties holds the values.
+	XMPProperties []XMPPropertyBlock
+}
+
+// XMPSchema describes one schema entry to add to the pdfaExtension:schemas bag.
+type XMPSchema struct {
+	// Schema is the human-readable schema name.
+	Schema string
+	// NamespaceURI is the full namespace URI (e.g. "urn:factur-x:pdfa:CrossIndustryDocument:invoice:1p0#").
+	NamespaceURI string
+	// Prefix is the XML namespace prefix (e.g. "fx").
+	Prefix string
+	// Properties lists each property declared in this schema.
+	Properties []XMPSchemaProperty
+}
+
+// XMPSchemaProperty declares one property within an XMPSchema.
+type XMPSchemaProperty struct {
+	Name        string // e.g. "DocumentFileName"
+	ValueType   string // e.g. "Text"
+	Category    string // "external" or "internal"
+	Description string
+}
+
+// XMPPropertyBlock carries actual XMP property values under a given namespace.
+type XMPPropertyBlock struct {
+	// Namespace is the full namespace URI used in the xmlns attribute.
+	Namespace string
+	// Prefix is the XML namespace prefix used for the property elements.
+	Prefix string
+	// Properties is a list of (name, value) pairs to emit as child elements.
+	Properties []XMPProperty
+}
+
+// XMPProperty is a single name/value pair within an XMPPropertyBlock.
+type XMPProperty struct {
+	Name  string
+	Value string
 }
 
 // SetPdfA enables PDF/A conformance on the document.
@@ -137,6 +189,11 @@ func (d *Document) validatePdfA(allPages []*Page) error {
 		}
 	}
 
+	// File attachments are only permitted in PDF/A-3B (ISO 19005-3 §6.4).
+	if len(d.attachments) > 0 && d.pdfA.Level != PdfA3B {
+		return fmt.Errorf("pdfa: file attachments are only permitted in PDF/A-3B; current level does not allow them")
+	}
+
 	// Title is required.
 	if d.Info.Title == "" {
 		return fmt.Errorf("pdfa: document Title is required for PDF/A conformance")
@@ -146,7 +203,7 @@ func (d *Document) validatePdfA(allPages []*Page) error {
 }
 
 // buildXMPMetadata generates the XMP metadata stream for PDF/A identification.
-func buildXMPMetadata(info Info, level PdfALevel, addObject func(core.PdfObject) *core.PdfIndirectReference) *core.PdfIndirectReference {
+func buildXMPMetadata(info Info, level PdfALevel, xmpSchemas []XMPSchema, xmpProperties []XMPPropertyBlock, addObject func(core.PdfObject) *core.PdfIndirectReference) *core.PdfIndirectReference {
 	part := pdfAPartNumber(level)
 	conf := pdfALevelString(level)
 
@@ -222,6 +279,87 @@ func buildXMPMetadata(info Info, level PdfALevel, addObject func(core.PdfObject)
 	b.WriteString("\n")
 	b.WriteString(`</rdf:Description>`)
 	b.WriteString("\n")
+
+	// PDF/A-3 requires a single pdfaExtension:schemas block. The built-in pdfaf
+	// schema (for /AF) and any caller-supplied schemas (e.g. Factur-X fx:) are
+	// merged into one <rdf:Bag> to avoid the "duplicate property" XMP parse error.
+	if level == PdfA3B || len(xmpSchemas) > 0 {
+		b.WriteString(`<rdf:Description rdf:about=""`)
+		b.WriteString(` xmlns:pdfaExtension="http://www.aiim.org/pdfa/ns/extension/"`)
+		b.WriteString(` xmlns:pdfaSchema="http://www.aiim.org/pdfa/ns/schema#"`)
+		b.WriteString(` xmlns:pdfaProperty="http://www.aiim.org/pdfa/ns/property#">`)
+		b.WriteString("\n")
+		b.WriteString(`<pdfaExtension:schemas><rdf:Bag>`)
+		b.WriteString("\n")
+
+		// Built-in pdfaf schema (AF associated files, PDF/A-3 §6.4).
+		if level == PdfA3B {
+			b.WriteString(`<rdf:li rdf:parseType="Resource">`)
+			b.WriteString(`<pdfaSchema:schema>PDF/A-3 Association File Attachment</pdfaSchema:schema>`)
+			b.WriteString(`<pdfaSchema:namespaceURI>http://www.aiim.org/pdfa/ns/f#</pdfaSchema:namespaceURI>`)
+			b.WriteString(`<pdfaSchema:prefix>pdfaf</pdfaSchema:prefix>`)
+			b.WriteString(`<pdfaSchema:property><rdf:Seq><rdf:li rdf:parseType="Resource">`)
+			b.WriteString(`<pdfaProperty:name>file</pdfaProperty:name>`)
+			b.WriteString(`<pdfaProperty:valueType>URI</pdfaProperty:valueType>`)
+			b.WriteString(`<pdfaProperty:category>external</pdfaProperty:category>`)
+			b.WriteString(`<pdfaProperty:description>Associated file</pdfaProperty:description>`)
+			b.WriteString(`</rdf:li></rdf:Seq></pdfaSchema:property>`)
+			b.WriteString(`</rdf:li>`)
+			b.WriteString("\n")
+		}
+
+		// Caller-supplied schema declarations (e.g. Factur-X fx: schema).
+		for _, schema := range xmpSchemas {
+			b.WriteString(`<rdf:li rdf:parseType="Resource">`)
+			b.WriteString("\n")
+			b.WriteString(`<pdfaSchema:schema>` + xmlEscape(schema.Schema) + `</pdfaSchema:schema>`)
+			b.WriteString("\n")
+			b.WriteString(`<pdfaSchema:namespaceURI>` + xmlEscape(schema.NamespaceURI) + `</pdfaSchema:namespaceURI>`)
+			b.WriteString("\n")
+			b.WriteString(`<pdfaSchema:prefix>` + xmlEscape(schema.Prefix) + `</pdfaSchema:prefix>`)
+			b.WriteString("\n")
+			if len(schema.Properties) > 0 {
+				b.WriteString(`<pdfaSchema:property><rdf:Seq>`)
+				b.WriteString("\n")
+				for _, prop := range schema.Properties {
+					b.WriteString(`<rdf:li rdf:parseType="Resource">`)
+					b.WriteString("\n")
+					b.WriteString(`<pdfaProperty:name>` + xmlEscape(prop.Name) + `</pdfaProperty:name>`)
+					b.WriteString("\n")
+					b.WriteString(`<pdfaProperty:valueType>` + xmlEscape(prop.ValueType) + `</pdfaProperty:valueType>`)
+					b.WriteString("\n")
+					b.WriteString(`<pdfaProperty:category>` + xmlEscape(prop.Category) + `</pdfaProperty:category>`)
+					b.WriteString("\n")
+					b.WriteString(`<pdfaProperty:description>` + xmlEscape(prop.Description) + `</pdfaProperty:description>`)
+					b.WriteString("\n")
+					b.WriteString(`</rdf:li>`)
+					b.WriteString("\n")
+				}
+				b.WriteString(`</rdf:Seq></pdfaSchema:property>`)
+				b.WriteString("\n")
+			}
+			b.WriteString(`</rdf:li>`)
+			b.WriteString("\n")
+		}
+
+		b.WriteString(`</rdf:Bag></pdfaExtension:schemas>`)
+		b.WriteString("\n")
+		b.WriteString(`</rdf:Description>`)
+		b.WriteString("\n")
+	}
+
+	// Caller-supplied property value blocks (e.g. fx:DocumentType, fx:Version).
+	for _, block := range xmpProperties {
+		b.WriteString(`<rdf:Description rdf:about=""`)
+		b.WriteString(` xmlns:` + block.Prefix + `="` + xmlEscape(block.Namespace) + `">`)
+		b.WriteString("\n")
+		for _, prop := range block.Properties {
+			b.WriteString(`<` + block.Prefix + `:` + prop.Name + `>` + xmlEscape(prop.Value) + `</` + block.Prefix + `:` + prop.Name + `>`)
+			b.WriteString("\n")
+		}
+		b.WriteString(`</rdf:Description>`)
+		b.WriteString("\n")
+	}
 
 	b.WriteString(`</rdf:RDF>`)
 	b.WriteString("\n")
