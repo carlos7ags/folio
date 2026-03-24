@@ -32,6 +32,10 @@ type FileAttachment struct {
 
 	// Data is the raw file content to embed.
 	Data []byte
+
+	// CreationDate is the file's creation timestamp. If zero, the document's
+	// Info.CreationDate is used; if that is also zero, the current time is used.
+	CreationDate time.Time
 }
 
 // AttachFile schedules a file to be embedded in the document.
@@ -48,14 +52,21 @@ func buildAttachments(
 	attachments []FileAttachment,
 	catalog *core.PdfDictionary,
 	addObject func(core.PdfObject) *core.PdfIndirectReference,
+	fallbackDate time.Time,
 ) {
 	afArray := core.NewPdfArray()
 	namesArr := core.NewPdfArray()
 
-	now := time.Now()
-	dateStr := now.Format("D:20060102150405")
-
 	for _, att := range attachments {
+		// Resolve the file timestamp: per-file override → document date → now.
+		ts := att.CreationDate
+		if ts.IsZero() {
+			ts = fallbackDate
+		}
+		if ts.IsZero() {
+			ts = time.Now()
+		}
+		dateStr := ts.Format("D:20060102150405")
 		// ----------------------------------------------------------------
 		// 1. /EmbeddedFile stream (ISO 32000-1 §7.11.4)
 		// ----------------------------------------------------------------
