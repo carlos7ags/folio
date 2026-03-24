@@ -530,7 +530,7 @@ func (c *converter) resolveBackgroundImage(style computedStyle) *layout.Backgrou
 	case "url":
 		imgPath := inner
 		if strings.HasPrefix(imgPath, "http://") || strings.HasPrefix(imgPath, "https://") {
-			loaded, err := fetchImage(imgPath)
+			loaded, err := c.fetchImage(imgPath)
 			if err != nil {
 				return nil
 			}

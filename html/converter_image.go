@@ -33,15 +33,11 @@ func (c *converter) convertImage(n *html.Node, style computedStyle) []layout.Ele
 	var img *folioimage.Image
 	var err error
 
-	if c.imageInterceptor != nil {
-		img, err = c.imageInterceptor(src)
-	}
-	if img != nil || err != nil {
-		// prevent loading if interceptor returned an image or an error
-	} else if strings.HasPrefix(src, "data:") {
+	// prevent loading if interceptor returned an image or an error
+	if strings.HasPrefix(src, "data:") {
 		img, err = decodeDataURI(src)
 	} else if isURL(src) {
-		img, err = fetchImage(src)
+		img, err = c.fetchImage(src)
 	} else {
 		imgPath := src
 		if !filepath.IsAbs(imgPath) && c.opts.BasePath != "" {

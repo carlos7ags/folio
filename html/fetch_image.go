@@ -18,7 +18,14 @@ import (
 // fetchImage downloads an image from a URL and returns a folio Image.
 // Supports JPEG, PNG, and TIFF. Detects format from Content-Type header
 // or file extension, falling back to content sniffing.
-func fetchImage(url string) (*folioimage.Image, error) {
+func (c *converter) fetchImage(url string) (*folioimage.Image, error) {
+
+	if c.URLPolicy != nil {
+		if err := c.URLPolicy(url); err != nil {
+			return nil, err
+		}
+	}
+
 	resp, err := http.Get(url)
 	if err != nil {
 		return nil, fmt.Errorf("fetch image %s: %w", url, err)

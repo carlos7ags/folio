@@ -14,6 +14,6 @@ import (
 // fetchImage is a stub for WASM builds where net/http is not available.
 // HTTP/HTTPS image URLs cannot be fetched in the browser. Use base64
 // data URIs instead: <img src="data:image/png;base64,...">
-func fetchImage(url string) (*folioimage.Image, error) {
+func (c *converter) fetchImage(url string) (*folioimage.Image, error) {
 	return nil, fmt.Errorf("HTTP image URLs not supported in WASM (use data: URIs instead): %s", url)
 }

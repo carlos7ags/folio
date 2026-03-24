@@ -9,7 +9,6 @@ import (
 	"strings"
 
 	"github.com/carlos7ags/folio/font"
-	folioimage "github.com/carlos7ags/folio/image"
 	"github.com/carlos7ags/folio/layout"
 
 	"golang.org/x/net/html"
@@ -30,12 +29,13 @@ type Options struct {
 	// when text contains characters outside WinAnsiEncoding (e.g. CJK, emoji).
 	// If empty, the converter searches common system font locations.
 	FallbackFontPath string
-	// optional callback to fetch image data by URL (e.g. for testing) — returns an image or an error if the image can't be loaded
-	ImageInterceptor ImageInterceptorFunc
+	// URLPolicy controls whether the HTML converter may fetch a remote URL.
+	URLPolicy URLPolicy
 }
 
-// interceptor function - Return an image when you want to handle the load yourself, or return nil to fall back to the default loading behavior (data URI, HTTP fetch, or local file load). Return error to prevent loading.
-type ImageInterceptorFunc func(src string) (*folioimage.Image, error)
+// URLPolicy controls whether the HTML converter may fetch a remote URL.
+// Return nil to allow, or an error to block.
+type URLPolicy func(url string) error
 
 // defaults returns a copy of Options with zero-value fields replaced by sensible defaults.
 func (o *Options) defaults() Options {
@@ -51,8 +51,8 @@ func (o *Options) defaults() Options {
 		if o.PageHeight > 0 {
 			out.PageHeight = o.PageHeight
 		}
-		if o.ImageInterceptor != nil {
-			out.ImageInterceptor = o.ImageInterceptor
+		if o.URLPolicy != nil {
+			out.URLPolicy = o.URLPolicy
 		}
 	}
 	return out
@@ -140,7 +140,7 @@ func ConvertFull(htmlStr string, opts *Options) (*ConvertResult, error) {
 
 	ss := parseStyleBlocks(doc, o.BasePath)
 
-	c := &converter{opts: o, rootFontSize: o.DefaultFontSize, sheet: ss, embeddedFonts: make(map[string]*font.EmbeddedFont), containerWidth: o.PageWidth, counters: make(map[string][]int)}
+	c := &converter{opts: o, rootFontSize: o.DefaultFontSize, sheet: ss, embeddedFonts: make(map[string]*font.EmbeddedFont), containerWidth: o.PageWidth, counters: make(map[string][]int), URLPolicy: o.URLPolicy}
 
 	// Parse @page config early so containerWidth reflects the actual page size
 	// (e.g. landscape pages have a wider containerWidth).
@@ -191,7 +191,7 @@ func Convert(htmlStr string, opts *Options) ([]layout.Element, error) {
 
 	ss := parseStyleBlocks(doc, o.BasePath)
 
-	c := &converter{opts: o, rootFontSize: o.DefaultFontSize, sheet: ss, embeddedFonts: make(map[string]*font.EmbeddedFont), containerWidth: o.PageWidth, counters: make(map[string][]int), imageInterceptor: o.ImageInterceptor}
+	c := &converter{opts: o, rootFontSize: o.DefaultFontSize, sheet: ss, embeddedFonts: make(map[string]*font.EmbeddedFont), containerWidth: o.PageWidth, counters: make(map[string][]int), URLPolicy: o.URLPolicy}
 
 	// Update containerWidth if @page specifies a different page size.
 	if len(ss.pageRules) > 0 {
@@ -240,8 +240,8 @@ type converter struct {
 	// nearest containing block (position:relative/absolute/fixed ancestor).
 	positionedAncestors []containingBlock
 
-	// from Options, passed to convertImage for testing
-	imageInterceptor ImageInterceptorFunc
+	// from Options, used by fetchImage to check if loading a URL is allowed
+	URLPolicy URLPolicy
 }
 
 // containingBlock tracks a positioned ancestor for absolute positioning resolution.
