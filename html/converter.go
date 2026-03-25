@@ -29,12 +29,16 @@ type Options struct {
 	// when text contains characters outside WinAnsiEncoding (e.g. CJK, emoji).
 	// If empty, the converter searches common system font locations.
 	FallbackFontPath string
-	// URLPolicy controls whether the HTML converter may fetch a remote URL.
+	// URLPolicy is called before the converter fetches a remote URL
+	// (for <img src="http://...">, background-image: url(), etc.).
+	// Return nil to allow the fetch, or an error to block it.
+	// If nil, all URLs are allowed.
 	URLPolicy URLPolicy
 }
 
 // URLPolicy controls whether the HTML converter may fetch a remote URL.
-// Return nil to allow, or an error to block.
+// It is called with the URL string before each HTTP request. Return nil
+// to allow the fetch, or an error to block it and prevent the request.
 type URLPolicy func(url string) error
 
 // defaults returns a copy of Options with zero-value fields replaced by sensible defaults.
@@ -140,7 +144,7 @@ func ConvertFull(htmlStr string, opts *Options) (*ConvertResult, error) {
 
 	ss := parseStyleBlocks(doc, o.BasePath)
 
-	c := &converter{opts: o, rootFontSize: o.DefaultFontSize, sheet: ss, embeddedFonts: make(map[string]*font.EmbeddedFont), containerWidth: o.PageWidth, counters: make(map[string][]int), URLPolicy: o.URLPolicy}
+	c := &converter{opts: o, rootFontSize: o.DefaultFontSize, sheet: ss, embeddedFonts: make(map[string]*font.EmbeddedFont), containerWidth: o.PageWidth, counters: make(map[string][]int), urlPolicy: o.URLPolicy}
 
 	// Parse @page config early so containerWidth reflects the actual page size
 	// (e.g. landscape pages have a wider containerWidth).
@@ -191,7 +195,7 @@ func Convert(htmlStr string, opts *Options) ([]layout.Element, error) {
 
 	ss := parseStyleBlocks(doc, o.BasePath)
 
-	c := &converter{opts: o, rootFontSize: o.DefaultFontSize, sheet: ss, embeddedFonts: make(map[string]*font.EmbeddedFont), containerWidth: o.PageWidth, counters: make(map[string][]int), URLPolicy: o.URLPolicy}
+	c := &converter{opts: o, rootFontSize: o.DefaultFontSize, sheet: ss, embeddedFonts: make(map[string]*font.EmbeddedFont), containerWidth: o.PageWidth, counters: make(map[string][]int), urlPolicy: o.URLPolicy}
 
 	// Update containerWidth if @page specifies a different page size.
 	if len(ss.pageRules) > 0 {
@@ -240,8 +244,8 @@ type converter struct {
 	// nearest containing block (position:relative/absolute/fixed ancestor).
 	positionedAncestors []containingBlock
 
-	// from Options, used by fetchImage to check if loading a URL is allowed
-	URLPolicy URLPolicy
+	// urlPolicy is called before fetching remote URLs. Nil means allow all.
+	urlPolicy URLPolicy
 }
 
 // containingBlock tracks a positioned ancestor for absolute positioning resolution.
