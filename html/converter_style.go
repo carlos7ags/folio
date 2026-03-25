@@ -221,8 +221,13 @@ func (c *converter) applyProperty(prop, val string, style *computedStyle) {
 			style.BackgroundColor = &c
 		}
 	case "background":
-		// Background shorthand: try parsing as a color (simple case).
-		if clr, ok := parseColor(val); ok {
+		// Background shorthand: handle gradients, urls, or plain colors.
+		lower := strings.ToLower(strings.TrimSpace(val))
+		if strings.HasPrefix(lower, "linear-gradient(") ||
+			strings.HasPrefix(lower, "radial-gradient(") ||
+			strings.HasPrefix(lower, "url(") {
+			style.BackgroundImage = strings.TrimSpace(val)
+		} else if clr, ok := parseColor(val); ok {
 			style.BackgroundColor = &clr
 		}
 	case "background-image":

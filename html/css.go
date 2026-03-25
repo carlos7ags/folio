@@ -885,6 +885,9 @@ func pseudoMatches(pseudo string, n *html.Node) bool {
 			return isNthChild(n, num)
 		}
 		return false
+	case pseudo == "root":
+		// :root matches the document element (<html>).
+		return n.Parent != nil && n.Parent.Type == html.DocumentNode
 	case strings.HasPrefix(pseudo, "not(") && strings.HasSuffix(pseudo, ")"):
 		inner := pseudo[len("not(") : len(pseudo)-1]
 		inner = strings.TrimSpace(inner)

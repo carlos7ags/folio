@@ -16,6 +16,7 @@ examples/
 ├── fonts/          # standard, custom, and Unicode fonts (CJK, Cyrillic)
 ├── links/          # hyperlinks, bookmarks, internal navigation
 ├── forms/          # interactive AcroForm fields (text, checkbox, radio, dropdown)
+├── html-to-pdf/    # rich HTML+CSS report (flexbox, tables, page breaks)
 ├── zugferd/        # PDF/A-3B invoice with Factur-X XML attachment
 └── README.md
 ```

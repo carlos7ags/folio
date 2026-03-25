@@ -573,11 +573,23 @@ func (c *converter) resolveBackgroundImage(style computedStyle) *layout.Backgrou
 		return nil
 	}
 
+	// Gradients fill the entire background area by default (CSS spec):
+	// they don't tile and stretch to cover the element. Images tile.
+	isGradient := kind == "linear-gradient" || kind == "radial-gradient"
+	repeat := style.BackgroundRepeat
+	if repeat == "" && isGradient {
+		repeat = "no-repeat"
+	}
+	size := style.BackgroundSize
+	if size == "" && isGradient {
+		size = "cover"
+	}
+
 	bgImg := &layout.BackgroundImage{
 		Image:    img,
-		Size:     style.BackgroundSize,
+		Size:     size,
 		Position: parseBgPosition(style.BackgroundPosition),
-		Repeat:   style.BackgroundRepeat,
+		Repeat:   repeat,
 	}
 
 	// Parse explicit size values.
