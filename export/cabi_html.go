@@ -95,6 +95,14 @@ func htmlToDocument(htmlStr string, pageWidth, pageHeight float64) (*document.Do
 		})
 	}
 
+	// Apply @page margin boxes (page numbers, headers/footers).
+	if result.MarginBoxes != nil {
+		doc.SetMarginBoxes(result.MarginBoxes)
+	}
+	if result.FirstMarginBoxes != nil {
+		doc.SetFirstMarginBoxes(result.FirstMarginBoxes)
+	}
+
 	// Apply metadata.
 	if result.Metadata.Title != "" {
 		doc.Info.Title = result.Metadata.Title
