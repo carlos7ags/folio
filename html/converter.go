@@ -69,6 +69,15 @@ type ConvertResult struct {
 	Absolutes  []AbsoluteItem
 	PageConfig *PageConfig // page settings from @page rules (nil if none)
 	Metadata   DocMetadata // extracted from <title> and <meta> tags
+
+	// MarginBoxes are ready-to-use margin box definitions from @page rules
+	// (e.g. page numbers via @bottom-center). Pass directly to
+	// document.SetMarginBoxes. Nil if no margin boxes were declared.
+	MarginBoxes map[string]layout.MarginBox
+
+	// FirstMarginBoxes are margin boxes for @page :first only.
+	// Pass to document.SetFirstMarginBoxes. Nil if not declared.
+	FirstMarginBoxes map[string]layout.MarginBox
 }
 
 // DocMetadata holds document metadata extracted from HTML head elements.
@@ -117,6 +126,22 @@ type PageConfig struct {
 
 	// Default margin boxes (from @page with no pseudo-selector).
 	MarginBoxes map[string]MarginBoxContent // e.g. "top-center" → content
+}
+
+// convertMarginBoxes converts html.MarginBoxContent to layout.MarginBox.
+func convertMarginBoxes(src map[string]MarginBoxContent) map[string]layout.MarginBox {
+	if len(src) == 0 {
+		return nil
+	}
+	out := make(map[string]layout.MarginBox, len(src))
+	for name, mbc := range src {
+		out[name] = layout.MarginBox{
+			Content:  mbc.Content,
+			FontSize: mbc.FontSize,
+			Color:    mbc.Color,
+		}
+	}
+	return out
 }
 
 // AbsoluteItem represents an element removed from normal flow via
@@ -176,6 +201,15 @@ func ConvertFull(htmlStr string, opts *Options) (*ConvertResult, error) {
 	elems := c.walkChildren(doc, style)
 	result := &ConvertResult{Elements: elems, Absolutes: c.absolutes, Metadata: c.metadata}
 	result.PageConfig = pageConfig
+
+	// Build ready-to-use margin box maps so callers can pass them
+	// directly to doc.SetMarginBoxes without type conversion.
+	if pageConfig != nil {
+		result.MarginBoxes = convertMarginBoxes(pageConfig.MarginBoxes)
+		if pageConfig.First != nil {
+			result.FirstMarginBoxes = convertMarginBoxes(pageConfig.First.MarginBoxes)
+		}
+	}
 
 	return result, nil
 }

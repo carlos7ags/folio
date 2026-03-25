@@ -101,22 +101,12 @@ func renderHTML(_ js.Value, args []js.Value) any {
 		}
 	}
 
-	// Apply margin boxes from @page rules.
-	if pc := result.PageConfig; pc != nil {
-		if len(pc.MarginBoxes) > 0 {
-			boxes := make(map[string]layout.MarginBox)
-			for name, mbc := range pc.MarginBoxes {
-				boxes[name] = layout.MarginBox{Content: mbc.Content, FontSize: mbc.FontSize, Color: mbc.Color}
-			}
-			doc.SetMarginBoxes(boxes)
-		}
-		if pc.First != nil && len(pc.First.MarginBoxes) > 0 {
-			boxes := make(map[string]layout.MarginBox)
-			for name, mbc := range pc.First.MarginBoxes {
-				boxes[name] = layout.MarginBox{Content: mbc.Content, FontSize: mbc.FontSize, Color: mbc.Color}
-			}
-			doc.SetFirstMarginBoxes(boxes)
-		}
+	// Apply margin boxes from @page rules (e.g. page numbers).
+	if result.MarginBoxes != nil {
+		doc.SetMarginBoxes(result.MarginBoxes)
+	}
+	if result.FirstMarginBoxes != nil {
+		doc.SetFirstMarginBoxes(result.FirstMarginBoxes)
 	}
 
 	// Apply metadata from HTML <title>/<meta> tags
