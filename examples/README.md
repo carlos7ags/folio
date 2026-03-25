@@ -17,6 +17,7 @@ examples/
 ├── links/          # hyperlinks, bookmarks, internal navigation
 ├── forms/          # interactive AcroForm fields (text, checkbox, radio, dropdown)
 ├── html-to-pdf/    # rich HTML+CSS report (flexbox, tables, page breaks)
+├── merge/          # parse, merge, and extract text from PDFs
 ├── zugferd/        # PDF/A-3B invoice with Factur-X XML attachment
 └── README.md
 ```
