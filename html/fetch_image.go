@@ -19,9 +19,8 @@ import (
 // Supports JPEG, PNG, and TIFF. Detects format from Content-Type header
 // or file extension, falling back to content sniffing.
 func (c *converter) fetchImage(url string) (*folioimage.Image, error) {
-
-	if c.URLPolicy != nil {
-		if err := c.URLPolicy(url); err != nil {
+	if c.urlPolicy != nil {
+		if err := c.urlPolicy(url); err != nil {
 			return nil, err
 		}
 	}
