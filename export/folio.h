@@ -397,6 +397,28 @@ int32_t  folio_link_set_color(uint64_t link, double r, double g, double b);
 int32_t  folio_link_set_underline(uint64_t link);
 int32_t  folio_link_set_align(uint64_t link, int32_t align);
 
+/* ── TextRun builder (styled text for headings, lists) ─────────────── */
+
+/* Decoration constants */
+#define FOLIO_DECORATION_NONE           0
+#define FOLIO_DECORATION_UNDERLINE      1
+#define FOLIO_DECORATION_STRIKETHROUGH  2
+
+uint64_t folio_run_list_new(void);
+void     folio_run_list_free(uint64_t rl);
+
+int32_t  folio_run_list_add(uint64_t rl, const char *text, uint64_t font, double font_size, double r, double g, double b);
+int32_t  folio_run_list_add_embedded(uint64_t rl, const char *text, uint64_t font, double font_size, double r, double g, double b);
+int32_t  folio_run_list_add_link(uint64_t rl, const char *text, uint64_t font, double font_size,
+             double r, double g, double b, const char *uri, int32_t underline);
+int32_t  folio_run_list_last_set_underline(uint64_t rl);
+int32_t  folio_run_list_last_set_strikethrough(uint64_t rl);
+int32_t  folio_run_list_last_set_letter_spacing(uint64_t rl, double spacing);
+
+int32_t  folio_heading_set_runs(uint64_t heading, uint64_t run_list);
+int32_t  folio_list_add_item_runs(uint64_t list, uint64_t run_list);
+uint64_t folio_list_add_item_runs_with_sublist(uint64_t list, uint64_t run_list);
+
 /* ── Misc layout elements ──────────────────────────────────────────── */
 
 uint64_t folio_line_separator_new(void);
@@ -479,6 +501,18 @@ uint64_t folio_reader_info_author(uint64_t reader);
 uint64_t folio_reader_extract_text(uint64_t reader, int32_t page_index);
 double   folio_reader_page_width(uint64_t reader, int32_t page_index);
 double   folio_reader_page_height(uint64_t reader, int32_t page_index);
+
+/* ── Merge (combine PDFs) ──────────────────────────────────────────── */
+
+uint64_t folio_reader_merge(const uint64_t *readers, int32_t count);
+uint64_t folio_merge_files(const char **paths, int32_t count);
+int32_t  folio_merge_set_info(uint64_t merged, const char *title, const char *author);
+int32_t  folio_merge_add_blank_page(uint64_t merged, double width, double height);
+int32_t  folio_merge_add_page_with_text(uint64_t merged, double width, double height,
+             const char *text, uint64_t font, double font_size, double x, double y);
+int32_t  folio_merge_save(uint64_t merged, const char *path);
+uint64_t folio_merge_write_to_buffer(uint64_t merged);
+void     folio_merge_free(uint64_t merged);
 
 /* ── Forms ─────────────────────────────────────────────────────────── */
 

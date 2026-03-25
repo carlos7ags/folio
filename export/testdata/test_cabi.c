@@ -1043,6 +1043,114 @@ int main(void) {
 
     folio_list_free(list);
 
+    /* ===== Stage 31: PDF Merge ===== */
+    printf("Testing PDF merge...\n");
+
+    /* Create two simple PDFs to merge */
+    doc = folio_document_new_letter();
+    helv = folio_font_helvetica();
+    para = folio_paragraph_new("Page from doc 1", helv, 14.0);
+    folio_document_add(doc, para);
+    folio_document_save(doc, "/tmp/folio_merge_a.pdf");
+    folio_document_free(doc);
+
+    doc = folio_document_new_a4();
+    para = folio_paragraph_new("Page from doc 2", helv, 14.0);
+    folio_document_add(doc, para);
+    folio_document_save(doc, "/tmp/folio_merge_b.pdf");
+    folio_document_free(doc);
+
+    /* Merge via file paths */
+    const char* mergePaths[] = {"/tmp/folio_merge_a.pdf", "/tmp/folio_merge_b.pdf"};
+    uint64_t merged = folio_merge_files((char**)mergePaths, 2);
+    ASSERT(merged != 0, "merge_files returns handle");
+
+    rc = folio_merge_set_info(merged, "Merged PDF", "Test");
+    ASSERT(rc == 0, "merge_set_info succeeds");
+
+    rc = folio_merge_add_blank_page(merged, 612, 792);
+    ASSERT(rc == 0, "merge_add_blank_page succeeds");
+
+    rc = folio_merge_add_page_with_text(merged, 612, 792,
+        "Added page", helv, 12.0, 72.0, 700.0);
+    ASSERT(rc == 0, "merge_add_page_with_text succeeds");
+
+    rc = folio_merge_save(merged, "/tmp/folio_merged.pdf");
+    ASSERT(rc == 0, "merge_save succeeds");
+
+    folio_merge_free(merged);
+
+    /* Merge via reader handles */
+    uint64_t r1 = folio_reader_open("/tmp/folio_merge_a.pdf");
+    uint64_t r2 = folio_reader_open("/tmp/folio_merge_b.pdf");
+    ASSERT(r1 != 0 && r2 != 0, "readers for merge opened");
+
+    uint64_t readerHandles[] = {r1, r2};
+    merged = folio_reader_merge(readerHandles, 2);
+    ASSERT(merged != 0, "reader_merge returns handle");
+
+    uint64_t mergeBuf = folio_merge_write_to_buffer(merged);
+    ASSERT(mergeBuf != 0, "merge_write_to_buffer returns handle");
+    ASSERT(folio_buffer_len(mergeBuf) > 0, "merged buffer has data");
+    folio_buffer_free(mergeBuf);
+
+    folio_merge_free(merged);
+    folio_reader_free(r1);
+    folio_reader_free(r2);
+
+    /* ===== Stage 32: TextRun builder ===== */
+    printf("Testing TextRun builder...\n");
+    helv = folio_font_helvetica();
+
+    uint64_t rl = folio_run_list_new();
+    ASSERT(rl != 0, "run_list_new returns handle");
+
+    rc = folio_run_list_add(rl, "Normal text. ", helv, 12.0, 0.0, 0.0, 0.0);
+    ASSERT(rc == 0, "run_list_add succeeds");
+
+    rc = folio_run_list_add(rl, "Bold red. ", folio_font_helvetica_bold(), 12.0, 1.0, 0.0, 0.0);
+    ASSERT(rc == 0, "run_list_add bold succeeds");
+
+    rc = folio_run_list_add_link(rl, "Click here", helv, 12.0,
+        0.0, 0.0, 1.0, "https://example.com", 1);
+    ASSERT(rc == 0, "run_list_add_link succeeds");
+
+    rc = folio_run_list_last_set_letter_spacing(rl, 0.5);
+    ASSERT(rc == 0, "run_list_last_set_letter_spacing succeeds");
+
+    /* Apply runs to a heading */
+    uint64_t runH = folio_heading_new("placeholder", 2);
+    rc = folio_heading_set_runs(runH, rl);
+    ASSERT(rc == 0, "heading_set_runs succeeds");
+
+    /* Apply runs to a list item */
+    list = folio_list_new(helv, 12.0);
+    uint64_t rl2 = folio_run_list_new();
+    folio_run_list_add(rl2, "Styled item", helv, 12.0, 0.0, 0.0, 0.0);
+    folio_run_list_last_set_underline(rl2);
+
+    rc = folio_list_add_item_runs(list, rl2);
+    ASSERT(rc == 0, "list_add_item_runs succeeds");
+
+    uint64_t rl3 = folio_run_list_new();
+    folio_run_list_add(rl3, "Parent with sub", helv, 12.0, 0.0, 0.0, 0.0);
+    uint64_t subFromRuns = folio_list_add_item_runs_with_sublist(list, rl3);
+    ASSERT(subFromRuns != 0, "list_add_item_runs_with_sublist returns sub-list");
+
+    /* Build a doc with the styled heading and list */
+    doc = folio_document_new_letter();
+    folio_document_add(doc, runH);
+    folio_document_add(doc, list);
+    rc = folio_document_save(doc, "/tmp/folio_cabi_textrun.pdf");
+    ASSERT(rc == 0, "textrun document save succeeds");
+
+    folio_run_list_free(rl);
+    folio_run_list_free(rl2);
+    folio_run_list_free(rl3);
+    folio_heading_free(runH);
+    folio_list_free(list);
+    folio_document_free(doc);
+
     /* Summary */
     printf("\n%d passed, %d failed\n", passes, failures);
     return failures > 0 ? 1 : 0;
