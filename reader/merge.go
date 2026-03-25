@@ -125,17 +125,6 @@ func (m *Modifier) appendReader(r *PdfReader) error {
 	return nil
 }
 
-// resolveRef looks up an indirect reference in the writer's object list.
-// This is a simple linear scan — fine for the number of objects in a merge.
-func (m *Modifier) resolveRef(ref *core.PdfIndirectReference) (core.PdfObject, bool) {
-	// The writer stores objects internally. We access them via the ref.
-	// Since the writer's AddObject returns refs sequentially, and the
-	// copier registered the page dict, we can't directly access it.
-	// Instead, we rely on the fact that PdfDictionary is a pointer —
-	// the copier's CopyPage already set up the dict correctly.
-	return nil, false
-}
-
 // AddBlankPage adds a blank page with the given dimensions.
 func (m *Modifier) AddBlankPage(width, height float64) {
 	pageDict := core.NewPdfDictionary()

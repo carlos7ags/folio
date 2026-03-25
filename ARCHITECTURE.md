@@ -65,7 +65,7 @@ check that it respects these boundaries.
 | `layout` | Element model, box layout, pagination, rendering to content streams | HTML parsing, CSS parsing, document assembly |
 | `forms` | AcroForm field creation and form filling | Field validation logic, JavaScript actions |
 | `sign` | PAdES digital signatures (B-B through B-LTA), CMS, TSA, OCSP, DSS | Certificate management, key storage |
-| `reader` | PDF parsing, object resolution, text extraction, page merging | PDF modification in place (use incremental writes) |
+| `reader` | PDF parsing, object resolution, text extraction, page merging, content transforms (redaction, form flattening) | PDF modification in place (use incremental writes) |
 | `html` | HTML+CSS → `layout.Element` conversion | Direct PDF generation (that's `document`'s job) |
 | `svg` | SVG parsing and rendering to content stream operators | SVG creation/generation, raster export |
 | `document` | Top-level document assembly: pages, fonts, images, outlines, metadata, PDF/A, tagged PDF | Low-level PDF object wiring (that's `core`) |
