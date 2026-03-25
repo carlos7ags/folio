@@ -5,6 +5,59 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.0] - 2026-03-25
+
+### Added
+- **C ABI expanded to 281 functions** (up from 115) — covers nearly all Go engine features
+- **Barcode C ABI** — `folio_barcode_qr`, `qr_ecc`, `code128`, `ean13` + layout elements
+- **SVG C ABI** — `folio_svg_parse`, `parse_bytes` + layout elements with size/align
+- **Link C ABI** — hyperlink, embedded font, and internal link layout elements
+- **Flex C ABI** — full flexbox container with items, direction, justify, align, wrap, gap, borders
+- **Grid C ABI** — CSS Grid with template columns/rows, auto-rows, placement, justify/align items/content
+- **Columns C ABI** — multi-column layout with gap and custom widths
+- **Float C ABI** — left/right floating elements with margin
+- **TabbedLine C ABI** — tab-stop text with dot leaders for TOC-style layouts
+- **Form filling C ABI** — `folio_form_filler_new`, `set_value`, `set_checkbox`, `field_names`, `get_value`
+- **Form field builder C ABI** — `folio_form_create_text_field`, `create_checkbox` + `set_value`, `set_read_only`, `set_required`, `set_background_color`, `set_border_color`, then `add_field`
+- **Additional form fields** — multiline text, password, listbox, radio group
+- **Document watermark** — `folio_document_set_watermark` and `set_watermark_config`
+- **Outlines/bookmarks C ABI** — `folio_document_add_outline`, `add_outline_xyz`, `outline_add_child`
+- **Named destinations** — `folio_document_add_named_dest`
+- **Viewer preferences** — `folio_document_set_viewer_preferences`
+- **Page labels** — `folio_document_add_page_label`
+- **File attachments** — `folio_document_attach_file` for PDF/A-3b compliance
+- **Inline HTML** — `folio_document_add_html` and `add_html_with_options`
+- **Page-specific margins** — `folio_document_set_first_margins`, `set_left_margins`, `set_right_margins`
+- **Absolute positioning** — `folio_document_add_absolute`
+- **Page extensions** — art box, page size override, page-to-page links, text annotations, text markup annotations (highlight, underline, squiggly, strikeout), separate fill/stroke opacity
+- **All 14 standard font accessors** — added `helvetica_oblique`, `helvetica_bold_oblique`, `times_italic`, `times_bold_italic`, `courier_bold`, `courier_oblique`, `courier_bold_oblique`, `symbol`, `zapf_dingbats`
+- **Paragraph extensions** — orphans, widows, ellipsis, word-break, hyphens
+- **Table extensions** — footer rows, cell spacing, auto column widths, min width
+- **Cell extensions** — per-side padding, vertical alignment, borders, width hints
+- **Div extensions** — border radius, opacity, overflow, max/min width, box shadow, max height
+- **List extensions** — leading, nested sub-lists
+- **Image extensions** — TIFF loading, element alignment
+- **C ABI audit script** (`scripts/audit-cabi.sh`) — detects drift between Go exports, folio.h, and built symbols
+- **C integration tests** — 258 tests covering all exported functions
+
+### Changed
+- **Library version injected at build time** via `-ldflags "-X main.version=..."` — `folio_version()` returns the git tag in releases, `git describe` in dev builds
+- **CI** — added C ABI audit, shared library build, and C integration test steps
+- **Release workflow** — builds native shared libraries for 5 platforms (linux-x86_64, linux-aarch64, macos-x86_64, macos-aarch64, windows-x86_64) with SHA256 checksums
+- **Makefile** — added `audit`, `audit-build`, cross-compilation targets (`cross-linux-amd64`, etc.), OS-aware shared library extension detection
+
+### Fixed
+- **`<br>` nil pointer** — fixed nil pointer exception with `<br>` tags (#10)
+- **PDF/A-3b file attachments** — proper embedded file streams with `/AF`, `/Names`, MIME types (#17)
+- **ZUGFeRD lint** — deterministic timestamps, fixed example (#41)
+- **Content stream compression** — FlateDecode for content streams, merge stream dict bug (#44)
+- **SSRF prevention** — URL policy interceptor for blocking/modifying remote resource requests (#39)
+- **Radio button / checkbox appearance** — fixed appearance stream generation for form fields
+- **`:root` selector** — now correctly matches the `<html>` element
+- **Gradient rendering** — fixed CSS gradient parsing and rendering
+- **Page number CSS counter** — `counter(page)` and `counter(pages)` now work in margin boxes
+- **MarginBox API** — exposed `MarginBoxes`/`FirstMarginBoxes` on `ConvertResult` for simpler programmatic access (#54)
+
 ## [0.4.2] - 2026-03-22
 
 ### Added
