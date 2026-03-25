@@ -18,6 +18,7 @@ examples/
 ├── forms/          # interactive AcroForm fields (text, checkbox, radio, dropdown)
 ├── html-to-pdf/    # rich HTML+CSS report (flexbox, tables, page breaks)
 ├── merge/          # parse, merge, and extract text from PDFs
+├── sign/           # PAdES digital signature with self-signed certificate
 ├── zugferd/        # PDF/A-3B invoice with Factur-X XML attachment
 └── README.md
 ```
