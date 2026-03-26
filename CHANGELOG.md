@@ -5,6 +5,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.2] - 2026-03-26
+
+### Added
+- **PDF redaction** — `RedactText`, `RedactPattern`, `RedactRegions` permanently remove text from content streams with character-level TJ splitting precision; configurable fill color, overlay text, and metadata stripping (#59)
+- **Page import** — `Page.ImportPage` and `Page.ImportPageWithOpts` load existing PDF pages as Form XObjects (ISO 32000 §8.10) for template workflows; `reader.ExtractPageImport` convenience API with full indirect-ref resolution (#47)
+- **Drawing primitives** — `Page.AddLine`, `Page.AddRect`, `Page.AddRectFilled` for low-level graphics on pages
+- **PDF/UA accessibility** — alt text for images, custom structure tags, structure tree reading from existing PDFs (#60)
+- **Paragraph `\n` line breaks** — `\n`, `\r\n`, and `\r` now produce forced line breaks in paragraphs and table cells (#61, #63)
+- **C ABI expanded to 346 functions** (up from 330) — adds redaction, page import, drawing, digital signatures, encryption permissions, page manipulation, content extraction, form flattening, merge, TextRun builder, styled list/heading exports
+- **Examples** — `merge/` (parse, merge, extract text), `sign/` (PAdES B-B digital signature), `report/` (multi-page layout API), `import-page/` (external PDF template filling), `redact/` (sensitive text removal)
+
+### Fixed
+- **Import page blank output** — `resolveDeep` recursively resolves all indirect references in imported resources; `hoistStreams` converts nested PdfStream objects to indirect refs, fixing blank/partial output with real-world PDFs
+- **Paragraph `\n` collapsed to space** — `splitWords` now splits on newlines first and inserts forced line break markers
+
 ## [0.5.1] - 2026-03-25
 
 ### Fixed
