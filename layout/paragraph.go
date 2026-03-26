@@ -595,7 +595,9 @@ func (p *Paragraph) MaxWidth() float64 {
 // splitWords splits text into words, preserving \n as a lineBreakMarker
 // sentinel that forces a line break during word-wrapping.
 func splitWords(text string) []string {
-	// Split on newlines first, then split each line into words.
+	// Normalize \r\n and bare \r to \n, then split on newlines.
+	text = strings.ReplaceAll(text, "\r\n", "\n")
+	text = strings.ReplaceAll(text, "\r", "\n")
 	lines := strings.Split(text, "\n")
 	var result []string
 	for i, line := range lines {

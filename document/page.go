@@ -101,15 +101,24 @@ type extGStateResource struct {
 
 // Page represents a single page in a document.
 // It tracks font resources, image resources, and content stream operations.
+// formXObjectResource is a pre-built Form XObject (e.g. an imported page).
+type formXObjectResource struct {
+	name   string          // resource name (e.g. "Pg1")
+	stream *core.PdfStream // the Form XObject stream with /Type, /Subtype, /BBox, /Resources
+}
+
+// Page represents a single page in a document.
+// It tracks font resources, image resources, and content stream operations.
 type Page struct {
-	size        PageSize
-	customSize  *PageSize           // per-page size override (nil = inherit from Document)
-	fonts       []fontResource      // ordered font resources
-	images      []imageResource     // ordered image resources
-	extGStates  []extGStateResource // ordered ExtGState resources
-	stream      *content.Stream     // content stream builder
-	annotations []Annotation        // page annotations (links, etc.)
-	rotate      int                 // page rotation in degrees (0, 90, 180, 270)
+	size         PageSize
+	customSize   *PageSize             // per-page size override (nil = inherit from Document)
+	fonts        []fontResource        // ordered font resources
+	images       []imageResource       // ordered image resources
+	extGStates   []extGStateResource   // ordered ExtGState resources
+	formXObjects []formXObjectResource // imported pages as Form XObjects
+	stream       *content.Stream       // content stream builder
+	annotations  []Annotation          // page annotations (links, etc.)
+	rotate       int                   // page rotation in degrees (0, 90, 180, 270)
 
 	// Optional page geometry boxes (ISO 32000 §14.11.2).
 	// If nil, the box is not written. MediaBox is always derived from size.
@@ -177,6 +186,107 @@ func (p *Page) effectiveSize() PageSize {
 	return p.size
 }
 
+// ImportPageOpts configures how an imported page is placed.
+type ImportPageOpts struct {
+	// X and Y position the imported page's lower-left corner.
+	// Default: (0, 0) — aligned with the target page origin.
+	X, Y float64
+
+	// ScaleX and ScaleY scale the imported page. Default: 1.0 (no scaling).
+	// Use equal values to preserve aspect ratio.
+	ScaleX, ScaleY float64
+
+	// Rotation rotates the imported page in degrees (counterclockwise).
+	// Common values: 0, 90, 180, 270.
+	Rotation float64
+}
+
+// ImportPage imports the content of an existing PDF page as a background.
+// The source page is wrapped as a Form XObject and drawn behind any
+// content added via AddText, AddImage, etc. The imported page's fonts,
+// images, and other resources are included automatically.
+//
+// This is used for template workflows: load a pre-designed PDF, add
+// dynamic data on top, and save as a new document.
+//
+// The pageData and pageResources parameters come from reader.PageInfo:
+//
+//	page, _ := r.Page(0)
+//	data, _ := page.ContentStream()
+//	res, _ := page.Resources()
+//	p.ImportPage(data, res, page.Width, page.Height)
+func (p *Page) ImportPage(contentStream []byte, resources *core.PdfDictionary, width, height float64) {
+	p.ImportPageWithOpts(contentStream, resources, width, height, nil)
+}
+
+// ImportPageWithOpts imports a page with explicit positioning, scaling,
+// and rotation options. If opts is nil, the page is placed at the origin
+// at its original size (same as ImportPage).
+func (p *Page) ImportPageWithOpts(contentStream []byte, resources *core.PdfDictionary, width, height float64, opts *ImportPageOpts) {
+	// Wrap the source page content as a Form XObject.
+	formStream := core.NewPdfStream(contentStream)
+	formStream.Dict.Set("Type", core.NewPdfName("XObject"))
+	formStream.Dict.Set("Subtype", core.NewPdfName("Form"))
+	formStream.Dict.Set("FormType", core.NewPdfInteger(1))
+	formStream.Dict.Set("BBox", core.NewPdfArray(
+		core.NewPdfReal(0), core.NewPdfReal(0),
+		core.NewPdfReal(width), core.NewPdfReal(height),
+	))
+	if resources != nil {
+		formStream.Dict.Set("Resources", resources)
+	}
+
+	name := fmt.Sprintf("Pg%d", len(p.formXObjects)+1)
+	p.formXObjects = append(p.formXObjects, formXObjectResource{
+		name:   name,
+		stream: formStream,
+	})
+
+	// Build the transformation matrix for positioning/scaling/rotation.
+	cmd := buildImportCmd(name, opts)
+
+	// Prepend the Do command to draw the imported page as background.
+	// This runs before any user-added content (text, images, annotations).
+	p.ensureStream()
+	p.stream.PrependBytes([]byte(cmd))
+}
+
+// buildImportCmd constructs the content stream command to draw an imported
+// page Form XObject with optional translation, scaling, and rotation.
+func buildImportCmd(name string, opts *ImportPageOpts) string {
+	if opts == nil || (*opts == ImportPageOpts{}) {
+		return fmt.Sprintf("q /%s Do Q\n", name)
+	}
+
+	sx := opts.ScaleX
+	if sx == 0 {
+		sx = 1
+	}
+	sy := opts.ScaleY
+	if sy == 0 {
+		sy = 1
+	}
+
+	// Build affine matrix: scale, then rotate, then translate.
+	// [a b c d e f] where:
+	//   a = sx*cos(θ), b = sx*sin(θ)
+	//   c = -sy*sin(θ), d = sy*cos(θ)
+	//   e = tx, f = ty
+	a, b, c, d := sx, 0.0, 0.0, sy
+	if opts.Rotation != 0 {
+		rad := opts.Rotation * math.Pi / 180
+		cos := math.Cos(rad)
+		sin := math.Sin(rad)
+		a = sx * cos
+		b = sx * sin
+		c = -sy * sin
+		d = sy * cos
+	}
+
+	return fmt.Sprintf("q %.6f %.6f %.6f %.6f %.6f %.6f cm /%s Do Q\n",
+		a, b, c, d, opts.X, opts.Y, name)
+}
+
 // AddText draws text at the given (x, y) position using a standard font.
 // Coordinates are in PDF points with origin at bottom-left.
 // Panics if f is nil or size is negative.
@@ -214,6 +324,43 @@ func (p *Page) AddTextEmbedded(text string, ef *font.EmbeddedFont, size, x, y fl
 	p.stream.MoveText(x, y)
 	p.stream.ShowTextHex(encoded)
 	p.stream.EndText()
+}
+
+// AddLine draws a straight line from (x1, y1) to (x2, y2) with the given
+// stroke width and RGB color. Coordinates are in PDF points with origin at
+// bottom-left.
+func (p *Page) AddLine(x1, y1, x2, y2, width float64, color [3]float64) {
+	p.ensureStream()
+	p.stream.SaveState()
+	p.stream.SetLineWidth(width)
+	p.stream.SetStrokeColorRGB(color[0], color[1], color[2])
+	p.stream.MoveTo(x1, y1)
+	p.stream.LineTo(x2, y2)
+	p.stream.Stroke()
+	p.stream.RestoreState()
+}
+
+// AddRect draws a rectangle outline at (x, y) with the given width, height,
+// stroke width, and RGB color. Use AddRectFilled for filled rectangles.
+func (p *Page) AddRect(x, y, w, h, strokeWidth float64, color [3]float64) {
+	p.ensureStream()
+	p.stream.SaveState()
+	p.stream.SetLineWidth(strokeWidth)
+	p.stream.SetStrokeColorRGB(color[0], color[1], color[2])
+	p.stream.Rectangle(x, y, w, h)
+	p.stream.Stroke()
+	p.stream.RestoreState()
+}
+
+// AddRectFilled draws a filled rectangle at (x, y) with the given width,
+// height, and RGB fill color.
+func (p *Page) AddRectFilled(x, y, w, h float64, color [3]float64) {
+	p.ensureStream()
+	p.stream.SaveState()
+	p.stream.SetFillColorRGB(color[0], color[1], color[2])
+	p.stream.Rectangle(x, y, w, h)
+	p.stream.Fill()
+	p.stream.RestoreState()
 }
 
 // AddImage draws an image at (x, y) with the given width and height in PDF points.

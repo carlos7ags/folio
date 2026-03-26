@@ -492,11 +492,19 @@ func (d *Document) WriteTo(w io.Writer) (int64, error) {
 			}
 			resources.Set("Font", fontDict)
 		}
-		if len(page.images) > 0 {
+		if len(page.images) > 0 || len(page.formXObjects) > 0 {
 			xobjDict := core.NewPdfDictionary()
 			for _, entry := range page.images {
 				imgRef, _ := entry.image.BuildXObject(writer.AddObject)
 				xobjDict.Set(entry.name, imgRef)
+			}
+			for _, entry := range page.formXObjects {
+				// Hoist nested PdfStream objects (font programs, images, etc.)
+				// to indirect objects. PDF streams cannot appear as direct
+				// objects inside a dictionary — they must be indirect refs.
+				hoistStreams(entry.stream.Dict, writer.AddObject)
+				formRef := writer.AddObject(entry.stream)
+				xobjDict.Set(entry.name, formRef)
 			}
 			resources.Set("XObject", xobjDict)
 		}
@@ -796,4 +804,41 @@ func (d *Document) WriteTo(w io.Writer) (int64, error) {
 	}
 
 	return writer.WriteTo(w)
+}
+
+// hoistStreams walks a PdfDictionary tree and replaces any PdfStream
+// values with indirect references. PDF streams cannot be direct objects
+// inside a dictionary (ISO 32000 §7.3.8) — they must be indirect.
+// This is needed for imported page resources where resolveDeep produces
+// a fully direct object tree that may contain font programs and other
+// streams as direct values.
+func hoistStreams(dict *core.PdfDictionary, addObj func(core.PdfObject) *core.PdfIndirectReference) {
+	for i, entry := range dict.Entries {
+		switch v := entry.Value.(type) {
+		case *core.PdfStream:
+			// Recursively hoist any streams nested in this stream's dict.
+			hoistStreams(v.Dict, addObj)
+			dict.Entries[i].Value = addObj(v)
+		case *core.PdfDictionary:
+			hoistStreams(v, addObj)
+		case *core.PdfArray:
+			hoistStreamArray(v, addObj)
+		}
+	}
+}
+
+// hoistStreamArray walks a PdfArray and replaces any PdfStream elements
+// with indirect references.
+func hoistStreamArray(arr *core.PdfArray, addObj func(core.PdfObject) *core.PdfIndirectReference) {
+	for i, elem := range arr.Elements {
+		switch v := elem.(type) {
+		case *core.PdfStream:
+			hoistStreams(v.Dict, addObj)
+			arr.Elements[i] = addObj(v)
+		case *core.PdfDictionary:
+			hoistStreams(v, addObj)
+		case *core.PdfArray:
+			hoistStreamArray(v, addObj)
+		}
+	}
 }
