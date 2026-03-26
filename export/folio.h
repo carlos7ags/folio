@@ -669,6 +669,38 @@ int32_t  folio_tabbed_line_set_segments(uint64_t tl, const char **segments, int3
 int32_t  folio_tabbed_line_set_color(uint64_t tl, double r, double g, double b);
 int32_t  folio_tabbed_line_set_leading(uint64_t tl, double leading);
 
+/* ── Drawing primitives ────────────────────────────────────────────── */
+
+int32_t  folio_page_add_line(uint64_t page, double x1, double y1, double x2, double y2,
+             double width, double r, double g, double b);
+int32_t  folio_page_add_rect(uint64_t page, double x, double y, double w, double h,
+             double stroke_width, double r, double g, double b);
+int32_t  folio_page_add_rect_filled(uint64_t page, double x, double y, double w, double h,
+             double r, double g, double b);
+
+/* ── Page import (template workflows) ─────────────────────────────── */
+
+uint64_t folio_extract_page_import(uint64_t reader, int32_t page_index);
+void     folio_page_import_free(uint64_t imp);
+double   folio_page_import_width(uint64_t imp);
+double   folio_page_import_height(uint64_t imp);
+int32_t  folio_page_import_apply(uint64_t page, uint64_t imp);
+
+/* ── Redaction ────────────────────────────────────────────────────── */
+
+uint64_t folio_redact_opts_new(void);
+void     folio_redact_opts_free(uint64_t opts);
+int32_t  folio_redact_opts_set_fill_color(uint64_t opts, double r, double g, double b);
+int32_t  folio_redact_opts_set_overlay(uint64_t opts, const char *text, double font_size,
+             double r, double g, double b);
+int32_t  folio_redact_opts_set_strip_metadata(uint64_t opts, int32_t strip);
+
+uint64_t folio_redact_text(uint64_t reader, const char **targets, int32_t count, uint64_t opts);
+uint64_t folio_redact_pattern(uint64_t reader, const char *pattern, uint64_t opts);
+uint64_t folio_redact_regions(uint64_t reader, const int32_t *pages,
+             const double *x1s, const double *y1s, const double *x2s, const double *y2s,
+             int32_t count, uint64_t opts);
+
 #ifdef __cplusplus
 }
 #endif
