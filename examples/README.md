@@ -17,6 +17,7 @@ examples/
 ├── links/          # hyperlinks, bookmarks, internal navigation
 ├── forms/          # interactive AcroForm fields (text, checkbox, radio, dropdown)
 ├── html-to-pdf/    # rich HTML+CSS report (flexbox, tables, page breaks)
+├── import-page/    # load existing PDF as template, add content on top
 ├── merge/          # parse, merge, and extract text from PDFs
 ├── redact/         # permanently remove sensitive text (SSNs, emails, PII)
 ├── report/         # multi-page report with layout API (tables, lists, columns)
