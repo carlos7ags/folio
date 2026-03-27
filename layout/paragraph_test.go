@@ -445,3 +445,54 @@ func TestParagraphNewlineTrailing(t *testing.T) {
 		t.Errorf("expected 1 line, got %d", len(plan.Blocks))
 	}
 }
+
+// --- Text highlight / background color ---
+
+func TestWithBackgroundColor(t *testing.T) {
+	bg := RGB(1, 1, 0)
+	run := Run("highlight", font.Helvetica, 12).WithBackgroundColor(bg)
+	if run.BackgroundColor == nil {
+		t.Fatal("expected BackgroundColor to be set")
+	}
+	if *run.BackgroundColor != bg {
+		t.Errorf("BackgroundColor = %v, want %v", *run.BackgroundColor, bg)
+	}
+}
+
+func TestParagraphBackgroundColorPropagates(t *testing.T) {
+	bg := RGB(1, 1, 0)
+	p := NewStyledParagraph(
+		Run("Hello ", font.Helvetica, 12),
+		Run("World", font.Helvetica, 12).WithBackgroundColor(bg),
+	)
+	lines := p.Layout(500)
+	if len(lines) != 1 {
+		t.Fatalf("expected 1 line, got %d", len(lines))
+	}
+	// "World" should carry the background color.
+	found := false
+	for _, w := range lines[0].Words {
+		if w.BackgroundColor != nil && *w.BackgroundColor == bg {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("expected a word with BackgroundColor set")
+	}
+}
+
+func TestParagraphHighlightRendersWithPlanLayout(t *testing.T) {
+	bg := RGB(1, 1, 0)
+	p := NewStyledParagraph(
+		Run("Normal ", font.Helvetica, 12),
+		Run("highlighted", font.Helvetica, 12).WithBackgroundColor(bg),
+		Run(" normal", font.Helvetica, 12),
+	)
+	plan := p.PlanLayout(LayoutArea{Width: 500, Height: 1000})
+	if plan.Status != LayoutFull {
+		t.Fatalf("expected LayoutFull, got %d", plan.Status)
+	}
+	if plan.Consumed <= 0 {
+		t.Error("expected positive consumed height")
+	}
+}

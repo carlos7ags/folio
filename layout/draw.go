@@ -48,6 +48,63 @@ func drawTextLine(ctx DrawContext, words []Word, x, baselineY, maxWidth float64,
 		extraSpace = (maxWidth - totalWordWidth) / gaps
 	}
 
+	// First pass: draw highlight backgrounds behind words that have BackgroundColor.
+	// This must happen before text rendering so the background is behind the text.
+	{
+		bgX := x
+		for i, word := range words {
+			if word.InlineBlock != nil {
+				spaceW := words[0].SpaceAfter
+				if spaceW == 0 {
+					spaceW = 3
+				}
+				bgX += word.InlineWidth + spaceW
+				continue
+			}
+
+			if word.BackgroundColor != nil {
+				// Compute the highlight rectangle covering the word.
+				// Ascent ≈ 0.8 * FontSize, descent ≈ 0.2 * FontSize.
+				ascent := word.FontSize * 0.8
+				descent := word.FontSize * 0.2
+				rectH := ascent + descent
+				rectY := baselineY - descent // bottom of rect in PDF coordinates
+
+				// Extend through trailing space when the next word has the
+				// same background color (produces continuous highlight like browsers).
+				highlightW := word.Width
+				if i < len(words)-1 && words[i+1].BackgroundColor != nil &&
+					*words[i+1].BackgroundColor == *word.BackgroundColor {
+					if align == AlignJustify && !isLast {
+						highlightW += extraSpace
+					} else {
+						highlightW += word.SpaceAfter
+					}
+				}
+
+				ctx.Stream.SaveState()
+				setFillColor(ctx.Stream, *word.BackgroundColor)
+				ctx.Stream.Rectangle(bgX, rectY, highlightW, rectH)
+				ctx.Stream.Fill()
+				ctx.Stream.RestoreState()
+			}
+
+			var advance float64
+			if i < len(words)-1 {
+				if align == AlignJustify && !isLast {
+					advance = word.Width + extraSpace
+				} else {
+					spaceW := word.SpaceAfter
+					if spaceW == 0 && len(words) > 0 {
+						spaceW = words[0].SpaceAfter
+					}
+					advance = word.Width + spaceW
+				}
+			}
+			bgX += advance
+		}
+	}
+
 	curColor := Color{R: -1, G: -1, B: -1}
 	curX := x
 	for i, word := range words {

@@ -116,6 +116,7 @@ type TextRun struct {
 	BaselineShift   float64     // vertical offset in points (positive = up for super, negative = down for sub)
 	LinkURI         string      // if non-empty, this run is part of a hyperlink
 	TextShadow      *TextShadow // if non-nil, draws a shadow behind the text
+	BackgroundColor *Color      // if non-nil, a highlight rectangle is drawn behind the text
 }
 
 // Run creates a TextRun with a standard font.
@@ -156,6 +157,13 @@ func (r TextRun) WithDecoration(d TextDecoration) TextRun {
 // Words from this run will produce a clickable annotation in the PDF.
 func (r TextRun) WithLinkURI(uri string) TextRun {
 	r.LinkURI = uri
+	return r
+}
+
+// WithBackgroundColor returns a copy of the run with a highlight background.
+// A filled rectangle of the given color is drawn behind the text.
+func (r TextRun) WithBackgroundColor(c Color) TextRun {
+	r.BackgroundColor = &c
 	return r
 }
 
@@ -255,6 +263,10 @@ type Word struct {
 	// LinkURI is the hyperlink target for this word. If non-empty, the
 	// renderer creates a link annotation covering this word's area.
 	LinkURI string
+
+	// BackgroundColor, if non-nil, draws a filled highlight rectangle
+	// behind this word before rendering the text.
+	BackgroundColor *Color
 
 	// InlineBlock fields: when set, this Word represents an inline-block
 	// element (e.g., a Div) that flows within a paragraph like a "big word".

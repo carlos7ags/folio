@@ -253,6 +253,7 @@ func (c *converter) collectRuns(n *html.Node, style computedStyle) []layout.Text
 				WordSpacing:     style.WordSpacing,
 				BaselineShift:   baselineShiftFromStyle(style),
 				TextShadow:      textShadowFromStyle(style),
+				BackgroundColor: style.BackgroundColor,
 			}
 			runs = append(runs, run)
 		case html.ElementNode:

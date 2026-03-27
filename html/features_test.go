@@ -1373,3 +1373,72 @@ func TestAbsoluteWithRightInContainingBlock(t *testing.T) {
 		t.Error("should render with positive height")
 	}
 }
+
+// --- Text highlight / background color ---
+
+func TestMarkElementRendersHighlight(t *testing.T) {
+	// <mark> should render with default yellow background.
+	src := `<p>This is <mark>highlighted</mark> text.</p>`
+	elems, err := Convert(src, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(elems) == 0 {
+		t.Fatal("expected elements")
+	}
+	plan := elems[0].PlanLayout(layout.LayoutArea{Width: 400, Height: 1000})
+	if plan.Status != layout.LayoutFull {
+		t.Errorf("expected LayoutFull, got %v", plan.Status)
+	}
+	if plan.Consumed <= 0 {
+		t.Error("expected positive consumed height")
+	}
+}
+
+func TestInlineBackgroundColorCSS(t *testing.T) {
+	// Explicit background-color on a span should produce a highlight.
+	src := `<p>Before <span style="background-color: #ff0;">highlight</span> after</p>`
+	elems, err := Convert(src, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(elems) == 0 {
+		t.Fatal("expected elements")
+	}
+	plan := elems[0].PlanLayout(layout.LayoutArea{Width: 400, Height: 1000})
+	if plan.Status != layout.LayoutFull {
+		t.Errorf("expected LayoutFull, got %v", plan.Status)
+	}
+}
+
+func TestMarkWithCustomColor(t *testing.T) {
+	// <mark> with CSS override should use the custom color.
+	src := `<style>mark { background-color: #90EE90; }</style>
+	<p>This is <mark>green highlight</mark> text.</p>`
+	elems, err := Convert(src, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(elems) == 0 {
+		t.Fatal("expected elements")
+	}
+	plan := elems[0].PlanLayout(layout.LayoutArea{Width: 400, Height: 1000})
+	if plan.Status != layout.LayoutFull {
+		t.Errorf("expected LayoutFull, got %v", plan.Status)
+	}
+}
+
+func TestMultipleHighlightsInParagraph(t *testing.T) {
+	src := `<p><mark>First</mark> gap <mark>Second</mark></p>`
+	elems, err := Convert(src, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(elems) == 0 {
+		t.Fatal("expected elements")
+	}
+	plan := elems[0].PlanLayout(layout.LayoutArea{Width: 400, Height: 1000})
+	if plan.Status != layout.LayoutFull {
+		t.Errorf("expected LayoutFull, got %v", plan.Status)
+	}
+}

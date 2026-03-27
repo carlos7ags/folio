@@ -79,6 +79,10 @@ func (c *converter) applyTagDefaults(n *html.Node, style *computedStyle) {
 		style.TextDecoration |= layout.DecorationUnderline
 	case atom.S, atom.Del:
 		style.TextDecoration |= layout.DecorationStrikethrough
+	case atom.Mark:
+		// Browser default: yellow highlight background.
+		bg := layout.RGB(1, 1, 0)
+		style.BackgroundColor = &bg
 	case atom.Small:
 		style.FontSize = style.FontSize * 0.833
 	case atom.Sub:

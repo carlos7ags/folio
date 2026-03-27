@@ -213,6 +213,7 @@ func (p *Paragraph) Layout(maxWidth float64) []Line {
 				BaselineShift:   run.BaselineShift,
 				LinkURI:         run.LinkURI,
 				TextShadow:      run.TextShadow,
+				BackgroundColor: run.BackgroundColor,
 			})
 			nextLineBreak = false
 		}
@@ -856,6 +857,7 @@ func (p *Paragraph) measureWords(maxWidth float64) ([]Word, float64) {
 				BaselineShift:   run.BaselineShift,
 				LinkURI:         run.LinkURI,
 				TextShadow:      run.TextShadow,
+				BackgroundColor: run.BackgroundColor,
 				LineBreak:       nextLineBreak,
 			})
 			nextLineBreak = false
