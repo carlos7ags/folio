@@ -9,8 +9,10 @@ import (
 	"os"
 	"slices"
 	"strconv"
+	"strings"
 
 	"github.com/carlos7ags/folio/core"
+	"github.com/carlos7ags/folio/font"
 	"github.com/carlos7ags/folio/layout"
 )
 
@@ -24,6 +26,20 @@ type PageContext struct {
 // It receives the page context and a Page to draw on.
 // Decorators run after layout, so TotalPages is accurate.
 type PageDecorator func(ctx PageContext, page *Page)
+
+// ElementDecorator is a callback that returns a layout element for each page.
+// Unlike PageDecorator (which draws at absolute coordinates and does not
+// reserve space), ElementDecorator automatically measures the element's height
+// and increases the corresponding margin (top for headers, bottom for footers)
+// so content never overlaps the header/footer.
+//
+// Use ElementDecorator (via SetHeaderElement/SetFooterElement) when you want
+// the layout engine to account for the header/footer height. Use PageDecorator
+// (via SetHeader/SetFooter) when you need full control over absolute positioning.
+//
+// The returned element is laid out and rendered on each page. Return nil to
+// skip a particular page.
+type ElementDecorator func(ctx PageContext) layout.Element
 
 // NamedDest is a named destination within the document.
 type NamedDest struct {
@@ -63,6 +79,8 @@ type Document struct {
 	namedDests       []NamedDest // named destinations
 	header           PageDecorator
 	footer           PageDecorator
+	headerElem       ElementDecorator
+	footerElem       ElementDecorator
 	watermark        *WatermarkConfig
 	encryption       *EncryptionConfig
 	tagged           bool        // if true, produce tagged PDF with structure tree
@@ -150,6 +168,62 @@ func (d *Document) SetHeader(fn PageDecorator) {
 // The decorator runs after layout, so PageContext.TotalPages is accurate.
 func (d *Document) SetFooter(fn PageDecorator) {
 	d.footer = fn
+}
+
+// SetHeaderElement sets an element-based header that automatically reserves
+// space. The element is measured once to determine its height, and the top
+// margin is increased accordingly so content never overlaps the header.
+//
+// The decorator is called for each page with the page context. Return nil
+// to skip a page. For per-page variation, use ctx.PageIndex.
+//
+//	doc.SetHeaderElement(func(ctx document.PageContext) layout.Element {
+//	    return layout.NewParagraph("My Report", font.HelveticaBold, 12)
+//	})
+func (d *Document) SetHeaderElement(fn ElementDecorator) {
+	d.headerElem = fn
+}
+
+// SetFooterElement sets an element-based footer that automatically reserves
+// space at the bottom of each page.
+//
+//	doc.SetFooterElement(func(ctx document.PageContext) layout.Element {
+//	    text := fmt.Sprintf("Page %d of %d", ctx.PageIndex+1, ctx.TotalPages)
+//	    return layout.NewParagraph(text, font.Helvetica, 9).
+//	        SetAlign(layout.AlignCenter)
+//	})
+func (d *Document) SetFooterElement(fn ElementDecorator) {
+	d.footerElem = fn
+}
+
+// SetHeaderText is a convenience that sets a simple text header on every page.
+// The text is drawn with the given font, size, and alignment. The header
+// automatically reserves space so content doesn't overlap.
+//
+// The text may contain {page} and {pages} placeholders that are replaced
+// with the current page number and total page count.
+func (d *Document) SetHeaderText(text string, f *font.Standard, size float64, align layout.Align) {
+	d.headerElem = func(ctx PageContext) layout.Element {
+		s := replacePagePlaceholders(text, ctx)
+		return layout.NewParagraph(s, f, size).SetAlign(align)
+	}
+}
+
+// SetFooterText is a convenience that sets a simple text footer on every page.
+// See SetHeaderText for placeholder support.
+func (d *Document) SetFooterText(text string, f *font.Standard, size float64, align layout.Align) {
+	d.footerElem = func(ctx PageContext) layout.Element {
+		s := replacePagePlaceholders(text, ctx)
+		return layout.NewParagraph(s, f, size).SetAlign(align)
+	}
+}
+
+// replacePagePlaceholders replaces {page} and {pages} in text.
+func replacePagePlaceholders(text string, ctx PageContext) string {
+	s := text
+	s = strings.ReplaceAll(s, "{page}", strconv.Itoa(ctx.PageIndex+1))
+	s = strings.ReplaceAll(s, "{pages}", strconv.Itoa(ctx.TotalPages))
+	return s
 }
 
 // AddNamedDest registers a named destination within the document.
@@ -240,9 +314,22 @@ func (d *Document) buildAllPages() (all []*Page, structTags []layout.StructTagIn
 	copy(all, d.pages)
 	manualPageCount := len(all)
 
+	// Measure element-based header/footer heights and adjust margins
+	// so the layout engine reserves space for them automatically.
+	margins := d.margins
+	var headerHeight, footerHeight float64
+	if d.headerElem != nil {
+		headerHeight = d.measureElementDecorator(d.headerElem)
+		margins.Top += headerHeight
+	}
+	if d.footerElem != nil {
+		footerHeight = d.measureElementDecorator(d.footerElem)
+		margins.Bottom += footerHeight
+	}
+
 	// Run layout engine if there are elements.
 	if len(d.elements) > 0 || len(d.absolutes) > 0 {
-		r := layout.NewRenderer(d.pageSize.Width, d.pageSize.Height, d.margins)
+		r := layout.NewRenderer(d.pageSize.Width, d.pageSize.Height, margins)
 		if d.firstMargins != nil {
 			r.SetFirstMargins(*d.firstMargins)
 		}
@@ -340,6 +427,21 @@ func (d *Document) buildAllPages() (all []*Page, structTags []layout.StructTagIn
 			}
 			if d.footer != nil {
 				d.footer(ctx, p)
+			}
+		}
+	}
+
+	// Apply element-based header/footer decorators to all pages.
+	if d.headerElem != nil || d.footerElem != nil {
+		total := len(all)
+		for i, p := range all {
+			ctx := PageContext{PageIndex: i, TotalPages: total}
+			ps := p.effectiveSize()
+			if d.headerElem != nil {
+				d.renderElementDecorator(d.headerElem, ctx, p, d.margins.Left, ps.Height-d.margins.Top, headerHeight)
+			}
+			if d.footerElem != nil {
+				d.renderElementDecorator(d.footerElem, ctx, p, d.margins.Left, d.margins.Bottom+footerHeight, footerHeight)
 			}
 		}
 	}
@@ -841,4 +943,89 @@ func hoistStreamArray(arr *core.PdfArray, addObj func(core.PdfObject) *core.PdfI
 			hoistStreamArray(v, addObj)
 		}
 	}
+}
+
+// measureElementDecorator measures the height of an element decorator by
+// laying out a sample element in the available content width.
+func (d *Document) measureElementDecorator(fn ElementDecorator) float64 {
+	// Use a dummy context for measurement.
+	elem := fn(PageContext{PageIndex: 0, TotalPages: 1})
+	if elem == nil {
+		return 0
+	}
+	contentWidth := d.pageSize.Width - d.margins.Left - d.margins.Right
+	plan := elem.PlanLayout(layout.LayoutArea{
+		Width:  contentWidth,
+		Height: d.pageSize.Height, // generous height for measurement
+	})
+	return plan.Consumed
+}
+
+// renderElementDecorator renders an element decorator on a page at the given
+// position. It creates a mini layout renderer, renders the element, and
+// merges the resulting content stream and resources into the page.
+func (d *Document) renderElementDecorator(fn ElementDecorator, ctx PageContext, p *Page, x, y, height float64) {
+	elem := fn(ctx)
+	if elem == nil {
+		return
+	}
+	contentWidth := d.pageSize.Width - d.margins.Left - d.margins.Right
+
+	// Use a single-page renderer to lay out the element.
+	r := layout.NewRenderer(contentWidth, height, layout.Margins{})
+	r.Add(elem)
+	results := r.Render()
+	if len(results) == 0 {
+		return
+	}
+	res := results[0]
+
+	// Merge the rendered content into the page at the correct position.
+	// The renderer produces content at (0, height) origin; we need to
+	// translate it to (x, y-height) in page coordinates.
+	p.ensureStream()
+
+	// Remap font names to avoid collisions with the page's own fonts.
+	// The mini-renderer assigns names like "F1", "F2" which may conflict
+	// with fonts already registered on the page.
+	nameMap := make(map[string]string) // old name → new name
+	for _, f := range res.Fonts {
+		newName := fmt.Sprintf("HF%d", len(p.fonts)+1)
+		nameMap[f.Name] = newName
+		p.fonts = append(p.fonts, fontResource{
+			name:     newName,
+			standard: f.Standard,
+			embedded: f.Embedded,
+		})
+	}
+	for _, im := range res.Images {
+		newName := fmt.Sprintf("HI%d", len(p.images)+1)
+		nameMap[im.Name] = newName
+		p.images = append(p.images, imageResource{
+			name:  newName,
+			image: im.Image,
+		})
+	}
+
+	// Rewrite font/image references in the content stream.
+	streamStr := string(res.Stream.Bytes())
+	for oldName, newName := range nameMap {
+		streamStr = strings.ReplaceAll(streamStr, "/"+oldName+" ", "/"+newName+" ")
+	}
+
+	// Translate the content stream to the correct page position.
+	// The renderer draws from top-left of its area; we offset with cm.
+	translated := fmt.Sprintf("q 1 0 0 1 %s %s cm\n%s\nQ\n", formatPt(x), formatPt(y-height), streamStr)
+	p.stream.AppendBytes([]byte(translated))
+}
+
+// formatPt formats a float for PDF (no trailing zeros, max 4 decimal places).
+func formatPt(v float64) string {
+	s := strconv.FormatFloat(v, 'f', 4, 64)
+	// Trim trailing zeros.
+	if strings.Contains(s, ".") {
+		s = strings.TrimRight(s, "0")
+		s = strings.TrimRight(s, ".")
+	}
+	return s
 }

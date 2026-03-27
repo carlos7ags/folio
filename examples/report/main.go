@@ -42,17 +42,26 @@ func main() {
 	doc.SetAutoBookmarks(true)
 
 	// --- Header / Footer ---
-	doc.SetFooter(func(ctx document.PageContext, p *document.Page) {
+	// SetHeaderElement/SetFooterElement automatically reserve space so
+	// content never overlaps. Return nil to skip a particular page.
+	doc.SetHeaderElement(func(ctx document.PageContext) layout.Element {
 		if ctx.PageIndex == 0 {
-			return
+			return nil // no header on cover page
 		}
-		p.AddText(
-			fmt.Sprintf("Page %d of %d", ctx.PageIndex+1, ctx.TotalPages),
-			font.Helvetica, 8, 480, 40,
+		return layout.NewStyledParagraph(
+			layout.Run("Apex Capital Partners", font.HelveticaBold, 9).
+				WithColor(layout.ColorNavy),
+			layout.Run("  —  Annual Report 2026", font.Helvetica, 9).
+				WithColor(layout.ColorGray),
 		)
-		p.AddText("Apex Capital Partners — Confidential",
-			font.Helvetica, 8, 72, 40,
-		)
+	})
+	doc.SetFooterElement(func(ctx document.PageContext) layout.Element {
+		if ctx.PageIndex == 0 {
+			return nil
+		}
+		text := fmt.Sprintf("Confidential          Page %d of %d", ctx.PageIndex+1, ctx.TotalPages)
+		return layout.NewParagraph(text, font.Helvetica, 8).
+			SetAlign(layout.AlignCenter)
 	})
 
 	// ==================== PAGE 1: Cover ====================

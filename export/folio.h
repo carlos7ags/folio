@@ -183,9 +183,16 @@ int32_t  folio_document_set_encryption_with_permissions(uint64_t doc, const char
 int32_t  folio_document_set_auto_bookmarks(uint64_t doc, int32_t enabled);
 int32_t  folio_document_set_form(uint64_t doc, uint64_t form);
 
-/* Callbacks */
+/* Callbacks (low-level, absolute positioning) */
 int32_t  folio_document_set_header(uint64_t doc, folio_page_decorator_fn fn, void *user_data);
 int32_t  folio_document_set_footer(uint64_t doc, folio_page_decorator_fn fn, void *user_data);
+
+/* Header/footer text (high-level, auto space reservation) */
+/* align: 0=left, 1=center, 2=right. Text may contain {page} and {pages}. */
+int32_t  folio_document_set_header_text(uint64_t doc, const char *text, uint64_t font,
+             double size, int32_t align);
+int32_t  folio_document_set_footer_text(uint64_t doc, const char *text, uint64_t font,
+             double size, int32_t align);
 
 /* Watermark */
 int32_t  folio_document_set_watermark(uint64_t doc, const char *text);
