@@ -102,6 +102,12 @@ func hexByte(s string) byte {
 // A paragraph is composed of one or more runs, each with its own
 // font, size, and color. Runs flow together: the text of consecutive
 // runs is concatenated and word-wrapped as a unit.
+//
+// When InlineElement is set, this run represents an inline element
+// (image, SVG, or any display:inline-block element) rather than text.
+// The element flows within the paragraph like a word, participating in
+// word-wrapping and line-height calculations. Text, Font, and other
+// text-specific fields are ignored for inline element runs.
 type TextRun struct {
 	Text            string
 	Font            *font.Standard
@@ -117,6 +123,11 @@ type TextRun struct {
 	LinkURI         string      // if non-empty, this run is part of a hyperlink
 	TextShadow      *TextShadow // if non-nil, draws a shadow behind the text
 	BackgroundColor *Color      // if non-nil, a highlight rectangle is drawn behind the text
+	// InlineElement holds a layout element (e.g. ImageElement, SVGElement,
+	// Div) that should flow inline within the paragraph. When set, text
+	// fields are ignored and the element is measured and rendered as an
+	// inline-block word during paragraph layout.
+	InlineElement Element
 }
 
 // NewRun creates a TextRun with a standard font.
@@ -127,6 +138,13 @@ func NewRun(text string, f *font.Standard, fontSize float64) TextRun {
 // NewRunEmbedded creates a TextRun with an embedded font.
 func NewRunEmbedded(text string, ef *font.EmbeddedFont, fontSize float64) TextRun {
 	return TextRun{Text: text, Embedded: ef, FontSize: fontSize}
+}
+
+// RunInline creates a TextRun that represents an inline element.
+// The element will be measured and rendered as an inline-block word
+// during paragraph layout, flowing with surrounding text.
+func RunInline(el Element) TextRun {
+	return TextRun{InlineElement: el}
 }
 
 // WithColor returns a copy of the run with the given color.

@@ -698,9 +698,10 @@ func (c *converter) convertElementInner(n *html.Node, style computedStyle) []lay
 	}
 
 	// Inline-block: renders as a block (Div) but participates in inline flow.
-	// For PDF purposes, treat as a block with box-model support.
-	// Special elements (SVG, IMG) fall through to their specific handlers below.
-	if style.Display == "inline-block" && n.DataAtom != atom.Svg && n.DataAtom != atom.Img {
+	// When inline-block elements appear inside a paragraph, collectRuns
+	// handles them as inline element runs. At the top level (here), they
+	// still render as blocks since there is no inline flow context.
+	if style.Display == "inline-block" {
 		return c.convertBlock(n, style)
 	}
 

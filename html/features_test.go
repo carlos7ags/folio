@@ -1442,3 +1442,230 @@ func TestMultipleHighlightsInParagraph(t *testing.T) {
 		t.Errorf("expected LayoutFull, got %v", plan.Status)
 	}
 }
+
+// --- Inline elements within paragraphs ---
+
+func TestInlineSVGInParagraph(t *testing.T) {
+	// An SVG inside a <p> should produce a paragraph that renders
+	// (not a separate block element).
+	src := `<p>Status: <svg width="16" height="16" viewBox="0 0 16 16"><circle cx="8" cy="8" r="6" fill="green"/></svg> OK</p>`
+	elems, err := Convert(src, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(elems) == 0 {
+		t.Fatal("expected elements")
+	}
+	plan := elems[0].PlanLayout(layout.LayoutArea{Width: 400, Height: 1000})
+	if plan.Status != layout.LayoutFull {
+		t.Errorf("expected LayoutFull, got %v", plan.Status)
+	}
+	if plan.Consumed <= 0 {
+		t.Error("expected positive consumed height")
+	}
+}
+
+func TestInlineSVGInParagraphSingleLine(t *testing.T) {
+	// Text + small SVG should fit on one line at wide width.
+	src := `<p>Check <svg width="12" height="12" viewBox="0 0 12 12"><rect width="12" height="12" fill="red"/></svg> done</p>`
+	elems, err := Convert(src, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(elems) == 0 {
+		t.Fatal("expected elements")
+	}
+	plan := elems[0].PlanLayout(layout.LayoutArea{Width: 500, Height: 1000})
+	// Should be a single paragraph, not split into multiple elements.
+	if plan.Status != layout.LayoutFull {
+		t.Errorf("expected LayoutFull, got %v", plan.Status)
+	}
+	// A single-line paragraph should have exactly 1 block (one line).
+	if len(plan.Blocks) != 1 {
+		t.Errorf("expected 1 block (single line), got %d", len(plan.Blocks))
+	}
+}
+
+func TestInlineImageInParagraph(t *testing.T) {
+	// A tiny 1x1 PNG data URI inside a paragraph.
+	src := `<p>Icon: <img src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==" width="16" height="16"> label</p>`
+	elems, err := Convert(src, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(elems) == 0 {
+		t.Fatal("expected elements")
+	}
+	plan := elems[0].PlanLayout(layout.LayoutArea{Width: 400, Height: 1000})
+	if plan.Status != layout.LayoutFull {
+		t.Errorf("expected LayoutFull, got %v", plan.Status)
+	}
+	if plan.Consumed <= 0 {
+		t.Error("expected positive consumed height")
+	}
+}
+
+func TestInlineBlockDivInParagraph(t *testing.T) {
+	// A display:inline-block div inside a paragraph should flow inline.
+	src := `<p>Before <span style="display:inline-block; width:20px; height:20px; background:#0f0;"></span> After</p>`
+	elems, err := Convert(src, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(elems) == 0 {
+		t.Fatal("expected elements")
+	}
+	plan := elems[0].PlanLayout(layout.LayoutArea{Width: 500, Height: 1000})
+	if plan.Status != layout.LayoutFull {
+		t.Errorf("expected LayoutFull, got %v", plan.Status)
+	}
+	if plan.Consumed <= 0 {
+		t.Error("expected positive consumed height")
+	}
+}
+
+func TestInlineBlockStandalone(t *testing.T) {
+	// A standalone display:inline-block (not inside a paragraph)
+	// should still render as a block element at the top level.
+	src := `<div style="display:inline-block; width:100px; height:50px; background:#f00;"></div>`
+	elems, err := Convert(src, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(elems) == 0 {
+		t.Fatal("expected elements for standalone inline-block")
+	}
+	plan := elems[0].PlanLayout(layout.LayoutArea{Width: 400, Height: 1000})
+	if plan.Consumed <= 0 {
+		t.Error("standalone inline-block should render")
+	}
+}
+
+func TestMultipleInlineSVGsInParagraph(t *testing.T) {
+	// Multiple SVGs inline with text.
+	src := `<p><svg width="10" height="10" viewBox="0 0 10 10"><rect width="10" height="10" fill="red"/></svg> and <svg width="10" height="10" viewBox="0 0 10 10"><rect width="10" height="10" fill="blue"/></svg> icons</p>`
+	elems, err := Convert(src, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(elems) == 0 {
+		t.Fatal("expected elements")
+	}
+	plan := elems[0].PlanLayout(layout.LayoutArea{Width: 500, Height: 1000})
+	if plan.Status != layout.LayoutFull {
+		t.Errorf("expected LayoutFull, got %v", plan.Status)
+	}
+}
+
+func TestInlineSVGInHeading(t *testing.T) {
+	// SVG inside a heading (which also uses collectRuns).
+	src := `<h2><svg width="20" height="20" viewBox="0 0 20 20"><circle cx="10" cy="10" r="8" fill="orange"/></svg> Section Title</h2>`
+	elems, err := Convert(src, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(elems) == 0 {
+		t.Fatal("expected elements")
+	}
+	plan := elems[0].PlanLayout(layout.LayoutArea{Width: 500, Height: 1000})
+	if plan.Status != layout.LayoutFull {
+		t.Errorf("expected LayoutFull, got %v", plan.Status)
+	}
+	if plan.Consumed <= 0 {
+		t.Error("heading with inline SVG should render")
+	}
+}
+
+func TestDisplayBlockSVGNotInlinedInParagraph(t *testing.T) {
+	// An SVG with display:block inside a paragraph should not produce
+	// an inline element run — it should be skipped in inline flow.
+	src := `<p>Before <svg style="display:block" width="100" height="50" viewBox="0 0 100 50"><rect width="100" height="50" fill="blue"/></svg> After</p>`
+	elems, err := Convert(src, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(elems) == 0 {
+		t.Fatal("expected elements")
+	}
+	// The paragraph should contain only the text runs "Before" and "After"
+	// (the display:block SVG is skipped). Verify by checking that the
+	// paragraph fits on one line with just text content.
+	plan := elems[0].PlanLayout(layout.LayoutArea{Width: 500, Height: 1000})
+	if plan.Status != layout.LayoutFull {
+		t.Errorf("expected LayoutFull, got %v", plan.Status)
+	}
+	if len(plan.Blocks) != 1 {
+		t.Errorf("expected 1 block (single text line), got %d", len(plan.Blocks))
+	}
+	// Width should be narrow (just text), not wide (would be wider with
+	// a 100px inline SVG).
+	if plan.Blocks[0].Width > 80 {
+		t.Errorf("block width = %.1f, expected < 80 (display:block SVG should not be inlined)", plan.Blocks[0].Width)
+	}
+}
+
+func TestDisplayNoneSVGHiddenInParagraph(t *testing.T) {
+	// An SVG with display:none inside a paragraph should be completely
+	// hidden — not rendered as either inline or block.
+	src := `<p>Visible <svg style="display:none" width="100" height="50" viewBox="0 0 100 50"><rect width="100" height="50" fill="red"/></svg> text</p>`
+	elems, err := Convert(src, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(elems) == 0 {
+		t.Fatal("expected elements")
+	}
+	plan := elems[0].PlanLayout(layout.LayoutArea{Width: 500, Height: 1000})
+	if plan.Status != layout.LayoutFull {
+		t.Errorf("expected LayoutFull, got %v", plan.Status)
+	}
+	// Should render only text, no SVG element at all.
+	if len(plan.Blocks) != 1 {
+		t.Errorf("expected 1 block (text only), got %d", len(plan.Blocks))
+	}
+}
+
+func TestDisplayBlockImageNotInlinedInParagraph(t *testing.T) {
+	// An image with display:block inside a paragraph should be skipped
+	// in inline flow, not treated as an inline element.
+	src := `<p>Text <img style="display:block" src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==" width="200" height="100"> more</p>`
+	elems, err := Convert(src, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(elems) == 0 {
+		t.Fatal("expected elements")
+	}
+	plan := elems[0].PlanLayout(layout.LayoutArea{Width: 500, Height: 1000})
+	if plan.Status != layout.LayoutFull {
+		t.Errorf("expected LayoutFull, got %v", plan.Status)
+	}
+	// Should be a single line of just text, not widened by a 200px image.
+	if len(plan.Blocks) != 1 {
+		t.Errorf("expected 1 block (text only), got %d", len(plan.Blocks))
+	}
+	if plan.Blocks[0].Width > 80 {
+		t.Errorf("block width = %.1f, expected < 80 (display:block image should not be inlined)", plan.Blocks[0].Width)
+	}
+}
+
+func TestInlineBlockSVGStillInlinedInParagraph(t *testing.T) {
+	// An SVG with display:inline-block inside a paragraph should still
+	// be treated as inline (inline-block is not "block").
+	src := `<p>Check <svg style="display:inline-block" width="16" height="16" viewBox="0 0 16 16"><circle cx="8" cy="8" r="6" fill="green"/></svg> done</p>`
+	elems, err := Convert(src, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(elems) == 0 {
+		t.Fatal("expected elements")
+	}
+	plan := elems[0].PlanLayout(layout.LayoutArea{Width: 500, Height: 1000})
+	if plan.Status != layout.LayoutFull {
+		t.Errorf("expected LayoutFull, got %v", plan.Status)
+	}
+	// Should still be a single line with the SVG inline.
+	if len(plan.Blocks) != 1 {
+		t.Errorf("expected 1 block (single line), got %d", len(plan.Blocks))
+	}
+}

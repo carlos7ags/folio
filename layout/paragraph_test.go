@@ -496,3 +496,268 @@ func TestParagraphHighlightRendersWithPlanLayout(t *testing.T) {
 		t.Error("expected positive consumed height")
 	}
 }
+
+// --- Inline element runs ---
+
+// fixedElement is a test helper that implements Element with a fixed size.
+type fixedElement struct {
+	width, height float64
+}
+
+func (f *fixedElement) PlanLayout(area LayoutArea) LayoutPlan {
+	w, h := f.width, f.height
+	if w > area.Width {
+		w = area.Width
+	}
+	if h > area.Height {
+		return LayoutPlan{Status: LayoutNothing}
+	}
+	return LayoutPlan{
+		Status:   LayoutFull,
+		Consumed: h,
+		Blocks: []PlacedBlock{{
+			X: 0, Y: 0, Width: w, Height: h,
+			Draw: func(ctx DrawContext, absX, absTopY float64) {},
+		}},
+	}
+}
+
+func TestRunInlineConstructor(t *testing.T) {
+	el := &fixedElement{width: 20, height: 20}
+	run := RunInline(el)
+	if run.InlineElement != el {
+		t.Error("RunInline should set InlineElement")
+	}
+	if run.Font != nil || run.Embedded != nil {
+		t.Error("RunInline should leave font fields nil")
+	}
+}
+
+func TestStyledParagraphAcceptsInlineRun(t *testing.T) {
+	el := &fixedElement{width: 20, height: 20}
+	// Should not panic.
+	p := NewStyledParagraph(
+		Run("Hello ", font.Helvetica, 12),
+		RunInline(el),
+		Run(" World", font.Helvetica, 12),
+	)
+	if p == nil {
+		t.Fatal("expected non-nil paragraph")
+	}
+}
+
+func TestAddRunAcceptsInlineElement(t *testing.T) {
+	el := &fixedElement{width: 20, height: 20}
+	p := NewParagraph("Hello ", font.Helvetica, 12)
+	// Should not panic.
+	p.AddRun(RunInline(el))
+	p.AddRun(Run(" World", font.Helvetica, 12))
+}
+
+func TestParagraphInlineElementLayout(t *testing.T) {
+	// "Hello" + 20pt-wide inline element + "World" at 500pt width
+	// should fit on one line.
+	el := &fixedElement{width: 20, height: 16}
+	p := NewStyledParagraph(
+		Run("Hello ", font.Helvetica, 12),
+		RunInline(el),
+		Run(" World", font.Helvetica, 12),
+	)
+
+	lines := p.Layout(500)
+	if len(lines) != 1 {
+		t.Fatalf("expected 1 line, got %d", len(lines))
+	}
+
+	// Should have 3 words: "Hello", inline block, "World"
+	found := false
+	for _, w := range lines[0].Words {
+		if w.InlineBlock != nil {
+			found = true
+			if math.Abs(w.Width-20) > 0.1 {
+				t.Errorf("inline word width = %.1f, want 20", w.Width)
+			}
+		}
+	}
+	if !found {
+		t.Error("expected an InlineBlock word in the line")
+	}
+}
+
+func TestParagraphInlineElementPlanLayout(t *testing.T) {
+	el := &fixedElement{width: 20, height: 16}
+	p := NewStyledParagraph(
+		Run("Hello ", font.Helvetica, 12),
+		RunInline(el),
+		Run(" World", font.Helvetica, 12),
+	)
+
+	plan := p.PlanLayout(LayoutArea{Width: 500, Height: 1000})
+	if plan.Status != LayoutFull {
+		t.Fatalf("expected LayoutFull, got %d", plan.Status)
+	}
+	if plan.Consumed <= 0 {
+		t.Error("expected positive consumed height")
+	}
+	if len(plan.Blocks) == 0 {
+		t.Fatal("expected at least one block")
+	}
+}
+
+func TestParagraphInlineElementWraps(t *testing.T) {
+	// Very narrow width should force text + inline element to wrap.
+	el := &fixedElement{width: 30, height: 16}
+	p := NewStyledParagraph(
+		Run("Hello ", font.Helvetica, 12),
+		RunInline(el),
+	)
+
+	// "Hello" ≈ 27pt + space ≈ 3pt + 30pt inline = ~60pt; force wrap at 40pt.
+	lines := p.Layout(40)
+	if len(lines) < 2 {
+		t.Errorf("expected at least 2 lines at 40pt width, got %d", len(lines))
+	}
+}
+
+func TestParagraphInlineElementLineHeight(t *testing.T) {
+	// Inline element taller than text should increase line height.
+	el := &fixedElement{width: 20, height: 50}
+	p := NewStyledParagraph(
+		Run("Hello ", font.Helvetica, 12),
+		RunInline(el),
+	)
+
+	plan := p.PlanLayout(LayoutArea{Width: 500, Height: 1000})
+	if plan.Status != LayoutFull {
+		t.Fatalf("expected LayoutFull, got %d", plan.Status)
+	}
+	// With a 50pt inline element, consumed height should be >= 50.
+	if plan.Consumed < 50 {
+		t.Errorf("consumed = %.1f, expected >= 50 for 50pt tall inline element", plan.Consumed)
+	}
+}
+
+func TestParagraphOnlyInlineElement(t *testing.T) {
+	// A paragraph containing only an inline element (no text).
+	el := &fixedElement{width: 100, height: 30}
+	p := NewStyledParagraph(RunInline(el))
+
+	plan := p.PlanLayout(LayoutArea{Width: 500, Height: 1000})
+	if plan.Status != LayoutFull {
+		t.Fatalf("expected LayoutFull, got %d", plan.Status)
+	}
+	if plan.Consumed < 30 {
+		t.Errorf("consumed = %.1f, expected >= 30", plan.Consumed)
+	}
+}
+
+func TestInlineSpaceAfterFromFollowingRun(t *testing.T) {
+	// When an inline element leads the paragraph (no preceding text),
+	// its SpaceAfter should be derived from the next text run's font
+	// metrics, not a hardcoded value.
+	el := &fixedElement{width: 20, height: 16}
+	p := NewStyledParagraph(
+		RunInline(el),
+		Run(" World", font.Helvetica, 12),
+	)
+
+	lines := p.Layout(500)
+	if len(lines) == 0 {
+		t.Fatal("expected at least one line")
+	}
+	// The first word is the inline element; its SpaceAfter should match
+	// the space width of Helvetica 12pt (≈ 3.33pt), not be exactly 0.
+	inlineWord := lines[0].Words[0]
+	if inlineWord.InlineBlock == nil {
+		t.Fatal("first word should be InlineBlock")
+	}
+	// Helvetica 12pt space width is approximately 3.33pt.
+	expectedSpaceW := font.Helvetica.MeasureString(" ", 12)
+	if math.Abs(inlineWord.SpaceAfter-expectedSpaceW) > 0.01 {
+		t.Errorf("SpaceAfter = %.4f, want %.4f (from Helvetica 12pt)", inlineWord.SpaceAfter, expectedSpaceW)
+	}
+}
+
+func TestInlineSpaceAfterFlushWhenOnlyInlines(t *testing.T) {
+	// When a paragraph has only inline elements and no text runs,
+	// SpaceAfter should be 0 (flush positioning).
+	el1 := &fixedElement{width: 20, height: 16}
+	el2 := &fixedElement{width: 30, height: 16}
+	p := NewStyledParagraph(
+		RunInline(el1),
+		RunInline(el2),
+	)
+
+	lines := p.Layout(500)
+	if len(lines) == 0 {
+		t.Fatal("expected at least one line")
+	}
+	for i, w := range lines[0].Words {
+		if w.InlineBlock == nil {
+			continue
+		}
+		if w.SpaceAfter != 0 {
+			t.Errorf("word[%d].SpaceAfter = %.4f, want 0 for all-inline paragraph", i, w.SpaceAfter)
+		}
+	}
+}
+
+func TestInlineSpaceAfterInheritsPreceding(t *testing.T) {
+	// When an inline element follows text, it should inherit SpaceAfter
+	// from the preceding text word.
+	el := &fixedElement{width: 20, height: 16}
+	p := NewStyledParagraph(
+		Run("Hello ", font.Helvetica, 12),
+		RunInline(el),
+	)
+
+	lines := p.Layout(500)
+	if len(lines) == 0 {
+		t.Fatal("expected at least one line")
+	}
+	// Find the text word and the inline word.
+	var textSpaceAfter, inlineSpaceAfter float64
+	for _, w := range lines[0].Words {
+		if w.InlineBlock != nil {
+			inlineSpaceAfter = w.SpaceAfter
+		} else if w.Text == "Hello" {
+			textSpaceAfter = w.SpaceAfter
+		}
+	}
+	if textSpaceAfter == 0 {
+		t.Fatal("expected non-zero SpaceAfter on text word")
+	}
+	if math.Abs(inlineSpaceAfter-textSpaceAfter) > 0.01 {
+		t.Errorf("inline SpaceAfter = %.4f, want %.4f (inherited from preceding text)", inlineSpaceAfter, textSpaceAfter)
+	}
+}
+
+func TestInlineSpaceAfterPlanLayoutMatchesLayout(t *testing.T) {
+	// Both Layout() and PlanLayout (via measureWords) should produce
+	// the same SpaceAfter values for inline elements.
+	el := &fixedElement{width: 20, height: 16}
+	p := NewStyledParagraph(
+		RunInline(el),
+		Run(" World", font.Helvetica, 12),
+	)
+
+	lines := p.Layout(500)
+	plan := p.PlanLayout(LayoutArea{Width: 500, Height: 1000})
+
+	if len(lines) == 0 || len(plan.Blocks) == 0 {
+		t.Fatal("expected output from both Layout and PlanLayout")
+	}
+
+	layoutSA := lines[0].Words[0].SpaceAfter
+	// PlanLayout uses measureWords internally; verify the inline element
+	// word in the plan's first block has the same spacing. We check this
+	// indirectly by verifying both paths produce the same total line width.
+	layoutWidth := lines[0].Width
+	planWidth := plan.Blocks[0].Width
+	if math.Abs(layoutWidth-planWidth) > 0.1 {
+		t.Errorf("Layout width = %.2f, PlanLayout width = %.2f, want equal", layoutWidth, planWidth)
+	}
+	if layoutSA == 0 {
+		t.Error("expected non-zero SpaceAfter from font metrics look-ahead")
+	}
+}

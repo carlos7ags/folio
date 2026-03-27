@@ -66,9 +66,13 @@ func NewParagraphEmbedded(text string, ef *font.EmbeddedFont, fontSize float64) 
 
 // NewStyledParagraph creates a paragraph from multiple styled runs.
 // Runs are concatenated and word-wrapped as a single flowing text.
-// Panics if any run has both Font and Embedded nil.
+// Panics if any text run has both Font and Embedded nil.
+// Runs with InlineElement set are exempt from the font requirement.
 func NewStyledParagraph(runs ...TextRun) *Paragraph {
 	for i, r := range runs {
+		if r.InlineElement != nil {
+			continue // inline elements don't need fonts
+		}
 		if r.Font == nil && r.Embedded == nil {
 			panic(fmt.Sprintf("layout.NewStyledParagraph: run %d has nil Font and nil Embedded", i))
 		}
@@ -81,9 +85,9 @@ func NewStyledParagraph(runs ...TextRun) *Paragraph {
 }
 
 // AddRun appends a styled run to the paragraph.
-// Panics if the run has both Font and Embedded nil.
+// Panics if the run has both Font and Embedded nil (unless InlineElement is set).
 func (p *Paragraph) AddRun(r TextRun) *Paragraph {
-	if r.Font == nil && r.Embedded == nil {
+	if r.InlineElement == nil && r.Font == nil && r.Embedded == nil {
 		panic("layout.Paragraph.AddRun: run has nil Font and nil Embedded")
 	}
 	p.runs = append(p.runs, r)
@@ -201,7 +205,27 @@ func (p *Paragraph) Layout(maxWidth float64) []Line {
 	var measured []Word
 	var maxFontSize float64
 
-	for _, run := range p.runs {
+	for i, run := range p.runs {
+		// Inline element runs produce a single InlineBlock word.
+		if run.InlineElement != nil {
+			plan := run.InlineElement.PlanLayout(LayoutArea{
+				Width: maxWidth, Height: 1e6,
+			})
+			var iw, ih float64
+			if plan.Status != LayoutNothing && len(plan.Blocks) > 0 {
+				iw = plan.Blocks[0].Width
+				ih = plan.Consumed
+			}
+			measured = append(measured, Word{
+				InlineBlock:  run.InlineElement,
+				InlineWidth:  iw,
+				InlineHeight: ih,
+				Width:        iw,
+				SpaceAfter:   inlineSpaceAfter(measured, p.runs, i),
+			})
+			continue
+		}
+
 		measurer := runMeasurer(run)
 		spaceW := measurer.MeasureString(" ", run.FontSize) + run.WordSpacing
 		words := splitWords(run.Text)
@@ -379,6 +403,33 @@ func runMeasurer(run TextRun) font.TextMeasurer {
 		return run.Embedded
 	}
 	return run.Font
+}
+
+// inlineSpaceAfter computes the space-after width for an inline element word.
+// It uses surrounding text metrics when available: first from already-measured
+// words (preceding context), then by scanning forward in the runs for the
+// next text run (following context). When no text context exists at all
+// (e.g. a paragraph of only inline elements), it returns 0 so the elements
+// sit flush against each other.
+func inlineSpaceAfter(measured []Word, runs []TextRun, currentIdx int) float64 {
+	// Preceding word has known metrics — inherit its spacing.
+	if len(measured) > 0 {
+		return measured[len(measured)-1].SpaceAfter
+	}
+	// Look ahead for the next text run to derive font-based spacing.
+	for j := currentIdx + 1; j < len(runs); j++ {
+		r := runs[j]
+		if r.InlineElement != nil {
+			continue
+		}
+		m := runMeasurer(r)
+		if m == nil {
+			continue
+		}
+		return m.MeasureString(" ", r.FontSize) + r.WordSpacing
+	}
+	// No text context at all — flush spacing.
+	return 0
 }
 
 // buildLine creates a Line from a slice of words.
@@ -841,7 +892,27 @@ func (p *Paragraph) measureWords(maxWidth float64) ([]Word, float64) {
 	var measured []Word
 	var maxFontSize float64
 
-	for _, run := range p.runs {
+	for i, run := range p.runs {
+		// Inline element runs produce a single InlineBlock word.
+		if run.InlineElement != nil {
+			plan := run.InlineElement.PlanLayout(LayoutArea{
+				Width: maxWidth, Height: 1e6,
+			})
+			var iw, ih float64
+			if plan.Status != LayoutNothing && len(plan.Blocks) > 0 {
+				iw = plan.Blocks[0].Width
+				ih = plan.Consumed
+			}
+			measured = append(measured, Word{
+				InlineBlock:  run.InlineElement,
+				InlineWidth:  iw,
+				InlineHeight: ih,
+				Width:        iw,
+				SpaceAfter:   inlineSpaceAfter(measured, p.runs, i),
+			})
+			continue
+		}
+
 		measurer := runMeasurer(run)
 		spaceW := measurer.MeasureString(" ", run.FontSize) + run.WordSpacing
 		text := run.Text
