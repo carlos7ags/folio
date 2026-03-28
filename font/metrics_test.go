@@ -201,6 +201,116 @@ func TestKernHelveticaBoldHasOwnTable(t *testing.T) {
 	}
 }
 
+// --- Ascent/Descent tests ---
+
+func TestStandardFontAscent(t *testing.T) {
+	tests := []struct {
+		font     *Standard
+		fontSize float64
+		want     float64
+	}{
+		{Helvetica, 12, 12 * 718.0 / 1000},
+		{HelveticaBold, 12, 12 * 718.0 / 1000},
+		{TimesRoman, 12, 12 * 683.0 / 1000},
+		{Courier, 12, 12 * 629.0 / 1000},
+		{Courier, 24, 24 * 629.0 / 1000},
+		{Symbol, 10, 10 * 673.0 / 1000},
+		{ZapfDingbats, 10, 10 * 677.0 / 1000},
+	}
+	for _, tt := range tests {
+		got := tt.font.Ascent(tt.fontSize)
+		if math.Abs(got-tt.want) > 0.001 {
+			t.Errorf("%s.Ascent(%g) = %f, want %f", tt.font.Name(), tt.fontSize, got, tt.want)
+		}
+	}
+}
+
+func TestStandardFontDescent(t *testing.T) {
+	tests := []struct {
+		font     *Standard
+		fontSize float64
+		want     float64
+	}{
+		{Helvetica, 12, 12 * 207.0 / 1000},
+		{TimesRoman, 12, 12 * 217.0 / 1000},
+		{Courier, 12, 12 * 157.0 / 1000},
+		{CourierBold, 10, 10 * 142.0 / 1000},
+	}
+	for _, tt := range tests {
+		got := tt.font.Descent(tt.fontSize)
+		if math.Abs(got-tt.want) > 0.001 {
+			t.Errorf("%s.Descent(%g) = %f, want %f", tt.font.Name(), tt.fontSize, got, tt.want)
+		}
+	}
+}
+
+func TestAllStandardFontsHaveMetrics(t *testing.T) {
+	fonts := []*Standard{
+		Helvetica, HelveticaBold, HelveticaOblique, HelveticaBoldOblique,
+		TimesRoman, TimesBold, TimesItalic, TimesBoldItalic,
+		Courier, CourierBold, CourierOblique, CourierBoldOblique,
+		Symbol, ZapfDingbats,
+	}
+	for _, f := range fonts {
+		a := f.Ascent(12)
+		d := f.Descent(12)
+		if a <= 0 {
+			t.Errorf("%s: Ascent should be > 0, got %f", f.Name(), a)
+		}
+		if d <= 0 {
+			t.Errorf("%s: Descent should be > 0, got %f", f.Name(), d)
+		}
+		// Ascent + Descent should not exceed fontSize (physically impossible).
+		if a+d > 12 {
+			t.Errorf("%s: Ascent(%f) + Descent(%f) = %f > fontSize(12)", f.Name(), a, d, a+d)
+		}
+	}
+}
+
+func TestAscentDescentDifferBetweenFonts(t *testing.T) {
+	hAsc := Helvetica.Ascent(100)
+	cAsc := Courier.Ascent(100)
+	tAsc := TimesRoman.Ascent(100)
+
+	if hAsc == cAsc {
+		t.Error("Helvetica and Courier should have different ascent values")
+	}
+	if hAsc == tAsc {
+		t.Error("Helvetica and Times should have different ascent values")
+	}
+
+	hDes := Helvetica.Descent(100)
+	cDes := Courier.Descent(100)
+	if hDes == cDes {
+		t.Error("Helvetica and Courier should have different descent values")
+	}
+}
+
+func TestAscentDescentScaleLinearly(t *testing.T) {
+	a10 := Helvetica.Ascent(10)
+	a20 := Helvetica.Ascent(20)
+	if math.Abs(a20/a10-2.0) > 0.001 {
+		t.Errorf("Ascent should scale linearly: 10pt=%f, 20pt=%f, ratio=%f", a10, a20, a20/a10)
+	}
+
+	d10 := Helvetica.Descent(10)
+	d20 := Helvetica.Descent(20)
+	if math.Abs(d20/d10-2.0) > 0.001 {
+		t.Errorf("Descent should scale linearly: 10pt=%f, 20pt=%f, ratio=%f", d10, d20, d20/d10)
+	}
+}
+
+func TestAscentZeroFontSize(t *testing.T) {
+	a := Helvetica.Ascent(0)
+	d := Helvetica.Descent(0)
+	if a != 0 {
+		t.Errorf("Ascent at fontSize 0 should be 0, got %f", a)
+	}
+	if d != 0 {
+		t.Errorf("Descent at fontSize 0 should be 0, got %f", d)
+	}
+}
+
 func TestKernEmbeddedFont(t *testing.T) {
 	ttfPath := "/System/Library/Fonts/Supplemental/Arial.ttf"
 	data, err := os.ReadFile(ttfPath)
