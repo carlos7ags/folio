@@ -37,8 +37,9 @@ var headingSizes = [7]float64{
 type Heading struct {
 	para          *Paragraph
 	level         HeadingLevel
-	bookmarkLevel int    // CSS bookmark-level override (0 = use level)
-	bookmarkLabel string // CSS bookmark-label override (empty = use text)
+	bookmarkLevel int               // CSS bookmark-level override (0 = use level)
+	bookmarkLabel string            // CSS bookmark-label override (empty = use text)
+	stringSets    map[string]string // CSS string-set values to capture
 }
 
 // NewHeading creates a heading using a standard font.
@@ -92,6 +93,17 @@ func (h *Heading) SetBookmarkLevel(level int) *Heading {
 // Empty string means use the heading's text content.
 func (h *Heading) SetBookmarkLabel(label string) *Heading {
 	h.bookmarkLabel = label
+	return h
+}
+
+// SetStringSet attaches a CSS string-set value to this heading.
+// When the heading is placed during layout, the string value is captured
+// and made available to margin boxes via the string() function.
+func (h *Heading) SetStringSet(name, value string) *Heading {
+	if h.stringSets == nil {
+		h.stringSets = make(map[string]string)
+	}
+	h.stringSets[name] = value
 	return h
 }
 
@@ -172,6 +184,9 @@ func (h *Heading) PlanLayout(area LayoutArea) LayoutPlan {
 		plan.Blocks[i].Tag = tag
 		if i == 0 {
 			plan.Blocks[i].HeadingText = headingText
+			if len(h.stringSets) > 0 {
+				plan.Blocks[i].StringSets = h.stringSets
+			}
 		}
 	}
 

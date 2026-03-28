@@ -808,6 +808,15 @@ func (c *converter) applyProperty(prop, val string, style *computedStyle) {
 		}
 	case "bookmark-label":
 		style.BookmarkLabel = strings.Trim(strings.TrimSpace(val), `"'`)
+
+	// CSS string-set for running headers.
+	// Format: string-set: name content() | string-set: name "literal"
+	case "string-set":
+		parts := strings.Fields(strings.TrimSpace(val))
+		if len(parts) >= 2 {
+			style.StringSetName = parts[0]
+			style.StringSetValue = strings.Join(parts[1:], " ")
+		}
 	}
 }
 

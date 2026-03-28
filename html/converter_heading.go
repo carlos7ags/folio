@@ -4,6 +4,8 @@
 package html
 
 import (
+	"strings"
+
 	"github.com/carlos7ags/folio/layout"
 
 	"golang.org/x/net/html"
@@ -39,6 +41,15 @@ func (c *converter) convertHeading(n *html.Node, style computedStyle, level layo
 	}
 	if style.BookmarkLabel != "" {
 		h.SetBookmarkLabel(style.BookmarkLabel)
+	}
+	if style.StringSetName != "" {
+		// Resolve content() to the heading's text content.
+		value := style.StringSetValue
+		if strings.Contains(value, "content()") {
+			value = strings.ReplaceAll(value, "content()", text)
+		}
+		value = strings.Trim(value, `"'`)
+		h.SetStringSet(style.StringSetName, value)
 	}
 
 	// Wrap in a Div if the heading has box-model properties.

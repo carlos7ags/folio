@@ -117,6 +117,10 @@ type computedStyle struct {
 	ListMarkerColor    *layout.Color // marker color from ::marker pseudo-element
 	ListMarkerFontSize float64       // marker font size from ::marker (0 = use default)
 
+	// CSS string-set for running headers (e.g. string-set: chapter content())
+	StringSetName  string // name of the string (e.g. "chapter")
+	StringSetValue string // "content()" or literal string
+
 	// Page break
 	PageBreakBefore string // "auto", "always", "avoid"
 	PageBreakAfter  string // "auto", "always", "avoid"

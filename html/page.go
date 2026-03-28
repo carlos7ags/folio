@@ -196,6 +196,17 @@ func parseContentValue(val string) string {
 				continue
 			}
 		}
+		// string() function — references a CSS string-set value.
+		// Stored as {string(name)} placeholder, resolved by renderer.
+		if strings.HasPrefix(remaining, "string(") {
+			closeIdx := strings.IndexByte(remaining, ')')
+			if closeIdx >= 0 {
+				fnCall := remaining[:closeIdx+1]
+				result.WriteString("{" + fnCall + "}")
+				remaining = remaining[closeIdx+1:]
+				continue
+			}
+		}
 		// Skip unknown tokens.
 		spIdx := strings.IndexByte(remaining, ' ')
 		if spIdx >= 0 {
