@@ -285,6 +285,12 @@ func lookupKernFormat0(data []byte, left, right uint16) int {
 	nPairs := int(binary.BigEndian.Uint16(data[0:2]))
 	pairData := data[8:] // skip nPairs, searchRange, entrySelector, rangeShift
 
+	// Clamp nPairs to the actual available data to prevent unsound
+	// binary search on malformed fonts with inflated pair counts.
+	if maxPairs := len(pairData) / 6; nPairs > maxPairs {
+		nPairs = maxPairs
+	}
+
 	// Binary search for the pair (pairs are sorted by (left, right)).
 	key := uint32(left)<<16 | uint32(right)
 	lo, hi := 0, nPairs-1

@@ -284,6 +284,33 @@ func TestFlagsSerif(t *testing.T) {
 	}
 }
 
+func TestLookupKernFormat0BoundsCheck(t *testing.T) {
+	// Craft a kern format 0 subtable with inflated nPairs but only 1 real pair.
+	// nPairs=9999, searchRange=0, entrySelector=0, rangeShift=0 (8 bytes header)
+	// + 1 real pair: left=0x0041 ('A'), right=0x0056 ('V'), value=-80 (6 bytes)
+	// Total: 14 bytes, but nPairs claims 9999 entries.
+	data := []byte{
+		0x27, 0x0F, // nPairs = 9999
+		0x00, 0x00, // searchRange
+		0x00, 0x00, // entrySelector
+		0x00, 0x00, // rangeShift
+		// pair: left=0x0041, right=0x0056, value=-80 (0xFFB0)
+		0x00, 0x41, 0x00, 0x56, 0xFF, 0xB0,
+	}
+
+	// Should not panic despite inflated nPairs.
+	val := lookupKernFormat0(data, 0x0041, 0x0056)
+	if val != -80 {
+		t.Errorf("expected -80, got %d", val)
+	}
+
+	// Non-existent pair should return 0.
+	val = lookupKernFormat0(data, 0x0041, 0x0042)
+	if val != 0 {
+		t.Errorf("expected 0 for missing pair, got %d", val)
+	}
+}
+
 func TestFlagsItalic(t *testing.T) {
 	face := loadFontFace(t, "/System/Library/Fonts/Supplemental/Courier New Italic.ttf")
 	flags := face.Flags()
