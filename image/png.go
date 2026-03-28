@@ -85,16 +85,33 @@ func buildRGB(img goimage.Image, w, h int) (*Image, error) {
 }
 
 // buildRGBA extracts RGB pixel data and alpha channel separately.
+// PDF requires straight (non-premultiplied) alpha: the RGB bytes must
+// contain the original colors, with alpha stored in a separate SMask.
+// Go's color.RGBA() method returns premultiplied values, so we must
+// use non-premultiplied access paths to get correct colors.
 func buildRGBA(img goimage.Image, w, h int) (*Image, error) {
 	bounds := img.Bounds()
 	pixels := make([]byte, 0, w*h*3)
 	alpha := make([]byte, 0, w*h)
 
-	for y := bounds.Min.Y; y < bounds.Max.Y; y++ {
-		for x := bounds.Min.X; x < bounds.Max.X; x++ {
-			r, g, b, a := img.At(x, y).RGBA()
-			pixels = append(pixels, byte(r>>8), byte(g>>8), byte(b>>8))
-			alpha = append(alpha, byte(a>>8))
+	switch src := img.(type) {
+	case *goimage.NRGBA:
+		// NRGBA stores straight (non-premultiplied) RGBA in Pix.
+		for y := bounds.Min.Y; y < bounds.Max.Y; y++ {
+			for x := bounds.Min.X; x < bounds.Max.X; x++ {
+				off := (y-bounds.Min.Y)*src.Stride + (x-bounds.Min.X)*4
+				pixels = append(pixels, src.Pix[off], src.Pix[off+1], src.Pix[off+2])
+				alpha = append(alpha, src.Pix[off+3])
+			}
+		}
+	default:
+		// Generic path: convert each pixel to NRGBA to get straight alpha.
+		for y := bounds.Min.Y; y < bounds.Max.Y; y++ {
+			for x := bounds.Min.X; x < bounds.Max.X; x++ {
+				c := color.NRGBAModel.Convert(img.At(x, y)).(color.NRGBA)
+				pixels = append(pixels, c.R, c.G, c.B)
+				alpha = append(alpha, c.A)
+			}
 		}
 	}
 

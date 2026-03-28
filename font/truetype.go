@@ -285,6 +285,12 @@ func lookupKernFormat0(data []byte, left, right uint16) int {
 	nPairs := int(binary.BigEndian.Uint16(data[0:2]))
 	pairData := data[8:] // skip nPairs, searchRange, entrySelector, rangeShift
 
+	// Clamp nPairs to the actual available data to prevent unsound
+	// binary search on malformed fonts with inflated pair counts.
+	if maxPairs := len(pairData) / 6; nPairs > maxPairs {
+		nPairs = maxPairs
+	}
+
 	// Binary search for the pair (pairs are sorted by (left, right)).
 	key := uint32(left)<<16 | uint32(right)
 	lo, hi := 0, nPairs-1
@@ -309,13 +315,78 @@ func lookupKernFormat0(data []byte, left, right uint16) int {
 	return 0
 }
 
-// Flags returns the PDF font flags. Currently hardcoded to 32 (Nonsymbolic),
-// which is appropriate for TrueType fonts with Unicode cmap tables.
+// Flags returns the PDF font descriptor flags per ISO 32000 Table 123.
+// Bits are computed from font metadata: FixedPitch (bit 0), Serif (bit 1),
+// Symbolic (bit 2), Nonsymbolic (bit 5), Italic (bit 6).
 func (f *sfntFace) Flags() uint32 {
-	// PDF font flags (Table 123 in ISO 32000):
-	// Bit 6 (value 32): Nonsymbolic — using standard Latin encoding.
-	// This is the common case for TrueType fonts with Unicode cmap.
-	return 32
+	var flags uint32
+
+	// Bit 0 (1): FixedPitch — check post table isFixedPitch field.
+	if f.isFixedPitch() {
+		flags |= 1
+	}
+
+	// Bit 1 (2): Serif — check OS/2 sFamilyClass.
+	if f.isSerif() {
+		flags |= 2
+	}
+
+	// Bit 2 (4) vs Bit 5 (32): Symbolic vs Nonsymbolic (mutually exclusive).
+	// A font with a Unicode cmap that can map 'A' is Nonsymbolic.
+	if f.GlyphIndex('A') != 0 {
+		flags |= 32 // Nonsymbolic
+	} else {
+		flags |= 4 // Symbolic
+	}
+
+	// Bit 6 (64): Italic — check italic angle or OS/2 fsSelection.
+	if f.ItalicAngle() != 0 || f.isItalicFromOS2() {
+		flags |= 64
+	}
+
+	return flags
+}
+
+// isFixedPitch checks the post table isFixedPitch field (offset 12).
+func (f *sfntFace) isFixedPitch() bool {
+	tables := f.rawTables()
+	if tables == nil {
+		return false
+	}
+	post, ok := tables["post"]
+	if !ok || len(post) < 16 {
+		return false
+	}
+	return binary.BigEndian.Uint32(post[12:16]) != 0
+}
+
+// isSerif checks the OS/2 sFamilyClass field (offset 30-31).
+// Family classes 1-5 and 7 indicate serif fonts.
+func (f *sfntFace) isSerif() bool {
+	tables := f.rawTables()
+	if tables == nil {
+		return false
+	}
+	os2, ok := tables["OS/2"]
+	if !ok || len(os2) < 32 {
+		return false
+	}
+	class := int(int16(binary.BigEndian.Uint16(os2[30:32]))) >> 8 // high byte is class ID
+	return class >= 1 && class <= 5 || class == 7
+}
+
+// isItalicFromOS2 checks OS/2 fsSelection bit 0 (Italic).
+func (f *sfntFace) isItalicFromOS2() bool {
+	tables := f.rawTables()
+	if tables == nil {
+		return false
+	}
+	os2, ok := tables["OS/2"]
+	if !ok || len(os2) < 64 {
+		return false
+	}
+	fsSelection := binary.BigEndian.Uint16(os2[62:64])
+	return fsSelection&1 != 0
 }
 
 // RawData returns the complete, unmodified font file bytes.

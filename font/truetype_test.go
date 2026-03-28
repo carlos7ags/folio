@@ -230,3 +230,94 @@ func TestFaceInterface(t *testing.T) {
 	face := loadTestFace(t)
 	var _ Face = face //nolint:staticcheck // compile-time interface check
 }
+
+func loadFontFace(t *testing.T, path string) Face {
+	t.Helper()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Skipf("font not available: %s", path)
+	}
+	face, err := ParseTTF(data)
+	if err != nil {
+		t.Fatalf("ParseTTF(%s): %v", path, err)
+	}
+	return face
+}
+
+func TestFlagsNonsymbolic(t *testing.T) {
+	// Arial is a sans-serif, non-symbolic, non-italic, proportional font.
+	face := loadFontFace(t, "/System/Library/Fonts/Supplemental/Arial.ttf")
+	flags := face.Flags()
+	if flags&32 == 0 {
+		t.Error("Arial should be Nonsymbolic (bit 5)")
+	}
+	if flags&4 != 0 {
+		t.Error("Arial should NOT be Symbolic (bit 2)")
+	}
+	if flags&1 != 0 {
+		t.Error("Arial should NOT be FixedPitch (bit 0)")
+	}
+	if flags&64 != 0 {
+		t.Error("Arial should NOT be Italic (bit 6)")
+	}
+}
+
+func TestFlagsFixedPitch(t *testing.T) {
+	face := loadFontFace(t, "/System/Library/Fonts/Supplemental/Courier New.ttf")
+	flags := face.Flags()
+	if flags&1 == 0 {
+		t.Error("Courier New should be FixedPitch (bit 0)")
+	}
+	if flags&32 == 0 {
+		t.Error("Courier New should be Nonsymbolic (bit 5)")
+	}
+}
+
+func TestFlagsSerif(t *testing.T) {
+	face := loadFontFace(t, "/System/Library/Fonts/Supplemental/Times New Roman.ttf")
+	flags := face.Flags()
+	if flags&2 == 0 {
+		t.Error("Times New Roman should be Serif (bit 1)")
+	}
+	if flags&32 == 0 {
+		t.Error("Times New Roman should be Nonsymbolic (bit 5)")
+	}
+}
+
+func TestLookupKernFormat0BoundsCheck(t *testing.T) {
+	// Craft a kern format 0 subtable with inflated nPairs but only 1 real pair.
+	// nPairs=9999, searchRange=0, entrySelector=0, rangeShift=0 (8 bytes header)
+	// + 1 real pair: left=0x0041 ('A'), right=0x0056 ('V'), value=-80 (6 bytes)
+	// Total: 14 bytes, but nPairs claims 9999 entries.
+	data := []byte{
+		0x27, 0x0F, // nPairs = 9999
+		0x00, 0x00, // searchRange
+		0x00, 0x00, // entrySelector
+		0x00, 0x00, // rangeShift
+		// pair: left=0x0041, right=0x0056, value=-80 (0xFFB0)
+		0x00, 0x41, 0x00, 0x56, 0xFF, 0xB0,
+	}
+
+	// Should not panic despite inflated nPairs.
+	val := lookupKernFormat0(data, 0x0041, 0x0056)
+	if val != -80 {
+		t.Errorf("expected -80, got %d", val)
+	}
+
+	// Non-existent pair should return 0.
+	val = lookupKernFormat0(data, 0x0041, 0x0042)
+	if val != 0 {
+		t.Errorf("expected 0 for missing pair, got %d", val)
+	}
+}
+
+func TestFlagsItalic(t *testing.T) {
+	face := loadFontFace(t, "/System/Library/Fonts/Supplemental/Courier New Italic.ttf")
+	flags := face.Flags()
+	if flags&64 == 0 {
+		t.Error("Courier New Italic should be Italic (bit 6)")
+	}
+	if flags&1 == 0 {
+		t.Error("Courier New Italic should be FixedPitch (bit 0)")
+	}
+}

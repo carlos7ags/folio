@@ -70,6 +70,15 @@ func NewFromGoImage(src *goimage.RGBA) *Image {
 			g := src.Pix[off+1]
 			b := src.Pix[off+2]
 			a := src.Pix[off+3]
+			// image.RGBA stores premultiplied values. PDF needs straight
+			// (non-premultiplied) alpha, so un-premultiply when a < 255.
+			if a > 0 && a < 255 {
+				r = uint8(uint16(r) * 255 / uint16(a))
+				g = uint8(uint16(g) * 255 / uint16(a))
+				b = uint8(uint16(b) * 255 / uint16(a))
+			} else if a == 0 {
+				r, g, b = 0, 0, 0
+			}
 			pixels = append(pixels, r, g, b)
 			alpha = append(alpha, a)
 			if a != 0xFF {

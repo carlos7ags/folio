@@ -204,3 +204,33 @@ func TestJPEGBuildXObjectColorSpace(t *testing.T) {
 		t.Error("expected nil SMask for grayscale JPEG")
 	}
 }
+
+func TestNewJPEGCMYK(t *testing.T) {
+	// Craft a synthetic JPEG with 4 components (CMYK).
+	// We only need SOI + SOF0 with ncomp=4 — parseJPEGHeader reads
+	// dimensions and component count from the SOF marker.
+	data := []byte{
+		0xFF, 0xD8, // SOI
+		0xFF, 0xC0, // SOF0 (Baseline DCT)
+		0x00, 0x11, // segment length = 17 (header + 4 components * 3)
+		0x08,       // precision = 8
+		0x00, 0x01, // height = 1
+		0x00, 0x01, // width = 1
+		0x04, // ncomp = 4 (CMYK)
+		// component specifications (4 * 3 bytes)
+		0x01, 0x11, 0x00,
+		0x02, 0x11, 0x00,
+		0x03, 0x11, 0x00,
+		0x04, 0x11, 0x00,
+	}
+	img, err := NewJPEG(data)
+	if err != nil {
+		t.Fatalf("NewJPEG CMYK: %v", err)
+	}
+	if img.colorSpace != "DeviceCMYK" {
+		t.Errorf("expected DeviceCMYK, got %s", img.colorSpace)
+	}
+	if img.Width() != 1 || img.Height() != 1 {
+		t.Errorf("expected 1x1, got %dx%d", img.Width(), img.Height())
+	}
+}

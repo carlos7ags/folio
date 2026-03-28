@@ -246,6 +246,80 @@ func TestPNGBuildXObjectWithAlpha(t *testing.T) {
 	}
 }
 
+func TestPNGAlphaStraightColor(t *testing.T) {
+	// Create a 2x2 NRGBA image with semi-transparent red.
+	// Straight alpha: R=255, G=0, B=0, A=128.
+	// The PDF RGB data must contain [255, 0, 0] (non-premultiplied),
+	// NOT [128, 0, 0] (which would be the premultiplied value).
+	src := goimage.NewNRGBA(goimage.Rect(0, 0, 2, 2))
+	for y := range 2 {
+		for x := range 2 {
+			src.SetNRGBA(x, y, color.NRGBA{R: 255, G: 0, B: 0, A: 128})
+		}
+	}
+	var buf bytes.Buffer
+	if err := png.Encode(&buf, src); err != nil {
+		t.Fatalf("png.Encode: %v", err)
+	}
+
+	img, err := NewPNG(buf.Bytes())
+	if err != nil {
+		t.Fatalf("NewPNG: %v", err)
+	}
+
+	// Check RGB bytes: each pixel should be [255, 0, 0].
+	if len(img.data) != 2*2*3 {
+		t.Fatalf("expected %d RGB bytes, got %d", 2*2*3, len(img.data))
+	}
+	for i := 0; i < len(img.data); i += 3 {
+		r, g, b := img.data[i], img.data[i+1], img.data[i+2]
+		if r != 255 || g != 0 || b != 0 {
+			t.Errorf("pixel %d: expected RGB [255, 0, 0], got [%d, %d, %d]", i/3, r, g, b)
+		}
+	}
+
+	// Check alpha bytes: each should be 128.
+	if len(img.smask) != 2*2 {
+		t.Fatalf("expected %d alpha bytes, got %d", 2*2, len(img.smask))
+	}
+	for i, a := range img.smask {
+		if a != 128 {
+			t.Errorf("alpha pixel %d: expected 128, got %d", i, a)
+		}
+	}
+}
+
+func TestNewFromGoImageAlphaStraight(t *testing.T) {
+	// image.RGBA stores premultiplied values.
+	// Semi-transparent red: premultiplied R=128 with A=128 means straight R=255.
+	src := goimage.NewRGBA(goimage.Rect(0, 0, 1, 1))
+	src.SetRGBA(0, 0, color.RGBA{R: 128, G: 0, B: 0, A: 128})
+
+	img := NewFromGoImage(src)
+	if img == nil {
+		t.Fatal("NewFromGoImage returned nil")
+	}
+
+	// RGB data should be un-premultiplied: R = 128 * 255 / 128 = 255.
+	if len(img.data) != 3 {
+		t.Fatalf("expected 3 RGB bytes, got %d", len(img.data))
+	}
+	if img.data[0] != 255 {
+		t.Errorf("expected R=255 (un-premultiplied), got %d", img.data[0])
+	}
+	if img.data[1] != 0 {
+		t.Errorf("expected G=0, got %d", img.data[1])
+	}
+	if img.data[2] != 0 {
+		t.Errorf("expected B=0, got %d", img.data[2])
+	}
+
+	// Alpha should be 128.
+	if len(img.smask) != 1 || img.smask[0] != 128 {
+		t.Errorf("expected alpha=128, got %v", img.smask)
+	}
+}
+
 func TestPNGBuildXObjectGrayscale(t *testing.T) {
 	gray := goimage.NewGray(goimage.Rect(0, 0, 10, 10))
 	for y := range 10 {

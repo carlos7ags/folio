@@ -425,6 +425,45 @@ func TestSetLineJoin(t *testing.T) {
 	}
 }
 
+func assertPanics(t *testing.T, name string, fn func()) {
+	t.Helper()
+	defer func() {
+		if r := recover(); r == nil {
+			t.Errorf("%s: expected panic, got none", name)
+		}
+	}()
+	fn()
+}
+
+func TestSetLineCapInvalid(t *testing.T) {
+	s := NewStream()
+	// Valid values should not panic.
+	for _, v := range []int{0, 1, 2} {
+		s.SetLineCap(v)
+	}
+	// Invalid values should panic.
+	assertPanics(t, "SetLineCap(-1)", func() { s.SetLineCap(-1) })
+	assertPanics(t, "SetLineCap(3)", func() { s.SetLineCap(3) })
+}
+
+func TestSetLineJoinInvalid(t *testing.T) {
+	s := NewStream()
+	for _, v := range []int{0, 1, 2} {
+		s.SetLineJoin(v)
+	}
+	assertPanics(t, "SetLineJoin(-1)", func() { s.SetLineJoin(-1) })
+	assertPanics(t, "SetLineJoin(3)", func() { s.SetLineJoin(3) })
+}
+
+func TestSetTextRenderingModeInvalid(t *testing.T) {
+	s := NewStream()
+	for v := range 8 {
+		s.SetTextRenderingMode(v)
+	}
+	assertPanics(t, "SetTextRenderingMode(-1)", func() { s.SetTextRenderingMode(-1) })
+	assertPanics(t, "SetTextRenderingMode(8)", func() { s.SetTextRenderingMode(8) })
+}
+
 func TestSetMiterLimit(t *testing.T) {
 	s := NewStream()
 	s.SetMiterLimit(10)

@@ -150,8 +150,11 @@ const (
 )
 
 // SetTextRenderingMode writes the Tr operator: set text rendering mode.
-// mode is one of the TextRender* constants.
+// mode is one of the TextRender* constants (0-7).
 func (s *Stream) SetTextRenderingMode(mode int) {
+	if mode < 0 || mode > 7 {
+		panic(fmt.Sprintf("content: SetTextRenderingMode: invalid mode %d (must be 0-7)", mode))
+	}
 	s.writeln(fmt.Sprintf("%d Tr", mode))
 }
 
@@ -203,8 +206,11 @@ const (
 	LineCapSquare = 2 // Square cap — half-square at endpoint
 )
 
-// SetLineCap writes the J operator: set line cap style.
+// SetLineCap writes the J operator: set line cap style (0-2).
 func (s *Stream) SetLineCap(style int) {
+	if style < 0 || style > 2 {
+		panic(fmt.Sprintf("content: SetLineCap: invalid style %d (must be 0-2)", style))
+	}
 	s.writeln(fmt.Sprintf("%d J", style))
 }
 
@@ -215,8 +221,11 @@ const (
 	LineJoinBevel = 2 // Bevel join — flat corners
 )
 
-// SetLineJoin writes the j operator: set line join style.
+// SetLineJoin writes the j operator: set line join style (0-2).
 func (s *Stream) SetLineJoin(style int) {
+	if style < 0 || style > 2 {
+		panic(fmt.Sprintf("content: SetLineJoin: invalid style %d (must be 0-2)", style))
+	}
 	s.writeln(fmt.Sprintf("%d j", style))
 }
 
