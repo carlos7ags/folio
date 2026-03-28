@@ -230,3 +230,67 @@ func TestFaceInterface(t *testing.T) {
 	face := loadTestFace(t)
 	var _ Face = face //nolint:staticcheck // compile-time interface check
 }
+
+func loadFontFace(t *testing.T, path string) Face {
+	t.Helper()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Skipf("font not available: %s", path)
+	}
+	face, err := ParseTTF(data)
+	if err != nil {
+		t.Fatalf("ParseTTF(%s): %v", path, err)
+	}
+	return face
+}
+
+func TestFlagsNonsymbolic(t *testing.T) {
+	// Arial is a sans-serif, non-symbolic, non-italic, proportional font.
+	face := loadFontFace(t, "/System/Library/Fonts/Supplemental/Arial.ttf")
+	flags := face.Flags()
+	if flags&32 == 0 {
+		t.Error("Arial should be Nonsymbolic (bit 5)")
+	}
+	if flags&4 != 0 {
+		t.Error("Arial should NOT be Symbolic (bit 2)")
+	}
+	if flags&1 != 0 {
+		t.Error("Arial should NOT be FixedPitch (bit 0)")
+	}
+	if flags&64 != 0 {
+		t.Error("Arial should NOT be Italic (bit 6)")
+	}
+}
+
+func TestFlagsFixedPitch(t *testing.T) {
+	face := loadFontFace(t, "/System/Library/Fonts/Supplemental/Courier New.ttf")
+	flags := face.Flags()
+	if flags&1 == 0 {
+		t.Error("Courier New should be FixedPitch (bit 0)")
+	}
+	if flags&32 == 0 {
+		t.Error("Courier New should be Nonsymbolic (bit 5)")
+	}
+}
+
+func TestFlagsSerif(t *testing.T) {
+	face := loadFontFace(t, "/System/Library/Fonts/Supplemental/Times New Roman.ttf")
+	flags := face.Flags()
+	if flags&2 == 0 {
+		t.Error("Times New Roman should be Serif (bit 1)")
+	}
+	if flags&32 == 0 {
+		t.Error("Times New Roman should be Nonsymbolic (bit 5)")
+	}
+}
+
+func TestFlagsItalic(t *testing.T) {
+	face := loadFontFace(t, "/System/Library/Fonts/Supplemental/Courier New Italic.ttf")
+	flags := face.Flags()
+	if flags&64 == 0 {
+		t.Error("Courier New Italic should be Italic (bit 6)")
+	}
+	if flags&1 == 0 {
+		t.Error("Courier New Italic should be FixedPitch (bit 0)")
+	}
+}
