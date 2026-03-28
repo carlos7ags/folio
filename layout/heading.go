@@ -35,8 +35,10 @@ var headingSizes = [7]float64{
 // Heading is a block-level text element with a preset size based on its level.
 // It renders as a bold paragraph with spacing proportional to its level.
 type Heading struct {
-	para  *Paragraph
-	level HeadingLevel
+	para          *Paragraph
+	level         HeadingLevel
+	bookmarkLevel int    // CSS bookmark-level override (0 = use level)
+	bookmarkLabel string // CSS bookmark-label override (empty = use text)
 }
 
 // NewHeading creates a heading using a standard font.
@@ -75,6 +77,21 @@ func (h *Heading) SetRuns(runs []TextRun) *Heading {
 // SetAlign sets the horizontal alignment.
 func (h *Heading) SetAlign(a Align) *Heading {
 	h.para.SetAlign(a)
+	return h
+}
+
+// SetBookmarkLevel overrides the auto-detected heading level for bookmark
+// generation. Level 0 means use the default heading level. This corresponds
+// to the CSS bookmark-level property.
+func (h *Heading) SetBookmarkLevel(level int) *Heading {
+	h.bookmarkLevel = level
+	return h
+}
+
+// SetBookmarkLabel overrides the heading text used in the bookmark tree.
+// Empty string means use the heading's text content.
+func (h *Heading) SetBookmarkLabel(label string) *Heading {
+	h.bookmarkLabel = label
 	return h
 }
 
@@ -141,8 +158,16 @@ func (h *Heading) PlanLayout(area LayoutArea) LayoutPlan {
 	plan := h.para.PlanLayout(area)
 
 	// Override structure tags from P to H1-H6 and set heading text.
-	tag := headingTag(h.level)
+	// Use bookmarkLevel/bookmarkLabel overrides if set (CSS bookmark-level/label).
+	effectiveLevel := h.level
+	if h.bookmarkLevel > 0 && h.bookmarkLevel <= 6 {
+		effectiveLevel = HeadingLevel(h.bookmarkLevel)
+	}
+	tag := headingTag(effectiveLevel)
 	headingText := h.text()
+	if h.bookmarkLabel != "" {
+		headingText = h.bookmarkLabel
+	}
 	for i := range plan.Blocks {
 		plan.Blocks[i].Tag = tag
 		if i == 0 {

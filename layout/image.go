@@ -11,11 +11,13 @@ import (
 
 // ImageElement is a layout element that places an image in the document flow.
 type ImageElement struct {
-	img     *folioimage.Image
-	width   float64 // explicit width (0 = auto)
-	height  float64 // explicit height (0 = auto)
-	align   Align
-	altText string // alternative text for accessibility (PDF/UA)
+	img            *folioimage.Image
+	width          float64 // explicit width (0 = auto)
+	height         float64 // explicit height (0 = auto)
+	align          Align
+	altText        string // alternative text for accessibility (PDF/UA)
+	objectFit      string // "contain", "cover", "fill", "none", "scale-down"
+	objectPosition string // e.g. "center", "top left"
 }
 
 // NewImageElement creates a layout element from an Image.
@@ -39,6 +41,21 @@ func (ie *ImageElement) SetSize(width, height float64) *ImageElement {
 // SetAlign sets horizontal alignment of the image.
 func (ie *ImageElement) SetAlign(a Align) *ImageElement {
 	ie.align = a
+	return ie
+}
+
+// SetObjectFit sets the object-fit CSS property for controlling how the image
+// fills its content box when explicit width and height are both set.
+// Valid values: "contain", "cover", "fill", "none", "scale-down".
+func (ie *ImageElement) SetObjectFit(fit string) *ImageElement {
+	ie.objectFit = fit
+	return ie
+}
+
+// SetObjectPosition sets the object-position CSS property for controlling
+// image placement within its content box.
+func (ie *ImageElement) SetObjectPosition(pos string) *ImageElement {
+	ie.objectPosition = pos
 	return ie
 }
 
@@ -75,6 +92,58 @@ func (ie *ImageElement) resolveSize(maxWidth float64) (float64, float64) {
 	// Guard against zero or negative aspect ratio to prevent division by zero.
 	if ar <= 0 {
 		ar = 1
+	}
+
+	// When both width and height are explicitly set and object-fit is specified,
+	// compute the rendered image dimensions according to the fit mode.
+	if w > 0 && h > 0 && ie.objectFit != "" {
+		boxW, boxH := w, h
+		// Clamp box to available width.
+		if boxW > maxWidth {
+			boxW = maxWidth
+		}
+		switch ie.objectFit {
+		case "fill":
+			// Stretch to fill the box exactly (ignore aspect ratio).
+			return boxW, boxH
+		case "contain":
+			// Scale to fit entirely within the box, preserving aspect ratio.
+			iw, ih := boxW, boxW/ar
+			if ih > boxH {
+				ih = boxH
+				iw = ih * ar
+			}
+			return iw, ih
+		case "cover":
+			// Scale to fill the entire box, preserving aspect ratio (overflow cropped).
+			// For PDF, we render the full cover dimensions since we can't clip
+			// without a clip path. The image fills the box completely.
+			iw, ih := boxW, boxW/ar
+			if ih < boxH {
+				ih = boxH
+				iw = ih * ar
+			}
+			return iw, ih
+		case "none":
+			// No scaling: use natural pixel dimensions (converted to points at 72dpi).
+			natW := float64(ie.img.Width()) * 0.75 // px to pt
+			natH := float64(ie.img.Height()) * 0.75
+			return natW, natH
+		case "scale-down":
+			// Like contain, but never scale up.
+			natW := float64(ie.img.Width()) * 0.75
+			natH := float64(ie.img.Height()) * 0.75
+			iw, ih := boxW, boxW/ar
+			if ih > boxH {
+				ih = boxH
+				iw = ih * ar
+			}
+			// If natural size is smaller, use natural size.
+			if natW < iw && natH < ih {
+				return natW, natH
+			}
+			return iw, ih
+		}
 	}
 
 	if w == 0 && h == 0 {

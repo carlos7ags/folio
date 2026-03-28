@@ -15,18 +15,20 @@ import (
 // It is composed of one or more TextRuns, each with its own font, size,
 // and color. All runs flow together as a single word-wrapped unit.
 type Paragraph struct {
-	runs        []TextRun
-	leading     float64 // line height multiplier (e.g. 1.2 means 120% of fontSize)
-	align       Align
-	spaceBefore float64 // extra space before the paragraph (points)
-	spaceAfter  float64 // extra space after the paragraph (points)
-	background  *Color  // background fill color (nil = transparent)
-	firstIndent float64 // first-line indent (points, from CSS text-indent)
-	orphans     int     // min lines at bottom of page before break (0 = disabled)
-	widows      int     // min lines at top of page after break (0 = disabled)
-	ellipsis    bool    // if true, truncate overflowing text with "..."
-	wordBreak   string  // "normal" (default), "break-all" (allow break within words)
-	hyphens     string  // "none", "manual" (default), "auto" (automatic hyphenation)
+	runs             []TextRun
+	leading          float64 // line height multiplier (e.g. 1.2 means 120% of fontSize)
+	align            Align
+	spaceBefore      float64 // extra space before the paragraph (points)
+	spaceAfter       float64 // extra space after the paragraph (points)
+	background       *Color  // background fill color (nil = transparent)
+	firstIndent      float64 // first-line indent (points, from CSS text-indent)
+	orphans          int     // min lines at bottom of page before break (0 = disabled)
+	widows           int     // min lines at top of page after break (0 = disabled)
+	ellipsis         bool    // if true, truncate overflowing text with "..."
+	wordBreak        string  // "normal" (default), "break-all" (allow break within words)
+	hyphens          string  // "none", "manual" (default), "auto" (automatic hyphenation)
+	textAlignLast    Align   // alignment for the last line (0 = use default)
+	textAlignLastSet bool    // true if textAlignLast was explicitly set
 }
 
 // NewParagraph creates a paragraph with a single run using a standard PDF font.
@@ -151,6 +153,15 @@ func (p *Paragraph) SetWordBreak(wb string) *Paragraph {
 // only breaks at soft hyphens (&shy;).
 func (p *Paragraph) SetHyphens(h string) *Paragraph {
 	p.hyphens = h
+	return p
+}
+
+// SetTextAlignLast sets the alignment for the last line of the paragraph.
+// This is used to override the normal alignment (e.g. justify) for just
+// the final line.
+func (p *Paragraph) SetTextAlignLast(a Align) *Paragraph {
+	p.textAlignLast = a
+	p.textAlignLastSet = true
 	return p
 }
 
@@ -306,6 +317,11 @@ func (p *Paragraph) Layout(maxWidth float64) []Line {
 		lines[0].IsLast = true
 		// Truncate words to fit within maxWidth and append ellipsis.
 		lines[0] = truncateWithEllipsis(lines[0], maxWidth)
+	}
+
+	// Apply text-align-last: override alignment on the last line.
+	if p.textAlignLastSet && len(lines) > 0 {
+		lines[len(lines)-1].Align = p.textAlignLast
 	}
 
 	// Apply paragraph-level properties to the first/last lines.
@@ -711,7 +727,11 @@ func (p *Paragraph) PlanLayout(area LayoutArea) LayoutPlan {
 			x += p.firstIndent
 			lineMaxW -= p.firstIndent
 		}
-		switch p.align {
+		effectiveAlign := p.align
+		if p.textAlignLastSet && (info.isLast || i == splitIdx-1) {
+			effectiveAlign = p.textAlignLast
+		}
+		switch effectiveAlign {
 		case AlignCenter:
 			x += (lineMaxW - info.width) / 2
 		case AlignRight:
@@ -722,7 +742,7 @@ func (p *Paragraph) PlanLayout(area LayoutArea) LayoutPlan {
 		capturedWords := slices.Clone(info.words)
 		capturedIsLast := info.isLast || i == splitIdx-1
 		capturedWidth := lineMaxW
-		capturedAlign := p.align
+		capturedAlign := effectiveAlign
 		capturedBg := p.background
 		capturedLineH := lineHeights[i]
 

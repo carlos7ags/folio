@@ -71,6 +71,12 @@ func (c *converter) convertImage(n *html.Node, style computedStyle) []layout.Ele
 	if w > 0 || h > 0 {
 		ie.SetSize(w, h)
 	}
+	if style.ObjectFit != "" {
+		ie.SetObjectFit(style.ObjectFit)
+	}
+	if style.ObjectPosition != "" {
+		ie.SetObjectPosition(style.ObjectPosition)
+	}
 
 	return []layout.Element{ie}
 }

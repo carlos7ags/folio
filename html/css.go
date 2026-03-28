@@ -215,6 +215,15 @@ func (ss *styleSheet) parseCSS(css string) {
 			continue
 		}
 
+		// Handle @supports feature queries.
+		if strings.HasPrefix(selectorStr, "@supports") {
+			condition := strings.TrimSpace(strings.TrimPrefix(selectorStr, "@supports"))
+			if evaluateSupports(condition) {
+				ss.parseCSS(declStr)
+			}
+			continue
+		}
+
 		// Skip other @-rules (e.g. @media screen).
 		if strings.HasPrefix(selectorStr, "@") {
 			continue
@@ -491,7 +500,7 @@ func parseSelectorPart(s string) selectorPart {
 		// Handle double colon (::pseudo-element).
 		if strings.HasPrefix(pseudo, ":") {
 			pe := strings.ToLower(pseudo[1:])
-			if pe == "before" || pe == "after" {
+			if pe == "before" || pe == "after" || pe == "marker" {
 				part.pseudoElement = pe
 			}
 		} else {
@@ -724,6 +733,117 @@ func (ss *styleSheet) matchingPseudoElementDeclarations(n *html.Node, pseudo str
 		result = append(result, m.decl)
 	}
 	return result
+}
+
+// evaluateSupports evaluates a CSS @supports condition.
+// Supports: "(property: value)", "not (condition)", "(c1) and (c2)", "(c1) or (c2)".
+func evaluateSupports(condition string) bool {
+	condition = strings.TrimSpace(condition)
+	if condition == "" {
+		return false
+	}
+
+	// Handle "not" prefix.
+	if strings.HasPrefix(condition, "not ") || strings.HasPrefix(condition, "not(") {
+		inner := strings.TrimPrefix(condition, "not")
+		inner = strings.TrimSpace(inner)
+		inner = strings.TrimPrefix(inner, "(")
+		inner = strings.TrimSuffix(inner, ")")
+		return !evaluateSupports(inner)
+	}
+
+	// Handle "and" / "or" combinations.
+	// Simple split: find top-level "and" or "or" keywords.
+	if parts := splitSupportsOperator(condition, " and "); len(parts) > 1 {
+		for _, part := range parts {
+			if !evaluateSupports(part) {
+				return false
+			}
+		}
+		return true
+	}
+	if parts := splitSupportsOperator(condition, " or "); len(parts) > 1 {
+		for _, part := range parts {
+			if evaluateSupports(part) {
+				return true
+			}
+		}
+		return false
+	}
+
+	// Strip outer parentheses: "(display: flex)" → "display: flex"
+	condition = strings.TrimPrefix(condition, "(")
+	condition = strings.TrimSuffix(condition, ")")
+	condition = strings.TrimSpace(condition)
+
+	// Extract property name (before the colon).
+	colonIdx := strings.IndexByte(condition, ':')
+	if colonIdx < 0 {
+		return false
+	}
+	prop := strings.TrimSpace(condition[:colonIdx])
+	return isSupportedCSSProperty(prop)
+}
+
+// splitSupportsOperator splits a @supports condition on a top-level operator,
+// respecting parentheses nesting.
+func splitSupportsOperator(s, op string) []string {
+	var parts []string
+	depth := 0
+	start := 0
+	for i := 0; i < len(s); i++ {
+		switch s[i] {
+		case '(':
+			depth++
+		case ')':
+			if depth > 0 {
+				depth--
+			}
+		}
+		if depth == 0 && i+len(op) <= len(s) && s[i:i+len(op)] == op {
+			parts = append(parts, strings.TrimSpace(s[start:i]))
+			start = i + len(op)
+			i += len(op) - 1
+		}
+	}
+	parts = append(parts, strings.TrimSpace(s[start:]))
+	return parts
+}
+
+// isSupportedCSSProperty returns true if Folio handles the given CSS property.
+func isSupportedCSSProperty(prop string) bool {
+	switch strings.ToLower(strings.TrimSpace(prop)) {
+	case "display", "color", "background-color", "background", "background-image",
+		"font-family", "font-size", "font-weight", "font-style",
+		"text-align", "text-align-last", "text-decoration", "text-transform",
+		"text-indent", "text-overflow", "text-shadow",
+		"line-height", "letter-spacing", "word-spacing", "word-break",
+		"white-space", "hyphens",
+		"margin", "margin-top", "margin-right", "margin-bottom", "margin-left",
+		"padding", "padding-top", "padding-right", "padding-bottom", "padding-left",
+		"border", "border-top", "border-right", "border-bottom", "border-left",
+		"border-width", "border-style", "border-color", "border-radius",
+		"border-top-left-radius", "border-top-right-radius",
+		"border-bottom-right-radius", "border-bottom-left-radius",
+		"width", "height", "min-width", "max-width", "min-height", "max-height",
+		"opacity", "overflow", "visibility",
+		"position", "top", "right", "bottom", "left", "z-index",
+		"float", "clear",
+		"flex", "flex-direction", "flex-wrap", "flex-grow", "flex-shrink", "flex-basis",
+		"justify-content", "align-items", "align-content", "align-self",
+		"gap", "row-gap", "column-gap",
+		"grid-template-columns", "grid-template-rows", "grid-column", "grid-row",
+		"column-count", "column-rule",
+		"box-shadow", "box-sizing",
+		"transform", "transform-origin",
+		"page-break-before", "page-break-after", "page-break-inside",
+		"orphans", "widows",
+		"list-style-type", "counter-reset", "counter-increment",
+		"object-fit", "object-position",
+		"vertical-align":
+		return true
+	}
+	return false
 }
 
 // Selector matching, pseudo-class evaluation, and DOM traversal helpers

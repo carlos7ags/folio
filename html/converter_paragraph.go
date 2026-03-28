@@ -82,6 +82,9 @@ func (c *converter) buildParagraphFromRuns(runs []layout.TextRun, style computed
 	}
 
 	p.SetAlign(style.TextAlign)
+	if style.TextAlignLastSet {
+		p.SetTextAlignLast(style.TextAlignLast)
+	}
 	p.SetLeading(style.LineHeight)
 	if style.TextIndent != 0 {
 		p.SetFirstLineIndent(style.TextIndent)

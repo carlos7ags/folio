@@ -254,6 +254,11 @@ func (c *converter) applyProperty(prop, val string, style *computedStyle) {
 		if a, ok := parseTextAlign(val); ok {
 			style.TextAlign = a
 		}
+	case "text-align-last":
+		if a, ok := parseTextAlign(val); ok {
+			style.TextAlignLast = a
+			style.TextAlignLastSet = true
+		}
 	case "text-decoration":
 		style.TextDecoration = parseTextDecoration(val)
 	case "text-transform":
@@ -784,6 +789,25 @@ func (c *converter) applyProperty(prop, val string, style *computedStyle) {
 		style.CounterReset = parseCounterEntries(val, 0)
 	case "counter-increment":
 		style.CounterIncrement = parseCounterEntries(val, 1)
+
+	// Object fit/position (images)
+	case "object-fit":
+		v := strings.TrimSpace(strings.ToLower(val))
+		switch v {
+		case "contain", "cover", "fill", "none", "scale-down":
+			style.ObjectFit = v
+		}
+	case "object-position":
+		style.ObjectPosition = strings.TrimSpace(strings.ToLower(val))
+
+	// CSS bookmark properties
+	case "bookmark-level":
+		if v, err := strconv.Atoi(strings.TrimSpace(val)); err == nil && v >= 0 && v <= 6 {
+			style.BookmarkLevel = v
+			style.BookmarkLevelSet = true
+		}
+	case "bookmark-label":
+		style.BookmarkLabel = strings.Trim(strings.TrimSpace(val), `"'`)
 	}
 }
 

@@ -34,6 +34,12 @@ func (c *converter) convertHeading(n *html.Node, style computedStyle, level layo
 	// Replace the default run with the fully styled runs from collectRuns.
 	h.SetRuns(runs)
 	h.SetAlign(style.TextAlign)
+	if style.BookmarkLevelSet {
+		h.SetBookmarkLevel(style.BookmarkLevel)
+	}
+	if style.BookmarkLabel != "" {
+		h.SetBookmarkLabel(style.BookmarkLabel)
+	}
 
 	// Wrap in a Div if the heading has box-model properties.
 	needsWrapper := style.hasBorder() || style.hasPadding() || style.hasMargin() ||
