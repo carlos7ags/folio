@@ -50,6 +50,11 @@ func (r *Renderer) renderWithPlans() []PageResult {
 	atPageTop := true
 
 	flushPage := func() {
+		// Capture string-set values from placed blocks before drawing.
+		// This updates running string state used by margin box string() refs.
+		r.captureStringSets(curBlocks)
+		r.snapshotStrings()
+
 		// Draw all placed blocks into the content stream.
 		ctx := DrawContext{
 			Stream: curPageStream,

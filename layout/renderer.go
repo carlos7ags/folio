@@ -99,6 +99,13 @@ type Renderer struct {
 	absolutes        []absoluteItem
 	tagged           bool            // if true, emit BDC/EMC marked content
 	structTags       []StructTagInfo // collected during rendering
+
+	// Running string values for CSS string-set / string() support.
+	// Maps string name → current value. Updated during pagination as
+	// elements with StringSets are placed on pages.
+	runningStrings map[string]string
+	// Per-page snapshot of running string values at the end of each page.
+	pageStrings []map[string]string
 }
 
 // MarginBox holds the content template for a CSS margin box.
@@ -196,6 +203,9 @@ func (r *Renderer) drawMarginBoxes(ctx *DrawContext, pageIdx int, margins Margin
 		text = strings.ReplaceAll(text, "{counter(page)}", fmt.Sprintf("%d", pageIdx+1))
 		text = strings.ReplaceAll(text, "{counter(pages)}", "##TOTAL_PAGES##")
 
+		// Resolve {string(name)} placeholders from CSS string-set.
+		text = r.resolveStringRefs(text, pageIdx)
+
 		// Use box-specific font size, or default to 9pt.
 		fontSize := box.FontSize
 		if fontSize <= 0 {
@@ -242,6 +252,62 @@ func (r *Renderer) drawMarginBoxes(ctx *DrawContext, pageIdx int, margins Margin
 		ctx.Stream.ShowText(text)
 		ctx.Stream.EndText()
 	}
+}
+
+// captureStringSets extracts string-set values from a block tree and
+// updates the renderer's running string state.
+func (r *Renderer) captureStringSets(blocks []PlacedBlock) {
+	for _, block := range blocks {
+		for name, value := range block.StringSets {
+			if r.runningStrings == nil {
+				r.runningStrings = make(map[string]string)
+			}
+			r.runningStrings[name] = value
+		}
+		if len(block.Children) > 0 {
+			r.captureStringSets(block.Children)
+		}
+	}
+}
+
+// snapshotStrings saves the current running string state for a page.
+func (r *Renderer) snapshotStrings() {
+	snapshot := make(map[string]string, len(r.runningStrings))
+	for k, v := range r.runningStrings {
+		snapshot[k] = v
+	}
+	r.pageStrings = append(r.pageStrings, snapshot)
+}
+
+// resolveStringRefs replaces {string(name)} placeholders in text with
+// the running string value for the given page.
+func (r *Renderer) resolveStringRefs(text string, pageIdx int) string {
+	// Find all {string(...)} occurrences.
+	for {
+		start := strings.Index(text, "{string(")
+		if start < 0 {
+			break
+		}
+		end := strings.Index(text[start:], ")}")
+		if end < 0 {
+			break
+		}
+		end += start + 2 // include ")}"
+
+		// Extract the string name.
+		nameStart := start + len("{string(")
+		nameEnd := end - 2 // before ")}"
+		name := strings.TrimSpace(text[nameStart:nameEnd])
+
+		// Look up the value for this page.
+		value := ""
+		if pageIdx < len(r.pageStrings) {
+			value = r.pageStrings[pageIdx][name]
+		}
+
+		text = text[:start] + value + text[end:]
+	}
+	return text
 }
 
 // SetTagged enables tagged PDF output. When true, the renderer wraps

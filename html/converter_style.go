@@ -228,7 +228,9 @@ func (c *converter) applyProperty(prop, val string, style *computedStyle) {
 		// Background shorthand: handle gradients, urls, or plain colors.
 		lower := strings.ToLower(strings.TrimSpace(val))
 		if strings.HasPrefix(lower, "linear-gradient(") ||
+			strings.HasPrefix(lower, "repeating-linear-gradient(") ||
 			strings.HasPrefix(lower, "radial-gradient(") ||
+			strings.HasPrefix(lower, "repeating-radial-gradient(") ||
 			strings.HasPrefix(lower, "url(") {
 			style.BackgroundImage = strings.TrimSpace(val)
 		} else if clr, ok := parseColor(val); ok {
@@ -253,6 +255,11 @@ func (c *converter) applyProperty(prop, val string, style *computedStyle) {
 	case "text-align":
 		if a, ok := parseTextAlign(val); ok {
 			style.TextAlign = a
+		}
+	case "text-align-last":
+		if a, ok := parseTextAlign(val); ok {
+			style.TextAlignLast = a
+			style.TextAlignLastSet = true
 		}
 	case "text-decoration":
 		style.TextDecoration = parseTextDecoration(val)
@@ -739,13 +746,18 @@ func (c *converter) applyProperty(prop, val string, style *computedStyle) {
 		v := parseBoxSide(val, style.FontSize)
 		style.ColumnGap = v
 		style.GridColumnGap = v
+	case "column-width":
+		if l := parseLength(val); l != nil {
+			style.ColumnWidth = l.toPoints(0, style.FontSize)
+		}
 	case "columns":
 		parts := strings.Fields(strings.TrimSpace(val))
 		for _, p := range parts {
 			if v, err := strconv.Atoi(p); err == nil && v > 0 {
 				style.ColumnCount = v
 			} else if l := parseLength(p); l != nil {
-				style.ColumnGap = l.toPoints(0, style.FontSize)
+				// In the columns shorthand, a length is column-width, not gap.
+				style.ColumnWidth = l.toPoints(0, style.FontSize)
 			}
 		}
 
@@ -784,6 +796,34 @@ func (c *converter) applyProperty(prop, val string, style *computedStyle) {
 		style.CounterReset = parseCounterEntries(val, 0)
 	case "counter-increment":
 		style.CounterIncrement = parseCounterEntries(val, 1)
+
+	// Object fit/position (images)
+	case "object-fit":
+		v := strings.TrimSpace(strings.ToLower(val))
+		switch v {
+		case "contain", "cover", "fill", "none", "scale-down":
+			style.ObjectFit = v
+		}
+	case "object-position":
+		style.ObjectPosition = strings.TrimSpace(strings.ToLower(val))
+
+	// CSS bookmark properties
+	case "bookmark-level":
+		if v, err := strconv.Atoi(strings.TrimSpace(val)); err == nil && v >= 0 && v <= 6 {
+			style.BookmarkLevel = v
+			style.BookmarkLevelSet = true
+		}
+	case "bookmark-label":
+		style.BookmarkLabel = strings.Trim(strings.TrimSpace(val), `"'`)
+
+	// CSS string-set for running headers.
+	// Format: string-set: name content() | string-set: name "literal"
+	case "string-set":
+		parts := strings.Fields(strings.TrimSpace(val))
+		if len(parts) >= 2 {
+			style.StringSetName = parts[0]
+			style.StringSetValue = strings.Join(parts[1:], " ")
+		}
 	}
 }
 

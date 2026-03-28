@@ -82,7 +82,25 @@ func (c *converter) buildParagraphFromRuns(runs []layout.TextRun, style computed
 	}
 
 	p.SetAlign(style.TextAlign)
+	if style.TextAlignLastSet {
+		p.SetTextAlignLast(style.TextAlignLast)
+	}
 	p.SetLeading(style.LineHeight)
+	if style.StringSetName != "" {
+		value := style.StringSetValue
+		if strings.Contains(value, "content()") {
+			// Extract text from the runs (we don't have the HTML node here).
+			var textParts []string
+			for _, r := range runs {
+				if r.Text != "" {
+					textParts = append(textParts, r.Text)
+				}
+			}
+			value = strings.ReplaceAll(value, "content()", strings.Join(textParts, ""))
+		}
+		value = strings.Trim(value, `"'`)
+		p.SetStringSet(style.StringSetName, value)
+	}
 	if style.TextIndent != 0 {
 		p.SetFirstLineIndent(style.TextIndent)
 	}

@@ -90,6 +90,17 @@ func (c *converter) convertBlock(n *html.Node, style computedStyle) []layout.Ele
 	}
 
 	// If column-count > 1, distribute children across columns.
+	// Auto-calculate column count from column-width if column-count is not set.
+	if style.ColumnCount <= 1 && style.ColumnWidth > 0 && c.containerWidth > 0 {
+		gap := style.ColumnGap
+		if gap == 0 {
+			gap = 12 // default column gap
+		}
+		style.ColumnCount = int((c.containerWidth + gap) / (style.ColumnWidth + gap))
+		if style.ColumnCount < 1 {
+			style.ColumnCount = 1
+		}
+	}
 	if style.ColumnCount > 1 && len(children) > 0 {
 		return c.buildColumns(children, style)
 	}

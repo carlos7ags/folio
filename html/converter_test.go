@@ -13,6 +13,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/carlos7ags/folio/font"
@@ -4415,5 +4416,638 @@ func TestConvertInlineContainerWithBrProducesMultipleElements(t *testing.T) {
 	}
 	if len(elems) < 2 {
 		t.Fatalf("expected at least 2 elements (one per line), got %d", len(elems))
+	}
+}
+
+// --- text-align-last tests ---
+
+func TestTextAlignLastCenter(t *testing.T) {
+	src := `<p style="text-align: justify; text-align-last: center;">
+		The quick brown fox jumps over the lazy dog repeatedly until the text wraps.
+	</p>`
+	elems, err := Convert(src, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(elems) < 1 {
+		t.Fatal("expected at least 1 element")
+	}
+	plan := elems[0].PlanLayout(layout.LayoutArea{Width: 200, Height: 500})
+	if plan.Status != layout.LayoutFull {
+		t.Fatal("expected LayoutFull")
+	}
+}
+
+func TestTextAlignLastRight(t *testing.T) {
+	src := `<p style="text-align: justify; text-align-last: right;">
+		Some longer text that will wrap to multiple lines for testing.
+	</p>`
+	elems, err := Convert(src, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(elems) < 1 {
+		t.Fatal("expected at least 1 element")
+	}
+	plan := elems[0].PlanLayout(layout.LayoutArea{Width: 200, Height: 500})
+	if plan.Status != layout.LayoutFull {
+		t.Fatal("expected LayoutFull")
+	}
+}
+
+func TestTextAlignLastNotSet(t *testing.T) {
+	// Without text-align-last, justified text should default last line to left.
+	src := `<p style="text-align: justify;">Some text here.</p>`
+	elems, err := Convert(src, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(elems) < 1 {
+		t.Fatal("expected at least 1 element")
+	}
+}
+
+func TestTextAlignLastJustify(t *testing.T) {
+	// text-align-last: justify should justify even the last line.
+	src := `<p style="text-align: justify; text-align-last: justify;">
+		All lines should be justified including the very last line.
+	</p>`
+	elems, err := Convert(src, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(elems) < 1 {
+		t.Fatal("expected at least 1 element")
+	}
+}
+
+func TestTextAlignLastInherited(t *testing.T) {
+	// text-align-last should inherit from parent.
+	src := `<div style="text-align: justify; text-align-last: center;">
+		<p>This paragraph inherits text-align-last from the div.</p>
+	</div>`
+	elems, err := Convert(src, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(elems) < 1 {
+		t.Fatal("expected at least 1 element")
+	}
+}
+
+// --- CMYK color tests ---
+
+func TestCMYKColorParsing(t *testing.T) {
+	tests := []struct {
+		input string
+		ok    bool
+	}{
+		{"cmyk(0, 1, 1, 0)", true},            // red
+		{"cmyk(0, 0, 0, 1)", true},            // black
+		{"cmyk(0%, 100%, 100%, 0%)", true},    // red with percentages
+		{"device-cmyk(0.5, 0.3, 0, 0)", true}, // device-cmyk variant
+		{"cmyk(0, 0, 0, 0)", true},            // white
+		{"cmyk(0, 0)", false},                 // too few args
+		{"cmyk()", false},
+	}
+	for _, tt := range tests {
+		_, ok := parseColor(tt.input)
+		if ok != tt.ok {
+			t.Errorf("parseColor(%q): got ok=%v, want %v", tt.input, ok, tt.ok)
+		}
+	}
+}
+
+func TestCMYKColorSpace(t *testing.T) {
+	c, ok := parseColor("cmyk(0, 1, 1, 0)")
+	if !ok {
+		t.Fatal("expected ok=true")
+	}
+	if c.Space != layout.ColorSpaceCMYK {
+		t.Errorf("expected CMYK color space, got %v", c.Space)
+	}
+}
+
+func TestCMYKInHTML(t *testing.T) {
+	src := `<p style="color: cmyk(0, 0, 0, 1);">Black text in CMYK</p>`
+	elems, err := Convert(src, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(elems) < 1 {
+		t.Fatal("expected at least 1 element")
+	}
+}
+
+func TestDeviceCMYKInHTML(t *testing.T) {
+	src := `<p style="color: device-cmyk(1, 0, 0, 0);">Cyan text</p>`
+	elems, err := Convert(src, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(elems) < 1 {
+		t.Fatal("expected at least 1 element")
+	}
+}
+
+func TestCMYKComponentClamping(t *testing.T) {
+	// Values > 1 should be clamped.
+	c, ok := parseColor("cmyk(2, -0.5, 0.5, 0)")
+	if !ok {
+		t.Fatal("expected ok=true")
+	}
+	if c.C != 1.0 {
+		t.Errorf("expected C clamped to 1.0, got %f", c.C)
+	}
+	if c.M != 0.0 {
+		t.Errorf("expected M clamped to 0.0, got %f", c.M)
+	}
+}
+
+// --- ::marker pseudo-element tests ---
+
+func TestMarkerColor(t *testing.T) {
+	src := `<style>li::marker { color: red; }</style>
+	<ul><li>Item 1</li><li>Item 2</li></ul>`
+	elems, err := Convert(src, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(elems) < 1 {
+		t.Fatal("expected at least 1 element")
+	}
+	plan := elems[0].PlanLayout(layout.LayoutArea{Width: 400, Height: 500})
+	if plan.Status != layout.LayoutFull {
+		t.Fatal("expected LayoutFull")
+	}
+}
+
+func TestMarkerFontSize(t *testing.T) {
+	src := `<style>li::marker { font-size: 20px; }</style>
+	<ol><li>Item 1</li><li>Item 2</li></ol>`
+	elems, err := Convert(src, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(elems) < 1 {
+		t.Fatal("expected at least 1 element")
+	}
+}
+
+func TestMarkerNoEffect(t *testing.T) {
+	// Without ::marker styles, default behavior should be unchanged.
+	src := `<ul><li>Item 1</li><li>Item 2</li></ul>`
+	elems, err := Convert(src, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(elems) < 1 {
+		t.Fatal("expected at least 1 element")
+	}
+}
+
+// --- object-fit tests ---
+
+func TestObjectFitCover(t *testing.T) {
+	src := `<img style="width: 100px; height: 100px; object-fit: cover;" src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAC0lEQVQI12NgAAIABQABNjN9GQAAAABJRu5ErkJggg==">`
+	elems, err := Convert(src, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(elems) < 1 {
+		t.Fatal("expected at least 1 element")
+	}
+	plan := elems[0].PlanLayout(layout.LayoutArea{Width: 400, Height: 500})
+	if plan.Status != layout.LayoutFull {
+		t.Fatal("expected LayoutFull")
+	}
+}
+
+func TestObjectFitContain(t *testing.T) {
+	src := `<img style="width: 200px; height: 50px; object-fit: contain;" src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAC0lEQVQI12NgAAIABQABNjN9GQAAAABJRu5ErkJggg==">`
+	elems, err := Convert(src, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(elems) < 1 {
+		t.Fatal("expected at least 1 element")
+	}
+}
+
+func TestObjectFitFill(t *testing.T) {
+	src := `<img style="width: 200px; height: 50px; object-fit: fill;" src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAC0lEQVQI12NgAAIABQABNjN9GQAAAABJRu5ErkJggg==">`
+	elems, err := Convert(src, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(elems) < 1 {
+		t.Fatal("expected at least 1 element")
+	}
+}
+
+func TestObjectFitNone(t *testing.T) {
+	src := `<img style="width: 200px; height: 200px; object-fit: none;" src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAC0lEQVQI12NgAAIABQABNjN9GQAAAABJRu5ErkJggg==">`
+	elems, err := Convert(src, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(elems) < 1 {
+		t.Fatal("expected at least 1 element")
+	}
+}
+
+func TestObjectFitNotSet(t *testing.T) {
+	// Default: no object-fit, image should use its natural aspect ratio.
+	src := `<img style="width: 200px;" src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAC0lEQVQI12NgAAIABQABNjN9GQAAAABJRu5ErkJggg==">`
+	elems, err := Convert(src, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(elems) < 1 {
+		t.Fatal("expected at least 1 element")
+	}
+}
+
+// --- @supports tests ---
+
+func TestSupportsKnownProperty(t *testing.T) {
+	src := `<style>
+	@supports (display: flex) { .box { color: red; } }
+	</style>
+	<div class="box"><p>Supported</p></div>`
+	elems, err := Convert(src, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(elems) < 1 {
+		t.Fatal("expected at least 1 element")
+	}
+}
+
+func TestSupportsUnknownProperty(t *testing.T) {
+	src := `<style>
+	@supports (unknown-property: value) { .box { color: blue; } }
+	</style>
+	<div class="box"><p>Not supported</p></div>`
+	_, err := Convert(src, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestSupportsNot(t *testing.T) {
+	src := `<style>
+	@supports not (display: flex) { .box { color: green; } }
+	</style>
+	<div class="box"><p>Should not apply</p></div>`
+	_, err := Convert(src, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestSupportsAnd(t *testing.T) {
+	src := `<style>
+	@supports (display: flex) and (color: red) { .box { font-size: 20px; } }
+	</style>
+	<div class="box"><p>Both supported</p></div>`
+	_, err := Convert(src, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestSupportsOr(t *testing.T) {
+	src := `<style>
+	@supports (unknown: val) or (display: flex) { .box { font-weight: bold; } }
+	</style>
+	<div class="box"><p>One supported</p></div>`
+	_, err := Convert(src, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestEvaluateSupports(t *testing.T) {
+	tests := []struct {
+		condition string
+		want      bool
+	}{
+		{"(display: flex)", true},
+		{"(color: red)", true},
+		{"(unknown-prop: val)", false},
+		{"not (display: flex)", false},
+		{"not (unknown-prop: val)", true},
+		{"(display: flex) and (color: red)", true},
+		{"(display: flex) and (unknown: val)", false},
+		{"(unknown: a) or (display: flex)", true},
+		{"(unknown: a) or (other-unknown: b)", false},
+	}
+	for _, tt := range tests {
+		got := evaluateSupports(tt.condition)
+		if got != tt.want {
+			t.Errorf("evaluateSupports(%q) = %v, want %v", tt.condition, got, tt.want)
+		}
+	}
+}
+
+// --- min()/max()/clamp() tests ---
+
+func TestMinFunction(t *testing.T) {
+	l := parseLength("min(200px, 100px)")
+	if l == nil {
+		t.Fatal("expected non-nil length for min()")
+	}
+	pts := l.toPoints(0, 12)
+	if abs(pts-75) > 0.1 {
+		t.Errorf("min(200px, 100px) = %fpt, want 75pt", pts)
+	}
+}
+
+func TestMaxFunction(t *testing.T) {
+	l := parseLength("max(50px, 100px)")
+	if l == nil {
+		t.Fatal("expected non-nil length for max()")
+	}
+	pts := l.toPoints(0, 12)
+	if abs(pts-75) > 0.1 {
+		t.Errorf("max(50px, 100px) = %fpt, want 75pt", pts)
+	}
+}
+
+func TestClampFunction(t *testing.T) {
+	l := parseLength("clamp(50px, 200px, 100px)")
+	if l == nil {
+		t.Fatal("expected non-nil length for clamp()")
+	}
+	pts := l.toPoints(0, 12)
+	if abs(pts-75) > 0.1 {
+		t.Errorf("clamp(50px, 200px, 100px) = %fpt, want 75pt", pts)
+	}
+}
+
+func TestMinWithPercentage(t *testing.T) {
+	l := parseLength("min(200px, 50%)")
+	if l == nil {
+		t.Fatal("expected non-nil length")
+	}
+	pts := l.toPoints(400, 12)
+	if abs(pts-150) > 0.1 {
+		t.Errorf("min(200px, 50%%) at 400pt = %fpt, want 150pt", pts)
+	}
+}
+
+func TestClampMiddleInRange(t *testing.T) {
+	l := parseLength("clamp(50px, 80px, 200px)")
+	if l == nil {
+		t.Fatal("expected non-nil")
+	}
+	pts := l.toPoints(0, 12)
+	if abs(pts-60) > 0.1 {
+		t.Errorf("clamp(50px, 80px, 200px) = %fpt, want 60pt", pts)
+	}
+}
+
+func TestMinInCSS(t *testing.T) {
+	src := `<div style="width: min(200px, 300px);"><p>Sized div</p></div>`
+	_, err := Convert(src, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestMinTooFewArgs(t *testing.T) {
+	if parseLength("min(100px)") != nil {
+		t.Error("min() with 1 arg should return nil")
+	}
+}
+
+func TestMaxTooFewArgs(t *testing.T) {
+	if parseLength("max(100px)") != nil {
+		t.Error("max() with 1 arg should return nil")
+	}
+}
+
+func TestClampWrongArgCount(t *testing.T) {
+	if parseLength("clamp(100px, 200px)") != nil {
+		t.Error("clamp() with 2 args should return nil")
+	}
+}
+
+// --- CSS bookmark tests ---
+
+func TestBookmarkLevelOverride(t *testing.T) {
+	src := `<h3 style="bookmark-level: 1;">Promoted heading</h3>`
+	elems, err := Convert(src, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan := elems[0].PlanLayout(layout.LayoutArea{Width: 400, Height: 500})
+	// The heading may be wrapped in a Div; find the H-tagged block.
+	tag := findBlockTag(plan.Blocks)
+	if tag != "H1" {
+		t.Errorf("expected tag H1, got %q", tag)
+	}
+}
+
+func TestBookmarkLabelOverride(t *testing.T) {
+	src := `<h2 style="bookmark-label: 'Custom Label';">Original text</h2>`
+	elems, err := Convert(src, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan := elems[0].PlanLayout(layout.LayoutArea{Width: 400, Height: 500})
+	text := findBlockHeadingText(plan.Blocks)
+	if text != "Custom Label" {
+		t.Errorf("expected 'Custom Label', got %q", text)
+	}
+}
+
+func TestBookmarkDefaultBehavior(t *testing.T) {
+	src := `<h2>Normal heading</h2>`
+	elems, _ := Convert(src, nil)
+	plan := elems[0].PlanLayout(layout.LayoutArea{Width: 400, Height: 500})
+	tag := findBlockTag(plan.Blocks)
+	if tag != "H2" {
+		t.Errorf("expected tag H2, got %q", tag)
+	}
+}
+
+// findBlockTag recursively finds the first H-tagged block in a tree.
+func findBlockTag(blocks []layout.PlacedBlock) string {
+	for _, b := range blocks {
+		if strings.HasPrefix(b.Tag, "H") {
+			return b.Tag
+		}
+		if tag := findBlockTag(b.Children); tag != "" {
+			return tag
+		}
+	}
+	return ""
+}
+
+// findBlockHeadingText recursively finds the first HeadingText in a block tree.
+func findBlockHeadingText(blocks []layout.PlacedBlock) string {
+	for _, b := range blocks {
+		if b.HeadingText != "" {
+			return b.HeadingText
+		}
+		if text := findBlockHeadingText(b.Children); text != "" {
+			return text
+		}
+	}
+	return ""
+}
+
+func TestBookmarkLevelZero(t *testing.T) {
+	src := `<h2 style="bookmark-level: 0;">Hidden from bookmarks</h2>`
+	_, err := Convert(src, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+// --- :is() and :where() selector tests ---
+
+func TestIsSelector(t *testing.T) {
+	src := `<style>
+	:is(h1, h2, h3) { color: red; }
+	</style>
+	<h1>Title</h1><h2>Subtitle</h2><p>Normal</p>`
+	elems, err := Convert(src, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(elems) < 3 {
+		t.Fatalf("expected at least 3 elements, got %d", len(elems))
+	}
+}
+
+func TestWhereSelector(t *testing.T) {
+	src := `<style>
+	:where(.a, .b) { font-weight: bold; }
+	</style>
+	<p class="a">A</p><p class="b">B</p><p class="c">C</p>`
+	elems, err := Convert(src, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(elems) < 3 {
+		t.Fatalf("expected at least 3 elements, got %d", len(elems))
+	}
+}
+
+func TestIsSelectorNoMatch(t *testing.T) {
+	// :is() with no matching selectors should not apply.
+	src := `<style>
+	:is(.x, .y) { color: blue; }
+	</style>
+	<p class="a">No match</p>`
+	_, err := Convert(src, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestIsSelectorNested(t *testing.T) {
+	// :is() used in a compound selector: div :is(p, span)
+	src := `<style>
+	div :is(p, span) { font-style: italic; }
+	</style>
+	<div><p>Italic</p><span>Also italic</span></div>`
+	_, err := Convert(src, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+// --- repeating gradient tests ---
+
+func TestRepeatingLinearGradient(t *testing.T) {
+	src := `<div style="background: repeating-linear-gradient(45deg, red, blue 20px); height: 100px; width: 200px;">
+		<p>Striped background</p>
+	</div>`
+	elems, err := Convert(src, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(elems) < 1 {
+		t.Fatal("expected at least 1 element")
+	}
+}
+
+func TestRepeatingRadialGradient(t *testing.T) {
+	src := `<div style="background: repeating-radial-gradient(circle, red, blue 20px); height: 100px; width: 200px;">
+		<p>Radial</p>
+	</div>`
+	elems, err := Convert(src, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(elems) < 1 {
+		t.Fatal("expected at least 1 element")
+	}
+}
+
+func TestRepeatingGradientInBackgroundImage(t *testing.T) {
+	src := `<div style="background-image: repeating-linear-gradient(red, blue); height: 50px;">
+		<p>BG image</p>
+	</div>`
+	_, err := Convert(src, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+// --- column-width tests ---
+
+func TestColumnWidthAutoCount(t *testing.T) {
+	// column-width: 150px with a 500px container should produce ~3 columns.
+	src := `<div style="column-width: 150px;">
+		<p>A</p><p>B</p><p>C</p><p>D</p><p>E</p><p>F</p>
+	</div>`
+	elems, err := Convert(src, &Options{PageWidth: 500})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(elems) < 1 {
+		t.Fatal("expected at least 1 element")
+	}
+	plan := elems[0].PlanLayout(layout.LayoutArea{Width: 500, Height: 800})
+	if plan.Status != layout.LayoutFull {
+		t.Fatal("expected LayoutFull")
+	}
+}
+
+func TestColumnWidthNarrowContainer(t *testing.T) {
+	// column-width wider than container should produce 1 column.
+	src := `<div style="column-width: 500px;">
+		<p>Only one column possible.</p>
+	</div>`
+	_, err := Convert(src, &Options{PageWidth: 300})
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestColumnsShorthandWithWidth(t *testing.T) {
+	// "columns: 200px" sets column-width, not column-count.
+	src := `<div style="columns: 200px;">
+		<p>A</p><p>B</p><p>C</p>
+	</div>`
+	_, err := Convert(src, &Options{PageWidth: 600})
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestColumnsShorthandCountAndWidth(t *testing.T) {
+	// "columns: 3 200px" sets both.
+	src := `<div style="columns: 3 200px;">
+		<p>A</p><p>B</p><p>C</p>
+	</div>`
+	_, err := Convert(src, nil)
+	if err != nil {
+		t.Fatal(err)
 	}
 }

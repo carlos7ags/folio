@@ -22,6 +22,30 @@ func (c *converter) convertList(n *html.Node, style computedStyle, ordered bool)
 	}
 	list.SetLeading(style.LineHeight)
 
+	// Apply ::marker pseudo-element styles from <li> children.
+	// Check the first <li> for ::marker declarations and apply to the list.
+	if c.sheet != nil {
+		for child := n.FirstChild; child != nil; child = child.NextSibling {
+			if child.Type == html.ElementNode && child.DataAtom == atom.Li {
+				markerDecls := c.sheet.matchingPseudoElementDeclarations(child, "marker")
+				for _, d := range markerDecls {
+					switch d.property {
+					case "color":
+						if clr, ok := parseColor(d.value); ok {
+							list.SetMarkerColor(clr)
+						}
+					case "font-size":
+						fs := parseFontSize(d.value, style.FontSize)
+						if fs > 0 {
+							list.SetMarkerFontSize(fs)
+						}
+					}
+				}
+				break // only need to check the first <li>
+			}
+		}
+	}
+
 	// Apply list-style-type from CSS, with fallback to ordered/unordered default.
 	switch style.ListStyleType {
 	case "disc", "":

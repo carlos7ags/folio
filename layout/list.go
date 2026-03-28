@@ -24,13 +24,15 @@ const (
 
 // List is a block-level element that renders ordered or unordered items.
 type List struct {
-	items    []listItem
-	style    ListStyle
-	font     *font.Standard
-	embedded *font.EmbeddedFont
-	fontSize float64
-	indent   float64 // left indent for item text (points)
-	leading  float64
+	items          []listItem
+	style          ListStyle
+	font           *font.Standard
+	embedded       *font.EmbeddedFont
+	fontSize       float64
+	indent         float64 // left indent for item text (points)
+	leading        float64
+	markerColor    *Color  // optional override color for markers
+	markerFontSize float64 // optional override font size for markers (0 = use list fontSize)
 }
 
 // listItem is a single entry in a list, optionally containing a nested sub-list.
@@ -85,6 +87,18 @@ func (l *List) SetIndent(indent float64) *List {
 // SetLeading sets the line height multiplier.
 func (l *List) SetLeading(leading float64) *List {
 	l.leading = leading
+	return l
+}
+
+// SetMarkerColor sets an override color for list markers.
+func (l *List) SetMarkerColor(c Color) *List {
+	l.markerColor = &c
+	return l
+}
+
+// SetMarkerFontSize sets an override font size for list markers.
+func (l *List) SetMarkerFontSize(size float64) *List {
+	l.markerFontSize = size
 	return l
 }
 
@@ -148,11 +162,18 @@ func (l *List) layoutAt(maxWidth float64, baseIndent float64) []Line {
 		marker := l.marker(i)
 
 		// Create a paragraph for the marker.
+		markerSize := l.fontSize
+		if l.markerFontSize > 0 {
+			markerSize = l.markerFontSize
+		}
 		var markerPara *Paragraph
 		if l.embedded != nil {
-			markerPara = NewParagraphEmbedded(marker, l.embedded, l.fontSize)
+			markerPara = NewParagraphEmbedded(marker, l.embedded, markerSize)
 		} else {
-			markerPara = NewParagraph(marker, l.font, l.fontSize)
+			markerPara = NewParagraph(marker, l.font, markerSize)
+		}
+		if l.markerColor != nil {
+			markerPara.runs[0].Color = *l.markerColor
 		}
 		markerPara.SetLeading(l.leading)
 		markerLines := markerPara.Layout(l.indent)
@@ -285,11 +306,18 @@ func (l *List) planAt(area LayoutArea, baseIndent float64) LayoutPlan {
 		marker := l.marker(i)
 
 		// Measure marker words.
+		markerSize := l.fontSize
+		if l.markerFontSize > 0 {
+			markerSize = l.markerFontSize
+		}
 		var markerPara *Paragraph
 		if l.embedded != nil {
-			markerPara = NewParagraphEmbedded(marker, l.embedded, l.fontSize)
+			markerPara = NewParagraphEmbedded(marker, l.embedded, markerSize)
 		} else {
-			markerPara = NewParagraph(marker, l.font, l.fontSize)
+			markerPara = NewParagraph(marker, l.font, markerSize)
+		}
+		if l.markerColor != nil {
+			markerPara.runs[0].Color = *l.markerColor
 		}
 		markerPara.SetLeading(l.leading)
 		markerWords, _ := markerPara.measureWords(l.indent)

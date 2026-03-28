@@ -78,6 +78,26 @@ func parseColorAlpha(value string) (layout.Color, float64, bool) {
 		return layout.Color{}, 0, false
 	}
 
+	// cmyk(c, m, y, k) / device-cmyk(c, m, y, k)
+	if strings.HasPrefix(value, "cmyk(") || strings.HasPrefix(value, "device-cmyk(") {
+		prefix := "cmyk("
+		if strings.HasPrefix(value, "device-cmyk(") {
+			prefix = "device-cmyk("
+		}
+		inner, ok := extractFuncArgs(value, prefix)
+		if ok {
+			parts := strings.Split(inner, ",")
+			if len(parts) >= 4 {
+				c := parseCMYKComponent(strings.TrimSpace(parts[0]))
+				m := parseCMYKComponent(strings.TrimSpace(parts[1]))
+				y := parseCMYKComponent(strings.TrimSpace(parts[2]))
+				k := parseCMYKComponent(strings.TrimSpace(parts[3]))
+				return layout.CMYK(c, m, y, k), 1, true
+			}
+		}
+		return layout.Color{}, 0, false
+	}
+
 	// hsl(h, s%, l%) / hsla(h, s%, l%, a)
 	if strings.HasPrefix(value, "hsl") {
 		inner, ok := extractFuncArgs(value, "hsla(")
@@ -156,6 +176,23 @@ func hexVal(c byte) byte {
 	return 0
 }
 
+// parseCMYKComponent parses a CMYK color component (0-1 or percentage).
+func parseCMYKComponent(s string) float64 {
+	if strings.HasSuffix(s, "%") {
+		v, _ := strconv.ParseFloat(s[:len(s)-1], 64)
+		return v / 100
+	}
+	v, _ := strconv.ParseFloat(s, 64)
+	// Clamp to 0-1 range.
+	if v < 0 {
+		return 0
+	}
+	if v > 1 {
+		return 1
+	}
+	return v
+}
+
 // parseColumnRule parses a CSS column-rule shorthand: "<width> <style> <color>".
 func parseColumnRule(val string, fontSize float64) (float64, string, layout.Color) {
 	parts := strings.Fields(strings.TrimSpace(strings.ToLower(val)))
@@ -175,6 +212,20 @@ func parseColumnRule(val string, fontSize float64) (float64, string, layout.Colo
 		}
 	}
 	return width, style, color
+}
+
+// parseMathFuncArgs parses comma-separated arguments to min()/max()/clamp().
+// Each argument can be a plain length or a calc() expression.
+func parseMathFuncArgs(inner string) []*cssLength {
+	parts := splitTopLevelCommas(inner)
+	var args []*cssLength
+	for _, p := range parts {
+		p = strings.TrimSpace(p)
+		if l := parseLength(p); l != nil {
+			args = append(args, l)
+		}
+	}
+	return args
 }
 
 // parseLengthPt parses a CSS length value and returns points, or 0 if invalid.
@@ -236,6 +287,36 @@ func parseLength(value string) *cssLength {
 		expr := parseCalcExpr(inner)
 		if expr != nil {
 			return &cssLength{calc: expr}
+		}
+		return nil
+	}
+
+	// Handle min(), max(), clamp() math functions.
+	if strings.HasPrefix(value, "min(") && strings.HasSuffix(value, ")") {
+		inner := value[4 : len(value)-1]
+		args := parseMathFuncArgs(inner)
+		if len(args) >= 2 {
+			return &cssLength{minArgs: args}
+		}
+		return nil
+	}
+	if strings.HasPrefix(value, "max(") && strings.HasSuffix(value, ")") {
+		inner := value[4 : len(value)-1]
+		args := parseMathFuncArgs(inner)
+		if len(args) >= 2 {
+			return &cssLength{maxArgs: args}
+		}
+		return nil
+	}
+	if strings.HasPrefix(value, "clamp(") && strings.HasSuffix(value, ")") {
+		inner := value[6 : len(value)-1]
+		args := parseMathFuncArgs(inner)
+		if len(args) == 3 {
+			// clamp(min, preferred, max) = max(min, min(preferred, max))
+			return &cssLength{maxArgs: []*cssLength{
+				args[0],
+				{minArgs: []*cssLength{args[1], args[2]}},
+			}}
 		}
 		return nil
 	}

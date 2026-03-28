@@ -8,21 +8,23 @@ import "github.com/carlos7ags/folio/layout"
 // computedStyle holds the resolved CSS properties for a single HTML node.
 type computedStyle struct {
 	// Text
-	FontFamily     string // "helvetica", "courier", "times"
-	FontSize       float64
-	FontWeight     string // "normal", "bold"
-	FontStyle      string // "normal", "italic"
-	Color          layout.Color
-	TextAlign      layout.Align
-	TextDecoration layout.TextDecoration
-	TextTransform  string // "none", "uppercase", "lowercase", "capitalize"
-	WhiteSpace     string // "normal", "nowrap", "pre", "pre-wrap", "pre-line"
-	LineHeight     float64
-	LetterSpacing  float64 // extra space between characters (points)
-	WordSpacing    float64 // extra space between words (points)
-	TextIndent     float64 // first-line indent (points)
-	WordBreak      string  // "normal", "break-all"
-	Hyphens        string  // "none", "manual", "auto"
+	FontFamily       string // "helvetica", "courier", "times"
+	FontSize         float64
+	FontWeight       string // "normal", "bold"
+	FontStyle        string // "normal", "italic"
+	Color            layout.Color
+	TextAlign        layout.Align
+	TextAlignLast    layout.Align // text-align-last override for the last line
+	TextAlignLastSet bool         // true if text-align-last was explicitly set
+	TextDecoration   layout.TextDecoration
+	TextTransform    string // "none", "uppercase", "lowercase", "capitalize"
+	WhiteSpace       string // "normal", "nowrap", "pre", "pre-wrap", "pre-line"
+	LineHeight       float64
+	LetterSpacing    float64 // extra space between characters (points)
+	WordSpacing      float64 // extra space between words (points)
+	TextIndent       float64 // first-line indent (points)
+	WordBreak        string  // "normal", "break-all"
+	Hyphens          string  // "none", "manual", "auto"
 
 	// Box model
 	MarginTopAuto   bool // true if margin-top: auto (for flex layout)
@@ -70,6 +72,10 @@ type computedStyle struct {
 	BackgroundPosition string // "center", "top left", "X% Y%"
 	BackgroundRepeat   string // "repeat", "no-repeat", "repeat-x", "repeat-y"
 
+	// Object fit/position (for images)
+	ObjectFit      string // "contain", "cover", "fill", "none", "scale-down"
+	ObjectPosition string // e.g. "center", "top left", "50% 50%"
+
 	// Positioning
 	Position  string // "static", "relative", "absolute", "fixed"
 	Top       *cssLength
@@ -107,7 +113,13 @@ type computedStyle struct {
 	GridColumnGap       float64    // column-gap for grid (takes priority over Gap for grid)
 
 	// List
-	ListStyleType string
+	ListStyleType      string
+	ListMarkerColor    *layout.Color // marker color from ::marker pseudo-element
+	ListMarkerFontSize float64       // marker font size from ::marker (0 = use default)
+
+	// CSS string-set for running headers (e.g. string-set: chapter content())
+	StringSetName  string // name of the string (e.g. "chapter")
+	StringSetValue string // "content()" or literal string
 
 	// Page break
 	PageBreakBefore string // "auto", "always", "avoid"
@@ -117,6 +129,11 @@ type computedStyle struct {
 	// Orphans and widows (paged media)
 	Orphans int // minimum lines at bottom of page (0 = not set)
 	Widows  int // minimum lines at top of page (0 = not set)
+
+	// CSS bookmark properties
+	BookmarkLevel    int    // bookmark-level override (0 = use heading level)
+	BookmarkLevelSet bool   // true if bookmark-level was explicitly set
+	BookmarkLabel    string // bookmark-label override (empty = use heading text)
 
 	// Table
 	BorderCollapse string  // "separate", "collapse"
@@ -150,6 +167,7 @@ type computedStyle struct {
 
 	// Columns
 	ColumnCount     int
+	ColumnWidth     float64 // CSS column-width in points (0 = auto)
 	ColumnGap       float64
 	ColumnRuleWidth float64
 	ColumnRuleStyle string // "solid", "dashed", "dotted"
@@ -206,6 +224,12 @@ type cssLength struct {
 	// calc expression: if non-nil, this length is a calc() and
 	// Value/Unit are ignored. Resolved at toPoints() time.
 	calc *calcExpr
+
+	// Math functions: min(), max(), clamp().
+	// If minArgs or maxArgs is non-nil, this is a min()/max() function.
+	// For clamp(min, preferred, max), clampArgs holds [3]*cssLength.
+	minArgs []*cssLength // min(a, b, ...)
+	maxArgs []*cssLength // max(a, b, ...)
 }
 
 // calcOp is an operator in a calc expression.
@@ -262,6 +286,24 @@ func (l *cssLength) toPoints(relativeTo, fontSize float64) float64 {
 	if l.calc != nil {
 		return l.calc.resolve(relativeTo, fontSize)
 	}
+	if len(l.minArgs) > 0 {
+		result := l.minArgs[0].toPoints(relativeTo, fontSize)
+		for _, arg := range l.minArgs[1:] {
+			if v := arg.toPoints(relativeTo, fontSize); v < result {
+				result = v
+			}
+		}
+		return result
+	}
+	if len(l.maxArgs) > 0 {
+		result := l.maxArgs[0].toPoints(relativeTo, fontSize)
+		for _, arg := range l.maxArgs[1:] {
+			if v := arg.toPoints(relativeTo, fontSize); v > result {
+				result = v
+			}
+		}
+		return result
+	}
 	switch l.Unit {
 	case "pt":
 		return l.Value
@@ -310,29 +352,31 @@ func defaultStyle() computedStyle {
 // inherit creates a child style that inherits text properties from the parent.
 func (s *computedStyle) inherit() computedStyle {
 	child := computedStyle{
-		FontFamily:     s.FontFamily,
-		FontSize:       s.FontSize,
-		FontWeight:     s.FontWeight,
-		FontStyle:      s.FontStyle,
-		Color:          s.Color,
-		TextAlign:      s.TextAlign,
-		TextDecoration: s.TextDecoration,
-		TextTransform:  s.TextTransform,
-		WhiteSpace:     s.WhiteSpace,
-		LineHeight:     s.LineHeight,
-		LetterSpacing:  s.LetterSpacing,
-		WordSpacing:    s.WordSpacing,
-		TextIndent:     s.TextIndent,
-		Display:        "block",
-		FlexDirection:  "row",
-		JustifyContent: "flex-start",
-		AlignItems:     "stretch",
-		FlexWrap:       "nowrap",
-		FlexShrink:     1,
-		ListStyleType:  s.ListStyleType,
-		Visibility:     s.Visibility,
-		WordBreak:      s.WordBreak,
-		Hyphens:        s.Hyphens,
+		FontFamily:       s.FontFamily,
+		FontSize:         s.FontSize,
+		FontWeight:       s.FontWeight,
+		FontStyle:        s.FontStyle,
+		Color:            s.Color,
+		TextAlign:        s.TextAlign,
+		TextAlignLast:    s.TextAlignLast,
+		TextAlignLastSet: s.TextAlignLastSet,
+		TextDecoration:   s.TextDecoration,
+		TextTransform:    s.TextTransform,
+		WhiteSpace:       s.WhiteSpace,
+		LineHeight:       s.LineHeight,
+		LetterSpacing:    s.LetterSpacing,
+		WordSpacing:      s.WordSpacing,
+		TextIndent:       s.TextIndent,
+		Display:          "block",
+		FlexDirection:    "row",
+		JustifyContent:   "flex-start",
+		AlignItems:       "stretch",
+		FlexWrap:         "nowrap",
+		FlexShrink:       1,
+		ListStyleType:    s.ListStyleType,
+		Visibility:       s.Visibility,
+		WordBreak:        s.WordBreak,
+		Hyphens:          s.Hyphens,
 	}
 	// CSS custom properties inherit: deep-copy the map.
 	if len(s.CustomProperties) > 0 {

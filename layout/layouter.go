@@ -80,6 +80,12 @@ type PlacedBlock struct {
 	// multiple links with different URIs.
 	Links []LinkArea
 
+	// StringSets holds CSS string-set values captured from this block.
+	// Each entry maps a string name to its content value (e.g. "chapter" → "Chapter 3").
+	// Used by running headers: string-set on an element captures text that
+	// string() in margin boxes can reference.
+	StringSets map[string]string
+
 	// floatInfo carries float positioning data (nil if not a float).
 	floatInfo *floatBlockInfo
 }
