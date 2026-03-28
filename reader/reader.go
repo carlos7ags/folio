@@ -136,6 +136,11 @@ func ParseWithOptions(data []byte, opts ReadOptions) (*PdfReader, error) {
 		}
 	}
 
+	// Check for encryption — not currently supported.
+	if xref.trailer != nil && xref.trailer.Get("Encrypt") != nil {
+		return nil, fmt.Errorf("reader: PDF is encrypted; decryption is not supported")
+	}
+
 	mem := newMemoryTracker(opts.MemoryLimits)
 
 	// Validate xref object count.

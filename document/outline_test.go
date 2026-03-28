@@ -193,8 +193,23 @@ func TestPageRemoveOutOfRange(t *testing.T) {
 func TestPageAccessor(t *testing.T) {
 	doc := NewDocument(PageSizeLetter)
 	p := doc.AddPage()
-	if doc.Page(0) != p {
+	got, err := doc.Page(0)
+	if err != nil {
+		t.Fatalf("Page(0): %v", err)
+	}
+	if got != p {
 		t.Error("Page(0) should return the page we added")
+	}
+}
+
+func TestPageAccessorOutOfRange(t *testing.T) {
+	doc := NewDocument(PageSizeLetter)
+	doc.AddPage()
+	if _, err := doc.Page(-1); err == nil {
+		t.Error("expected error for negative index")
+	}
+	if _, err := doc.Page(1); err == nil {
+		t.Error("expected error for index >= page count")
 	}
 }
 

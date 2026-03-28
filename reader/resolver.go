@@ -471,6 +471,11 @@ func decodePNGPredictor(data []byte, columns int) ([]byte, error) {
 	if rowSize <= 1 || len(data) == 0 {
 		return data, nil
 	}
+	// Bound columns: if a single row exceeds the data, the predictor
+	// cannot apply. This prevents allocation DoS from malicious /Columns.
+	if rowSize > len(data) {
+		return data, nil
+	}
 
 	nRows := len(data) / rowSize
 	if nRows == 0 {

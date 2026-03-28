@@ -448,6 +448,34 @@ func TestParseTooSmall(t *testing.T) {
 	}
 }
 
+func TestParseEncryptedPDF(t *testing.T) {
+	// Minimal PDF with /Encrypt in trailer — should fail with clear message.
+	pdf := []byte(`%PDF-1.4
+1 0 obj
+<< /Type /Catalog /Pages 2 0 R >>
+endobj
+2 0 obj
+<< /Type /Pages /Kids [] /Count 0 >>
+endobj
+xref
+0 3
+0000000000 65535 f
+0000000009 00000 n
+0000000058 00000 n
+trailer
+<< /Size 3 /Root 1 0 R /Encrypt << /Filter /Standard >> >>
+startxref
+108
+%%EOF`)
+	_, err := Parse(pdf)
+	if err == nil {
+		t.Fatal("expected error for encrypted PDF")
+	}
+	if !strings.Contains(err.Error(), "encrypted") {
+		t.Errorf("expected 'encrypted' in error, got: %v", err)
+	}
+}
+
 func TestTokenizerEOF(t *testing.T) {
 	tok := NewTokenizer([]byte(""))
 	token := tok.Next()

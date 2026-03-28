@@ -108,6 +108,8 @@ type XMPProperty struct {
 // SetPdfA enables PDF/A conformance on the document.
 // This enforces: font embedding, XMP metadata, output intent,
 // and disables encryption. For level A, tagging is enabled automatically.
+// Full validation (Title, fonts, transparency) happens at WriteTo time
+// or via [Document.ValidatePdfA].
 func (d *Document) SetPdfA(config PdfAConfig) {
 	d.pdfA = &config
 	// Level A (any part) requires tagged PDF.
@@ -116,6 +118,17 @@ func (d *Document) SetPdfA(config PdfAConfig) {
 	}
 	// PDF/A disallows encryption.
 	d.encryption = nil
+}
+
+// ValidatePdfA checks PDF/A requirements against the current document state.
+// This can be called before WriteTo to catch issues early (missing Title,
+// non-embedded fonts, forbidden transparency). Returns nil if PDF/A is not
+// enabled or all checks pass.
+func (d *Document) ValidatePdfA() error {
+	if d.pdfA == nil {
+		return nil
+	}
+	return d.validatePdfA(d.pages)
 }
 
 // pdfALevelString returns the conformance level letter.

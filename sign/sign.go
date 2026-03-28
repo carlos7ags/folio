@@ -133,7 +133,7 @@ func SignPDF(pdfBytes []byte, opts Options) ([]byte, error) {
 	// Build objects.
 	sigDict := buildSigDict(opts.Name, opts.Location, opts.Reason, opts.ContactInfo)
 	sigFieldDict := buildSigField(sigFieldObjNum, sigDictObjNum)
-	acroFormDict := buildAcroForm(sigFieldObjNum)
+	acroFormDict := buildAcroForm(r, sigFieldObjNum)
 
 	updatedCatalog, err := buildCatalogWithAcroForm(r, acroFormObjNum)
 	if err != nil {
@@ -235,12 +235,14 @@ func addValidationData(pdfBytes []byte, opts Options, sigDictObjNum int, sigCont
 }
 
 // buildSigField creates a signature field dictionary with a widget annotation.
+// The field name includes the object number to ensure uniqueness across
+// multiple signatures on the same document.
 func buildSigField(objNum, sigDictObjNum int) *core.PdfDictionary {
 	d := core.NewPdfDictionary()
 	d.Set("Type", core.NewPdfName("Annot"))
 	d.Set("Subtype", core.NewPdfName("Widget"))
 	d.Set("FT", core.NewPdfName("Sig"))
-	d.Set("T", core.NewPdfLiteralString("Signature1"))
+	d.Set("T", core.NewPdfLiteralString(fmt.Sprintf("Signature%d", objNum)))
 	d.Set("V", core.NewPdfIndirectReference(sigDictObjNum, 0))
 	d.Set("F", core.NewPdfInteger(132)) // Print + Locked
 	// Invisible signature (zero-size rectangle).
@@ -252,11 +254,38 @@ func buildSigField(objNum, sigDictObjNum int) *core.PdfDictionary {
 }
 
 // buildAcroForm creates an AcroForm dictionary referencing the signature field.
-func buildAcroForm(sigFieldObjNum int) *core.PdfDictionary {
+// If the PDF already has an AcroForm with /Fields, existing fields are preserved
+// so that prior signatures remain visible.
+func buildAcroForm(r *reader.PdfReader, sigFieldObjNum int) *core.PdfDictionary {
 	d := core.NewPdfDictionary()
-	d.Set("Fields", core.NewPdfArray(
-		core.NewPdfIndirectReference(sigFieldObjNum, 0),
-	))
+
+	// Collect existing fields from prior AcroForm (if any).
+	fields := core.NewPdfArray(core.NewPdfIndirectReference(sigFieldObjNum, 0))
+	if catalog := r.Catalog(); catalog != nil {
+		if af := catalog.Get("AcroForm"); af != nil {
+			if afDict, ok := af.(*core.PdfDictionary); ok {
+				if existingFields, ok := afDict.Get("Fields").(*core.PdfArray); ok {
+					for _, f := range existingFields.Elements {
+						fields.Add(f)
+					}
+				}
+			}
+			// Also try resolving indirect reference to AcroForm.
+			if afRef, ok := af.(*core.PdfIndirectReference); ok {
+				if resolved, err := r.ResolveObject(afRef); err == nil {
+					if afDict, ok := resolved.(*core.PdfDictionary); ok {
+						if existingFields, ok := afDict.Get("Fields").(*core.PdfArray); ok {
+							for _, f := range existingFields.Elements {
+								fields.Add(f)
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+
+	d.Set("Fields", fields)
 	d.Set("SigFlags", core.NewPdfInteger(3)) // SignaturesExist | AppendOnly
 	return d
 }

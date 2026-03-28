@@ -290,9 +290,12 @@ func (d *Document) PageCount() int {
 }
 
 // Page returns the page at the given zero-based index.
-// Panics if index is out of range.
-func (d *Document) Page(index int) *Page {
-	return d.pages[index]
+// Returns an error if the index is out of range.
+func (d *Document) Page(index int) (*Page, error) {
+	if index < 0 || index >= len(d.pages) {
+		return nil, fmt.Errorf("page index %d out of range [0, %d)", index, len(d.pages))
+	}
+	return d.pages[index], nil
 }
 
 // RemovePage removes the page at the given zero-based index.
