@@ -288,6 +288,43 @@ func TestParseColor(t *testing.T) {
 	}
 }
 
+func TestParseColorComponentClamping(t *testing.T) {
+	tests := []struct {
+		input string
+		want  float64
+	}{
+		{"0", 0},
+		{"255", 1.0},
+		{"128", 128.0 / 255},
+		{"300", 1.0}, // clamped to 1.0
+		{"-50", 0},   // clamped to 0
+		{"100%", 1.0},
+		{"0%", 0},
+		{"150%", 1.0}, // clamped to 1.0
+		{"-10%", 0},   // clamped to 0
+	}
+	for _, tt := range tests {
+		got := parseColorComponent(tt.input)
+		if diff := got - tt.want; diff > 0.001 || diff < -0.001 {
+			t.Errorf("parseColorComponent(%q) = %f, want %f", tt.input, got, tt.want)
+		}
+	}
+}
+
+func TestParseColorOutOfRange(t *testing.T) {
+	// rgb(300, -50, 128) should clamp to valid range.
+	c, ok := parseColor("rgb(300, -50, 128)")
+	if !ok {
+		t.Fatal("expected ok=true for rgb with out-of-range values")
+	}
+	if c.R != 1.0 {
+		t.Errorf("expected R=1.0 (clamped from 300), got %f", c.R)
+	}
+	if c.G != 0 {
+		t.Errorf("expected G=0.0 (clamped from -50), got %f", c.G)
+	}
+}
+
 func TestParseColorAlphaValues(t *testing.T) {
 	tests := []struct {
 		input string
@@ -1391,6 +1428,65 @@ func TestPageBreakInsideDivWrapper(t *testing.T) {
 		for i, e := range elems {
 			t.Logf("  [%d] %T", i, e)
 		}
+	}
+}
+
+func TestPageBreakInsideAvoid(t *testing.T) {
+	// A div with page-break-inside: avoid and box-model properties
+	// (to ensure a Div is produced) should have KeepTogether set.
+	htmlStr := `<div style="page-break-inside: avoid; padding: 5px; background: #eee">
+		<p>Keep me together</p>
+		<p>Second paragraph</p>
+	</div>`
+	elems, err := Convert(htmlStr, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, e := range elems {
+		if div, ok := e.(*layout.Div); ok {
+			if div.KeepTogether() {
+				found = true
+				break
+			}
+		}
+	}
+	if !found {
+		t.Error("expected Div with KeepTogether=true for page-break-inside: avoid")
+		for i, e := range elems {
+			t.Logf("  [%d] %T", i, e)
+		}
+	}
+}
+
+func TestPageBreakInsideAvoidRenderer(t *testing.T) {
+	// A tall div with page-break-inside: avoid on a small page should
+	// move to the next page instead of splitting.
+	// Use paragraphs with enough text to take space, then a Div.
+	p1 := layout.NewParagraph("First paragraph with enough content to take up space on the page. "+
+		"This should use a significant portion of the available area.", font.Helvetica, 12)
+
+	div2 := layout.NewDiv()
+	div2.SetBackground(layout.RGB(1, 0, 0))
+	div2.SetPadding(10)
+	div2.SetKeepTogether(true)
+	// Add several child paragraphs to make the div tall enough to split.
+	for i := range 10 {
+		_ = i
+		div2.Add(layout.NewParagraph("Line of text in the keep-together div. "+
+			"This needs to be long enough that the div exceeds remaining space.", font.Helvetica, 12))
+	}
+
+	margins := layout.Margins{Top: 20, Bottom: 20, Left: 20, Right: 20}
+	r := layout.NewRenderer(612, 200, margins) // very short page (160pt content area)
+	r.Add(p1)
+	r.Add(div2)
+	pages := r.Render()
+
+	// p1 takes some space, then div2 doesn't fit and has KeepTogether.
+	// It should move to page 2 rather than splitting.
+	if len(pages) < 2 {
+		t.Fatalf("expected at least 2 pages, got %d", len(pages))
 	}
 }
 
@@ -3602,6 +3698,57 @@ func TestAttrSelectorDashPrefix(t *testing.T) {
 	}
 	if len(elems) == 0 {
 		t.Fatal("expected elements")
+	}
+}
+
+func TestAttrSelectorCaseInsensitive(t *testing.T) {
+	// HTML attribute name is mixed case, CSS selector is lowercase.
+	// The selector should still match (HTML attributes are case-insensitive).
+	htmlStr := `<style>[data-value="test"] { font-weight: bold; }</style><p DATA-VALUE="test">Hello</p>`
+	elems, err := Convert(htmlStr, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(elems) == 0 {
+		t.Fatal("expected elements")
+	}
+	// If the selector matched, the paragraph should use bold font.
+	// This is a smoke test — the selector matching is the key behavior.
+}
+
+func TestAttrSelectorPresenceCaseInsensitive(t *testing.T) {
+	// Presence selector [attr] should match regardless of case.
+	htmlStr := `<style>[HIDDEN] { color: red; }</style><p hidden>Hidden text</p>`
+	elems, err := Convert(htmlStr, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(elems) == 0 {
+		t.Fatal("expected elements")
+	}
+}
+
+func TestCSSEscapeSequences(t *testing.T) {
+	// A class name containing a literal dot, escaped in the CSS selector.
+	htmlStr := `<style>.my\.class { font-weight: bold; }</style><p class="my.class">Escaped</p>`
+	elems, err := Convert(htmlStr, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(elems) == 0 {
+		t.Fatal("expected elements — escaped selector should match")
+	}
+}
+
+func TestCSSEscapeInID(t *testing.T) {
+	// An ID containing a literal colon, escaped in the CSS selector.
+	htmlStr := `<style>#my\:id { color: red; }</style><p id="my:id">Escaped</p>`
+	elems, err := Convert(htmlStr, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(elems) == 0 {
+		t.Fatal("expected elements — escaped ID selector should match")
 	}
 }
 

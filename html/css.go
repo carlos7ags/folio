@@ -470,6 +470,26 @@ func normalizeCombinators(s string) string {
 	return sb.String()
 }
 
+// unescapeCSS removes CSS escape sequences: \X → X for single-character
+// escapes. This allows selectors like \.class or \#id to match literal
+// dots and hashes. Full 6-digit hex escapes (\0000XX) are not supported.
+func unescapeCSS(s string) string {
+	if !strings.ContainsRune(s, '\\') {
+		return s
+	}
+	var sb strings.Builder
+	sb.Grow(len(s))
+	for i := 0; i < len(s); i++ {
+		if s[i] == '\\' && i+1 < len(s) {
+			i++
+			sb.WriteByte(s[i])
+		} else {
+			sb.WriteByte(s[i])
+		}
+	}
+	return sb.String()
+}
+
 // parseSelectorPart parses a simple selector like "p", ".class", "#id", "p.class", or "p:first-child".
 func parseSelectorPart(s string) selectorPart {
 	var part selectorPart
@@ -513,14 +533,14 @@ func parseSelectorPart(s string) selectorPart {
 		rest := s[idx+1:]
 		// ID may be followed by . for class.
 		if dotIdx := strings.IndexByte(rest, '.'); dotIdx >= 0 {
-			part.id = rest[:dotIdx]
+			part.id = unescapeCSS(rest[:dotIdx])
 			rest = rest[dotIdx:]
 		} else {
-			part.id = rest
+			part.id = unescapeCSS(rest)
 			rest = ""
 		}
 		if idx > 0 {
-			part.tag = strings.ToLower(s[:idx])
+			part.tag = unescapeCSS(strings.ToLower(s[:idx]))
 		}
 		s = rest
 	}
@@ -530,17 +550,17 @@ func parseSelectorPart(s string) selectorPart {
 		dotIdx := strings.IndexByte(s, '.')
 		if dotIdx < 0 {
 			if s != "" && part.tag == "" {
-				part.tag = strings.ToLower(s)
+				part.tag = unescapeCSS(strings.ToLower(s))
 			}
 			break
 		}
 		if dotIdx > 0 && part.tag == "" {
-			part.tag = strings.ToLower(s[:dotIdx])
+			part.tag = unescapeCSS(strings.ToLower(s[:dotIdx]))
 		}
 		s = s[dotIdx+1:]
 		nextDot := strings.IndexByte(s, '.')
 		if nextDot < 0 {
-			cls := strings.ToLower(s)
+			cls := unescapeCSS(strings.ToLower(s))
 			if part.class == "" {
 				part.class = cls
 			} else {
@@ -548,7 +568,7 @@ func parseSelectorPart(s string) selectorPart {
 			}
 			break
 		}
-		cls := strings.ToLower(s[:nextDot])
+		cls := unescapeCSS(strings.ToLower(s[:nextDot]))
 		if part.class == "" {
 			part.class = cls
 		} else {
@@ -569,7 +589,7 @@ func parseAttrSelector(content string) attrSelector {
 			name := strings.TrimSpace(content[:idx])
 			val := strings.TrimSpace(content[idx+len(op):])
 			val = strings.Trim(val, `"'`)
-			return attrSelector{name: strings.ToLower(name), op: op, value: val}
+			return attrSelector{name: unescapeCSS(strings.ToLower(name)), op: op, value: unescapeCSS(val)}
 		}
 	}
 	// Simple equality.
@@ -577,10 +597,10 @@ func parseAttrSelector(content string) attrSelector {
 		name := strings.TrimSpace(content[:idx])
 		val := strings.TrimSpace(content[idx+1:])
 		val = strings.Trim(val, `"'`)
-		return attrSelector{name: strings.ToLower(name), op: "=", value: val}
+		return attrSelector{name: unescapeCSS(strings.ToLower(name)), op: "=", value: unescapeCSS(val)}
 	}
 	// Presence only.
-	return attrSelector{name: strings.ToLower(content)}
+	return attrSelector{name: unescapeCSS(strings.ToLower(content))}
 }
 
 // parseDeclarations parses "color: red; font-size: 12px" into key-value pairs.

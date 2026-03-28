@@ -83,6 +83,11 @@ type Div struct {
 	transformOriginX float64 // in points, relative to element top-left
 	transformOriginY float64
 
+	// keepTogether prevents the Div from splitting across pages
+	// (CSS page-break-inside: avoid). If true, the renderer moves
+	// the entire Div to the next page rather than splitting it.
+	keepTogether bool
+
 	// Overlay children: absolutely positioned elements within this
 	// containing block. They are laid out independently and placed at
 	// fixed offsets (overlayX, overlayY) from the Div's top-left,
@@ -327,6 +332,19 @@ func (d *Div) SetOpacity(o float64) *Div {
 func (d *Div) SetOverflow(v string) *Div {
 	d.overflow = v
 	return d
+}
+
+// SetKeepTogether prevents the Div from splitting across pages
+// (CSS page-break-inside: avoid). If the Div doesn't fit on the
+// current page, it moves to the next page instead of splitting.
+func (d *Div) SetKeepTogether(v bool) *Div {
+	d.keepTogether = v
+	return d
+}
+
+// KeepTogether reports whether the Div should avoid splitting across pages.
+func (d *Div) KeepTogether() bool {
+	return d.keepTogether
 }
 
 // SetTag sets a custom PDF structure tag for accessibility (PDF/UA).

@@ -135,13 +135,23 @@ func extractFuncArgs(value, prefix string) (string, bool) {
 }
 
 // parseColorComponent parses an RGB color component (0-255 or percentage).
+// The result is clamped to [0, 1].
 func parseColorComponent(s string) float64 {
+	var v float64
 	if strings.HasSuffix(s, "%") {
-		v, _ := strconv.ParseFloat(s[:len(s)-1], 64)
-		return v / 100
+		v, _ = strconv.ParseFloat(s[:len(s)-1], 64)
+		v /= 100
+	} else {
+		v, _ = strconv.ParseFloat(s, 64)
+		v /= 255
 	}
-	v, _ := strconv.ParseFloat(s, 64)
-	return v / 255
+	if v < 0 {
+		return 0
+	}
+	if v > 1 {
+		return 1
+	}
+	return v
 }
 
 // parseHue parses a CSS hue value (degrees, 0-360).

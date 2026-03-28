@@ -225,6 +225,16 @@ func (r *Renderer) renderWithPlans() []PageResult {
 			atPageTop = false
 
 		case LayoutPartial:
+			// page-break-inside: avoid — if the element wants to stay
+			// together and we're not at the top of a fresh page, move
+			// the whole element to the next page instead of splitting.
+			if kt, ok := elem.(interface{ KeepTogether() bool }); ok && kt.KeepTogether() && !atPageTop {
+				startNewPage()
+				floats = nil
+				queue = append([]Element{elem}, queue...)
+				continue
+			}
+
 			if atPageTop && len(plan.Blocks) > 0 {
 				plan.Blocks[0].Y = 0
 			}

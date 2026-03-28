@@ -277,6 +277,9 @@ func applyDivStyles(div *layout.Div, style computedStyle, containerWidth float64
 		ox, oy := parseTransformOrigin(style.TransformOrigin, w, h, style.FontSize)
 		div.SetTransformOrigin(ox, oy)
 	}
+	if style.PageBreakInside == "avoid" {
+		div.SetKeepTogether(true)
+	}
 }
 
 // buildColumns creates a layout.Columns element from children and style.
