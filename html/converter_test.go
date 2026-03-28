@@ -288,6 +288,43 @@ func TestParseColor(t *testing.T) {
 	}
 }
 
+func TestParseColorComponentClamping(t *testing.T) {
+	tests := []struct {
+		input string
+		want  float64
+	}{
+		{"0", 0},
+		{"255", 1.0},
+		{"128", 128.0 / 255},
+		{"300", 1.0},   // clamped to 1.0
+		{"-50", 0},     // clamped to 0
+		{"100%", 1.0},
+		{"0%", 0},
+		{"150%", 1.0},  // clamped to 1.0
+		{"-10%", 0},    // clamped to 0
+	}
+	for _, tt := range tests {
+		got := parseColorComponent(tt.input)
+		if diff := got - tt.want; diff > 0.001 || diff < -0.001 {
+			t.Errorf("parseColorComponent(%q) = %f, want %f", tt.input, got, tt.want)
+		}
+	}
+}
+
+func TestParseColorOutOfRange(t *testing.T) {
+	// rgb(300, -50, 128) should clamp to valid range.
+	c, ok := parseColor("rgb(300, -50, 128)")
+	if !ok {
+		t.Fatal("expected ok=true for rgb with out-of-range values")
+	}
+	if c.R != 1.0 {
+		t.Errorf("expected R=1.0 (clamped from 300), got %f", c.R)
+	}
+	if c.G != 0 {
+		t.Errorf("expected G=0.0 (clamped from -50), got %f", c.G)
+	}
+}
+
 func TestParseColorAlphaValues(t *testing.T) {
 	tests := []struct {
 		input string
