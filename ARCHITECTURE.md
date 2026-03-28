@@ -92,6 +92,8 @@ or at the same level (no cycles).
 ```
 
 Exceptions:
+- `document` imports `html` to offer HTML-to-PDF convenience methods
+  (`AddHTML`) that delegate to the converter.
 - `reader` imports `document` for struct tree types and `font` for
   standard font metrics (used in text extraction width calculation).
 - `forms` imports `reader` for form filling on existing PDFs.
@@ -100,6 +102,23 @@ These are intentional — they exist because reading an existing PDF
 requires understanding the same structures that writing creates. If
 these cross-layer imports grow, consider extracting shared types into
 `core` or a new `model` package.
+
+---
+
+## Naming conventions
+
+Constructor names follow a consistent pattern across packages:
+
+| Pattern | Meaning | Example |
+|---|---|---|
+| `New*` | Construct from Go types or config | `NewDocument()`, `NewDiv()`, `NewEmbeddedFont(face)` |
+| `Parse*` | Construct from raw bytes (`[]byte`) | `ParseTTF(data)`, `Parse(pdfBytes)` |
+| `Load*` | Construct from a file path (`string`) | `LoadTTF(path)`, `LoadJPEG(path)` |
+
+When a package offers both file and bytes constructors, prefer `Load*`
+for paths and `Parse*` / `New*` for bytes. Value-type constructors
+(borders, colors) may use descriptive names without a prefix
+(e.g., `SolidBorder`, `DashedBorder`).
 
 ---
 
