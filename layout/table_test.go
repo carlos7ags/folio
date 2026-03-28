@@ -423,9 +423,9 @@ func TestCellElementStyledParagraph(t *testing.T) {
 	tbl.SetColumnWidths([]float64{400})
 	r := tbl.AddRow()
 	sp := NewStyledParagraph(
-		Run("Bold ", font.HelveticaBold, 12).WithColor(RGB(1, 0, 0)),
-		Run("Normal ", font.Helvetica, 12).WithColor(RGB(0, 0, 1)),
-		Run("Italic", font.HelveticaOblique, 12).WithColor(RGB(0, 1, 0)),
+		NewRun("Bold ", font.HelveticaBold, 12).WithColor(RGB(1, 0, 0)),
+		NewRun("Normal ", font.Helvetica, 12).WithColor(RGB(0, 0, 1)),
+		NewRun("Italic", font.HelveticaOblique, 12).WithColor(RGB(0, 1, 0)),
 	)
 	r.AddCellElement(sp)
 

@@ -25,14 +25,14 @@ func (e *Encoding) Decode(raw []byte) string {
 	return string(runes)
 }
 
-// WinAnsiEncoding is the Windows-1252 encoding used by most PDF simple fonts.
-var WinAnsiEncoding = makeWinAnsiEncoding()
+// winAnsiEncoding is the Windows-1252 encoding used by most PDF simple fonts.
+var winAnsiEncoding = makeWinAnsiEncoding()
 
-// MacRomanEncoding is the Mac OS Roman encoding.
-var MacRomanEncoding = makeMacRomanEncoding()
+// macRomanEncoding is the Mac OS Roman encoding.
+var macRomanEncoding = makeMacRomanEncoding()
 
-// StandardEncoding is Adobe's standard encoding for Type1 fonts.
-var StandardEncoding = makeStandardEncoding()
+// standardEncoding is Adobe's standard encoding for Type1 fonts.
+var standardEncoding = makeStandardEncoding()
 
 // makeWinAnsiEncoding builds the Windows-1252 encoding table.
 func makeWinAnsiEncoding() *Encoding {
@@ -273,9 +273,9 @@ var glyphNameToRune = map[string]rune{
 	"nbspace": 0x00A0, "sfthyphen": 0x00AD,
 }
 
-// GlyphToRune converts an Adobe glyph name to a Unicode rune.
+// glyphToRune converts an Adobe glyph name to a Unicode rune.
 // Returns 0 if unknown.
-func GlyphToRune(name string) rune {
+func glyphToRune(name string) rune {
 	if r, ok := glyphNameToRune[name]; ok {
 		return r
 	}

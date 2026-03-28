@@ -20,7 +20,7 @@ import (
 //
 //export folio_barcode_qr
 func folio_barcode_qr(data *C.char) C.uint64_t {
-	bc, err := barcode.QR(C.GoString(data))
+	bc, err := barcode.NewQR(C.GoString(data))
 	if err != nil {
 		setLastError(err.Error())
 		return 0
@@ -32,7 +32,7 @@ func folio_barcode_qr(data *C.char) C.uint64_t {
 //
 //export folio_barcode_qr_ecc
 func folio_barcode_qr_ecc(data *C.char, level C.int32_t) C.uint64_t {
-	bc, err := barcode.QRWithECC(C.GoString(data), barcode.ECCLevel(level))
+	bc, err := barcode.NewQRWithECC(C.GoString(data), barcode.ECCLevel(level))
 	if err != nil {
 		setLastError(err.Error())
 		return 0
@@ -44,7 +44,7 @@ func folio_barcode_qr_ecc(data *C.char, level C.int32_t) C.uint64_t {
 //
 //export folio_barcode_code128
 func folio_barcode_code128(data *C.char) C.uint64_t {
-	bc, err := barcode.Code128(C.GoString(data))
+	bc, err := barcode.NewCode128(C.GoString(data))
 	if err != nil {
 		setLastError(err.Error())
 		return 0
@@ -56,7 +56,7 @@ func folio_barcode_code128(data *C.char) C.uint64_t {
 //
 //export folio_barcode_ean13
 func folio_barcode_ean13(data *C.char) C.uint64_t {
-	bc, err := barcode.EAN13(C.GoString(data))
+	bc, err := barcode.NewEAN13(C.GoString(data))
 	if err != nil {
 		setLastError(err.Error())
 		return 0

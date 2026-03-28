@@ -21,9 +21,9 @@ const (
 	typDescender = 0.2
 )
 
-// SerializeContentOps converts parsed content stream operators back to
+// serializeContentOps converts parsed content stream operators back to
 // valid PDF content stream bytes. This is the inverse of ParseContentStream.
-func SerializeContentOps(ops []ContentOp) []byte {
+func serializeContentOps(ops []ContentOp) []byte {
 	var b strings.Builder
 	for i, op := range ops {
 		if i > 0 {
@@ -224,7 +224,7 @@ func rewriteContentStream(data []byte, rects []Box, fonts FontCache) []byte {
 		out = append(out, split...)
 	}
 
-	return SerializeContentOps(out)
+	return serializeContentOps(out)
 }
 
 // splitTextOp processes a text-showing operator (Tj, TJ, ', ") and returns

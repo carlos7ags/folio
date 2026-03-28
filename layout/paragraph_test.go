@@ -306,7 +306,7 @@ func TestParagraphBackgroundAllLines(t *testing.T) {
 }
 
 func TestDecorationUnderline(t *testing.T) {
-	r := Run("underlined", font.Helvetica, 12).WithUnderline()
+	r := NewRun("underlined", font.Helvetica, 12).WithUnderline()
 	if r.Decoration&DecorationUnderline == 0 {
 		t.Error("expected underline decoration")
 	}
@@ -318,14 +318,14 @@ func TestDecorationUnderline(t *testing.T) {
 }
 
 func TestDecorationStrikethrough(t *testing.T) {
-	r := Run("struck", font.Helvetica, 12).WithStrikethrough()
+	r := NewRun("struck", font.Helvetica, 12).WithStrikethrough()
 	if r.Decoration&DecorationStrikethrough == 0 {
 		t.Error("expected strikethrough decoration")
 	}
 }
 
 func TestDecorationBoth(t *testing.T) {
-	r := Run("both", font.Helvetica, 12).WithUnderline().WithStrikethrough()
+	r := NewRun("both", font.Helvetica, 12).WithUnderline().WithStrikethrough()
 	if r.Decoration&DecorationUnderline == 0 {
 		t.Error("expected underline")
 	}
@@ -450,7 +450,7 @@ func TestParagraphNewlineTrailing(t *testing.T) {
 
 func TestWithBackgroundColor(t *testing.T) {
 	bg := RGB(1, 1, 0)
-	run := Run("highlight", font.Helvetica, 12).WithBackgroundColor(bg)
+	run := NewRun("highlight", font.Helvetica, 12).WithBackgroundColor(bg)
 	if run.BackgroundColor == nil {
 		t.Fatal("expected BackgroundColor to be set")
 	}
@@ -462,8 +462,8 @@ func TestWithBackgroundColor(t *testing.T) {
 func TestParagraphBackgroundColorPropagates(t *testing.T) {
 	bg := RGB(1, 1, 0)
 	p := NewStyledParagraph(
-		Run("Hello ", font.Helvetica, 12),
-		Run("World", font.Helvetica, 12).WithBackgroundColor(bg),
+		NewRun("Hello ", font.Helvetica, 12),
+		NewRun("World", font.Helvetica, 12).WithBackgroundColor(bg),
 	)
 	lines := p.Layout(500)
 	if len(lines) != 1 {
@@ -484,9 +484,9 @@ func TestParagraphBackgroundColorPropagates(t *testing.T) {
 func TestParagraphHighlightRendersWithPlanLayout(t *testing.T) {
 	bg := RGB(1, 1, 0)
 	p := NewStyledParagraph(
-		Run("Normal ", font.Helvetica, 12),
-		Run("highlighted", font.Helvetica, 12).WithBackgroundColor(bg),
-		Run(" normal", font.Helvetica, 12),
+		NewRun("Normal ", font.Helvetica, 12),
+		NewRun("highlighted", font.Helvetica, 12).WithBackgroundColor(bg),
+		NewRun(" normal", font.Helvetica, 12),
 	)
 	plan := p.PlanLayout(LayoutArea{Width: 500, Height: 1000})
 	if plan.Status != LayoutFull {

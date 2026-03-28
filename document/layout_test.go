@@ -313,28 +313,28 @@ func TestDocumentRichTextQpdfCheck(t *testing.T) {
 
 	// Mixed fonts within a single paragraph.
 	doc.Add(layout.NewStyledParagraph(
-		layout.Run("This is ", font.Helvetica, 12),
-		layout.Run("bold", font.HelveticaBold, 12),
-		layout.Run(" and ", font.Helvetica, 12),
-		layout.Run("italic", font.HelveticaOblique, 12),
-		layout.Run(" text in one paragraph.", font.Helvetica, 12),
+		layout.NewRun("This is ", font.Helvetica, 12),
+		layout.NewRun("bold", font.HelveticaBold, 12),
+		layout.NewRun(" and ", font.Helvetica, 12),
+		layout.NewRun("italic", font.HelveticaOblique, 12),
+		layout.NewRun(" text in one paragraph.", font.Helvetica, 12),
 	))
 
 	// Mixed sizes.
 	doc.Add(layout.NewStyledParagraph(
-		layout.Run("BIG", font.HelveticaBold, 24),
-		layout.Run(" then small", font.Helvetica, 10),
-		layout.Run(" then medium.", font.Helvetica, 14),
+		layout.NewRun("BIG", font.HelveticaBold, 24),
+		layout.NewRun(" then small", font.Helvetica, 10),
+		layout.NewRun(" then medium.", font.Helvetica, 14),
 	))
 
 	// Colors.
 	red := layout.RGB(1, 0, 0)
 	blue := layout.RGB(0, 0, 1)
 	doc.Add(layout.NewStyledParagraph(
-		layout.Run("Black ", font.Helvetica, 12),
-		layout.Run("red ", font.Helvetica, 12).WithColor(red),
-		layout.Run("blue ", font.Helvetica, 12).WithColor(blue),
-		layout.Run("black again.", font.Helvetica, 12),
+		layout.NewRun("Black ", font.Helvetica, 12),
+		layout.NewRun("red ", font.Helvetica, 12).WithColor(red),
+		layout.NewRun("blue ", font.Helvetica, 12).WithColor(blue),
+		layout.NewRun("black again.", font.Helvetica, 12),
 	))
 
 	// Regular paragraph still works.
@@ -380,11 +380,11 @@ func TestDocumentBoxModelQpdfCheck(t *testing.T) {
 
 	// Paragraph with underline and strikethrough.
 	doc.Add(layout.NewStyledParagraph(
-		layout.Run("Normal ", font.Helvetica, 12),
-		layout.Run("underlined", font.Helvetica, 12).WithUnderline(),
-		layout.Run(" and ", font.Helvetica, 12),
-		layout.Run("struck through", font.Helvetica, 12).WithStrikethrough(),
-		layout.Run(" text.", font.Helvetica, 12),
+		layout.NewRun("Normal ", font.Helvetica, 12),
+		layout.NewRun("underlined", font.Helvetica, 12).WithUnderline(),
+		layout.NewRun(" and ", font.Helvetica, 12),
+		layout.NewRun("struck through", font.Helvetica, 12).WithStrikethrough(),
+		layout.NewRun(" text.", font.Helvetica, 12),
 	))
 
 	// Table with cell backgrounds and vertical alignment.
@@ -412,7 +412,7 @@ func TestDocumentBoxModelQpdfCheck(t *testing.T) {
 func TestDocumentUnderlineStrikethrough(t *testing.T) {
 	doc := NewDocument(PageSizeLetter)
 	doc.Add(layout.NewStyledParagraph(
-		layout.Run("underlined", font.Helvetica, 12).WithUnderline(),
+		layout.NewRun("underlined", font.Helvetica, 12).WithUnderline(),
 	))
 
 	var buf bytes.Buffer

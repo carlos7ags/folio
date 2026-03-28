@@ -145,7 +145,7 @@ func parseElement(dec *xml.Decoder) (*Node, error) {
 			node := &Node{
 				Tag:       localName(t.Name),
 				Attrs:     make(map[string]string),
-				Transform: Identity(),
+				Transform: identity(),
 			}
 			for _, attr := range t.Attr {
 				key := localName(attr.Name)
@@ -153,7 +153,7 @@ func parseElement(dec *xml.Decoder) (*Node, error) {
 			}
 			// Parse transform attribute into the Transform matrix.
 			if tf, ok := node.Attrs["transform"]; ok {
-				node.Transform = ParseTransform(tf)
+				node.Transform = parseTransform(tf)
 			}
 
 			// Recursively parse children.
@@ -194,14 +194,14 @@ func parseChildren(dec *xml.Decoder, parent *Node) error {
 			child := &Node{
 				Tag:       localName(t.Name),
 				Attrs:     make(map[string]string),
-				Transform: Identity(),
+				Transform: identity(),
 			}
 			for _, attr := range t.Attr {
 				key := localName(attr.Name)
 				child.Attrs[key] = attr.Value
 			}
 			if tf, ok := child.Attrs["transform"]; ok {
-				child.Transform = ParseTransform(tf)
+				child.Transform = parseTransform(tf)
 			}
 			if err := parseChildren(dec, child); err != nil {
 				return err

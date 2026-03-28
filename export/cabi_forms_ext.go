@@ -25,7 +25,7 @@ func folio_form_add_multiline_text_field(formH C.uint64_t, name *C.char, x1, y1,
 		return errCode
 	}
 	rect := [4]float64{float64(x1), float64(y1), float64(x2), float64(y2)}
-	af.Add(forms.MultilineTextField(C.GoString(name), rect, int(pageIndex)))
+	af.Add(forms.NewMultilineTextField(C.GoString(name), rect, int(pageIndex)))
 	return errOK
 }
 
@@ -36,7 +36,7 @@ func folio_form_add_password_field(formH C.uint64_t, name *C.char, x1, y1, x2, y
 		return errCode
 	}
 	rect := [4]float64{float64(x1), float64(y1), float64(x2), float64(y2)}
-	af.Add(forms.PasswordField(C.GoString(name), rect, int(pageIndex)))
+	af.Add(forms.NewPasswordField(C.GoString(name), rect, int(pageIndex)))
 	return errOK
 }
 
@@ -55,7 +55,7 @@ func folio_form_add_listbox(formH C.uint64_t, name *C.char, x1, y1, x2, y2 C.dou
 			goOpts[i] = C.GoString(cArray[i])
 		}
 	}
-	af.Add(forms.ListBox(C.GoString(name), rect, int(pageIndex), goOpts))
+	af.Add(forms.NewListBox(C.GoString(name), rect, int(pageIndex), goOpts))
 	return errOK
 }
 
@@ -83,7 +83,7 @@ func folio_form_add_radio_group(formH C.uint64_t, name *C.char,
 			PageIndex: int(cPages[i]),
 		}
 	}
-	af.Add(forms.RadioGroup(C.GoString(name), opts))
+	af.Add(forms.NewRadioGroup(C.GoString(name), opts))
 	return errOK
 }
 
@@ -142,14 +142,14 @@ func folio_form_field_set_border_color(fieldH C.uint64_t, r, g, b C.double) C.in
 //export folio_form_create_text_field
 func folio_form_create_text_field(name *C.char, x1, y1, x2, y2 C.double, pageIndex C.int32_t) C.uint64_t {
 	rect := [4]float64{float64(x1), float64(y1), float64(x2), float64(y2)}
-	f := forms.TextField(C.GoString(name), rect, int(pageIndex))
+	f := forms.NewTextField(C.GoString(name), rect, int(pageIndex))
 	return C.uint64_t(ht.store(f))
 }
 
 //export folio_form_create_checkbox
 func folio_form_create_checkbox(name *C.char, x1, y1, x2, y2 C.double, pageIndex C.int32_t, checked C.int32_t) C.uint64_t {
 	rect := [4]float64{float64(x1), float64(y1), float64(x2), float64(y2)}
-	f := forms.Checkbox(C.GoString(name), rect, int(pageIndex), checked != 0)
+	f := forms.NewCheckbox(C.GoString(name), rect, int(pageIndex), checked != 0)
 	return C.uint64_t(ht.store(f))
 }
 

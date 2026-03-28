@@ -49,9 +49,9 @@ func main() {
 			return nil // no header on cover page
 		}
 		return layout.NewStyledParagraph(
-			layout.Run("Apex Capital Partners", font.HelveticaBold, 9).
+			layout.NewRun("Apex Capital Partners", font.HelveticaBold, 9).
 				WithColor(layout.ColorNavy),
-			layout.Run("  —  Annual Report 2026", font.Helvetica, 9).
+			layout.NewRun("  —  Annual Report 2026", font.Helvetica, 9).
 				WithColor(layout.ColorGray),
 		)
 	})
@@ -97,8 +97,8 @@ func main() {
 		SetSpaceBefore(8).
 		SetSpaceAfter(12)
 	callout.Add(layout.NewStyledParagraph(
-		layout.Run("Highlight: ", font.HelveticaBold, 10).WithColor(navy),
-		layout.Run("Named \"Top Advisory Firm\" by the Financial Times for the third consecutive year.", font.Helvetica, 10),
+		layout.NewRun("Highlight: ", font.HelveticaBold, 10).WithColor(navy),
+		layout.NewRun("Named \"Top Advisory Firm\" by the Financial Times for the third consecutive year.", font.Helvetica, 10),
 	))
 	doc.Add(callout)
 
@@ -132,8 +132,8 @@ func main() {
 		}).
 		SetBackground(layout.RGB(1.0, 0.99, 0.94))
 	callout2.Add(layout.NewStyledParagraph(
-		layout.Run("Outlook: ", font.HelveticaBold, 10).WithColor(navy),
-		layout.Run("Board approval pending for Series C fund ($500M target). Q1 2027 earnings call scheduled for April 15.", font.Helvetica, 10),
+		layout.NewRun("Outlook: ", font.HelveticaBold, 10).WithColor(navy),
+		layout.NewRun("Board approval pending for Series C fund ($500M target). Q1 2027 earnings call scheduled for April 15.", font.Helvetica, 10),
 	))
 	doc.Add(callout2)
 
@@ -162,12 +162,12 @@ func main() {
 			SetSpaceAfter(2)
 
 		card.Add(layout.NewStyledParagraph(
-			layout.Run(t.name, font.HelveticaBold, 11).WithColor(navy),
-			layout.Run("  —  ", font.Helvetica, 10).WithColor(gray),
-			layout.Run(t.title, font.Helvetica, 10).WithColor(teal),
+			layout.NewRun(t.name, font.HelveticaBold, 11).WithColor(navy),
+			layout.NewRun("  —  ", font.Helvetica, 10).WithColor(gray),
+			layout.NewRun(t.title, font.Helvetica, 10).WithColor(teal),
 		))
 		card.Add(layout.NewStyledParagraph(
-			layout.Run(t.bio, font.Helvetica, 9).WithColor(gray),
+			layout.NewRun(t.bio, font.Helvetica, 9).WithColor(gray),
 		).SetLeading(1.4).SetSpaceBefore(2))
 
 		doc.Add(card)

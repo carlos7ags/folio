@@ -41,87 +41,87 @@ func assertMatrix(t *testing.T, label string, got Matrix, wantA, wantB, wantC, w
 // ---------------------------------------------------------------------------
 
 func TestParseColor_NamedRed(t *testing.T) {
-	c, ok := ParseColor("red")
+	c, ok := parseColor("red")
 	if !ok {
-		t.Fatal("ParseColor(\"red\") returned ok=false")
+		t.Fatal("parseColor(\"red\") returned ok=false")
 	}
 	assertColor(t, "red", c, 1, 0, 0, 1)
 }
 
 func TestParseColor_NamedBlue(t *testing.T) {
-	c, ok := ParseColor("blue")
+	c, ok := parseColor("blue")
 	if !ok {
-		t.Fatal("ParseColor(\"blue\") returned ok=false")
+		t.Fatal("parseColor(\"blue\") returned ok=false")
 	}
 	assertColor(t, "blue", c, 0, 0, 1, 1)
 }
 
 func TestParseColor_HexFull(t *testing.T) {
-	c, ok := ParseColor("#ff0000")
+	c, ok := parseColor("#ff0000")
 	if !ok {
-		t.Fatal("ParseColor(\"#ff0000\") returned ok=false")
+		t.Fatal("parseColor(\"#ff0000\") returned ok=false")
 	}
 	assertColor(t, "#ff0000", c, 1, 0, 0, 1)
 }
 
 func TestParseColor_HexShorthand(t *testing.T) {
-	c, ok := ParseColor("#0f0")
+	c, ok := parseColor("#0f0")
 	if !ok {
-		t.Fatal("ParseColor(\"#0f0\") returned ok=false")
+		t.Fatal("parseColor(\"#0f0\") returned ok=false")
 	}
 	assertColor(t, "#0f0", c, 0, 1, 0, 1)
 }
 
 func TestParseColor_RGB(t *testing.T) {
-	c, ok := ParseColor("rgb(255, 0, 0)")
+	c, ok := parseColor("rgb(255, 0, 0)")
 	if !ok {
-		t.Fatal("ParseColor(\"rgb(255, 0, 0)\") returned ok=false")
+		t.Fatal("parseColor(\"rgb(255, 0, 0)\") returned ok=false")
 	}
 	assertColor(t, "rgb(255,0,0)", c, 1, 0, 0, 1)
 }
 
 func TestParseColor_RGBA(t *testing.T) {
-	c, ok := ParseColor("rgba(0, 0, 255, 0.5)")
+	c, ok := parseColor("rgba(0, 0, 255, 0.5)")
 	if !ok {
-		t.Fatal("ParseColor(\"rgba(0, 0, 255, 0.5)\") returned ok=false")
+		t.Fatal("parseColor(\"rgba(0, 0, 255, 0.5)\") returned ok=false")
 	}
 	assertColor(t, "rgba semi-blue", c, 0, 0, 1, 0.5)
 }
 
 func TestParseColor_None(t *testing.T) {
-	_, ok := ParseColor("none")
+	_, ok := parseColor("none")
 	if ok {
-		t.Error("ParseColor(\"none\") should return ok=false")
+		t.Error("parseColor(\"none\") should return ok=false")
 	}
 }
 
 func TestParseColor_CurrentColor(t *testing.T) {
 	// Implementation returns black (0,0,0,1) with ok=true for currentColor.
-	c, ok := ParseColor("currentColor")
+	c, ok := parseColor("currentColor")
 	if !ok {
-		t.Fatal("ParseColor(\"currentColor\") returned ok=false")
+		t.Fatal("parseColor(\"currentColor\") returned ok=false")
 	}
 	assertColor(t, "currentColor", c, 0, 0, 0, 1)
 }
 
 func TestParseColor_Invalid(t *testing.T) {
-	_, ok := ParseColor("notacolor")
+	_, ok := parseColor("notacolor")
 	if ok {
-		t.Error("ParseColor(\"notacolor\") should return ok=false")
+		t.Error("parseColor(\"notacolor\") should return ok=false")
 	}
 }
 
 func TestParseColor_EmptyString(t *testing.T) {
-	_, ok := ParseColor("")
+	_, ok := parseColor("")
 	if ok {
-		t.Error("ParseColor(\"\") should return ok=false")
+		t.Error("parseColor(\"\") should return ok=false")
 	}
 }
 
 func TestParseColor_HexBlue(t *testing.T) {
-	c, ok := ParseColor("#0000ff")
+	c, ok := parseColor("#0000ff")
 	if !ok {
-		t.Fatal("ParseColor(\"#0000ff\") returned ok=false")
+		t.Fatal("parseColor(\"#0000ff\") returned ok=false")
 	}
 	assertColor(t, "#0000ff", c, 0, 0, 1, 1)
 }
@@ -131,55 +131,55 @@ func TestParseColor_HexBlue(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestIdentityMatrix(t *testing.T) {
-	m := Identity()
+	m := identity()
 	assertMatrix(t, "Identity", m, 1, 0, 0, 1, 0, 0)
 }
 
 func TestParseTransform_Translate(t *testing.T) {
-	m := ParseTransform("translate(10, 20)")
+	m := parseTransform("translate(10, 20)")
 	assertMatrix(t, "translate(10,20)", m, 1, 0, 0, 1, 10, 20)
 }
 
 func TestParseTransform_Scale(t *testing.T) {
-	m := ParseTransform("scale(2)")
+	m := parseTransform("scale(2)")
 	assertMatrix(t, "scale(2)", m, 2, 0, 0, 2, 0, 0)
 }
 
 func TestParseTransform_Rotate90(t *testing.T) {
-	m := ParseTransform("rotate(90)")
+	m := parseTransform("rotate(90)")
 	// cos(90)=0, sin(90)=1 => A=0, B=1, C=-1, D=0
 	assertMatrix(t, "rotate(90)", m, 0, 1, -1, 0, 0, 0)
 }
 
 func TestParseTransform_Combined(t *testing.T) {
-	m := ParseTransform("translate(10,20) scale(2)")
+	m := parseTransform("translate(10,20) scale(2)")
 	// translate(10,20) * scale(2) = {A:2, B:0, C:0, D:2, E:10, F:20}
 	assertMatrix(t, "translate+scale", m, 2, 0, 0, 2, 10, 20)
 }
 
 func TestParseTransform_Matrix(t *testing.T) {
-	m := ParseTransform("matrix(1,0,0,1,50,100)")
+	m := parseTransform("matrix(1,0,0,1,50,100)")
 	assertMatrix(t, "matrix literal", m, 1, 0, 0, 1, 50, 100)
 }
 
 func TestParseTransform_SkewX(t *testing.T) {
-	m := ParseTransform("skewX(45)")
+	m := parseTransform("skewX(45)")
 	// tan(45deg) = 1
 	assertMatrix(t, "skewX(45)", m, 1, 0, 1, 1, 0, 0)
 }
 
 func TestParseTransform_SkewY(t *testing.T) {
-	m := ParseTransform("skewY(45)")
+	m := parseTransform("skewY(45)")
 	assertMatrix(t, "skewY(45)", m, 1, 1, 0, 1, 0, 0)
 }
 
 func TestParseTransform_Empty(t *testing.T) {
-	m := ParseTransform("")
+	m := parseTransform("")
 	assertMatrix(t, "empty transform", m, 1, 0, 0, 1, 0, 0)
 }
 
 func TestParseTransform_NonUniformScale(t *testing.T) {
-	m := ParseTransform("scale(3, 0.5)")
+	m := parseTransform("scale(3, 0.5)")
 	assertMatrix(t, "scale(3,0.5)", m, 3, 0, 0, 0.5, 0, 0)
 }
 
@@ -196,7 +196,7 @@ func TestMultiply(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestParsePath_SimpleML(t *testing.T) {
-	cmds, err := ParsePathData("M 0 0 L 10 10")
+	cmds, err := parsePathData("M 0 0 L 10 10")
 	if err != nil {
 		t.Fatalf("ParsePathData error: %v", err)
 	}
@@ -215,7 +215,7 @@ func TestParsePath_SimpleML(t *testing.T) {
 }
 
 func TestParsePath_Relative(t *testing.T) {
-	cmds, err := ParsePathData("M 0 0 l 10 10")
+	cmds, err := parsePathData("M 0 0 l 10 10")
 	if err != nil {
 		t.Fatalf("ParsePathData error: %v", err)
 	}
@@ -232,7 +232,7 @@ func TestParsePath_Relative(t *testing.T) {
 }
 
 func TestParsePath_ImplicitLinetoAfterM(t *testing.T) {
-	cmds, err := ParsePathData("M 0 0 10 10 20 20")
+	cmds, err := parsePathData("M 0 0 10 10 20 20")
 	if err != nil {
 		t.Fatalf("ParsePathData error: %v", err)
 	}
@@ -252,7 +252,7 @@ func TestParsePath_ImplicitLinetoAfterM(t *testing.T) {
 }
 
 func TestParsePath_HV(t *testing.T) {
-	cmds, err := ParsePathData("M 0 0 H 10 V 20")
+	cmds, err := parsePathData("M 0 0 H 10 V 20")
 	if err != nil {
 		t.Fatalf("ParsePathData error: %v", err)
 	}
@@ -277,7 +277,7 @@ func TestParsePath_HV(t *testing.T) {
 }
 
 func TestParsePath_ClosePath(t *testing.T) {
-	cmds, err := ParsePathData("M 0 0 L 10 10 Z")
+	cmds, err := parsePathData("M 0 0 L 10 10 Z")
 	if err != nil {
 		t.Fatalf("ParsePathData error: %v", err)
 	}
@@ -290,7 +290,7 @@ func TestParsePath_ClosePath(t *testing.T) {
 }
 
 func TestParsePath_Cubic(t *testing.T) {
-	cmds, err := ParsePathData("M 0 0 C 1 2 3 4 5 6")
+	cmds, err := parsePathData("M 0 0 C 1 2 3 4 5 6")
 	if err != nil {
 		t.Fatalf("ParsePathData error: %v", err)
 	}
@@ -309,7 +309,7 @@ func TestParsePath_Cubic(t *testing.T) {
 }
 
 func TestParsePath_Quadratic(t *testing.T) {
-	cmds, err := ParsePathData("M 0 0 Q 5 10 10 0")
+	cmds, err := parsePathData("M 0 0 Q 5 10 10 0")
 	if err != nil {
 		t.Fatalf("ParsePathData error: %v", err)
 	}
@@ -326,7 +326,7 @@ func TestParsePath_Quadratic(t *testing.T) {
 }
 
 func TestParsePath_NoSpaceNegative(t *testing.T) {
-	cmds, err := ParsePathData("M10-20L30-40")
+	cmds, err := parsePathData("M10-20L30-40")
 	if err != nil {
 		t.Fatalf("ParsePathData error: %v", err)
 	}
@@ -342,7 +342,7 @@ func TestParsePath_NoSpaceNegative(t *testing.T) {
 }
 
 func TestParsePath_Arc(t *testing.T) {
-	cmds, err := ParsePathData("M 0 0 A 25 25 0 0 1 50 0")
+	cmds, err := parsePathData("M 0 0 A 25 25 0 0 1 50 0")
 	if err != nil {
 		t.Fatalf("ParsePathData error: %v", err)
 	}
@@ -363,7 +363,7 @@ func TestParsePath_Arc(t *testing.T) {
 }
 
 func TestParsePath_SmoothCubic(t *testing.T) {
-	cmds, err := ParsePathData("M 0 0 C 1 2 3 4 5 6 S 8 9 10 11")
+	cmds, err := parsePathData("M 0 0 C 1 2 3 4 5 6 S 8 9 10 11")
 	if err != nil {
 		t.Fatalf("ParsePathData error: %v", err)
 	}
@@ -377,7 +377,7 @@ func TestParsePath_SmoothCubic(t *testing.T) {
 }
 
 func TestParsePath_EmptyString(t *testing.T) {
-	cmds, err := ParsePathData("")
+	cmds, err := parsePathData("")
 	if err != nil {
 		t.Fatalf("ParsePathData error: %v", err)
 	}
@@ -391,7 +391,7 @@ func TestParsePath_EmptyString(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestArcToCubics_Basic(t *testing.T) {
-	cubics := ArcToCubics(0, 0, 25, 25, 0, false, true, 50, 0)
+	cubics := arcToCubics(0, 0, 25, 25, 0, false, true, 50, 0)
 	if len(cubics) == 0 {
 		t.Fatal("ArcToCubics returned no commands")
 	}
@@ -410,14 +410,14 @@ func TestArcToCubics_Basic(t *testing.T) {
 }
 
 func TestArcToCubics_SamePoint(t *testing.T) {
-	cubics := ArcToCubics(10, 10, 25, 25, 0, false, true, 10, 10)
+	cubics := arcToCubics(10, 10, 25, 25, 0, false, true, 10, 10)
 	if len(cubics) != 0 {
 		t.Errorf("ArcToCubics with same start/end should return nil, got %d commands", len(cubics))
 	}
 }
 
 func TestArcToCubics_ZeroRadius(t *testing.T) {
-	cubics := ArcToCubics(0, 0, 0, 25, 0, false, true, 50, 0)
+	cubics := arcToCubics(0, 0, 0, 25, 0, false, true, 50, 0)
 	if len(cubics) != 1 {
 		t.Fatalf("ArcToCubics with zero rx should return 1 degenerate cubic, got %d", len(cubics))
 	}
@@ -546,10 +546,10 @@ func TestParseBytes(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestDefaultStyle(t *testing.T) {
-	s := DefaultStyle()
+	s := defaultStyle()
 	// Default fill is nil (meaning black for shapes, applied at render time).
 	if s.Fill != nil {
-		t.Error("DefaultStyle().Fill should be nil")
+		t.Error("defaultStyle().Fill should be nil")
 	}
 	if !approxEqual(s.FillOpacity, 1) {
 		t.Errorf("FillOpacity = %.4f, want 1", s.FillOpacity)
@@ -567,8 +567,8 @@ func TestResolveStyle_FillAttribute(t *testing.T) {
 		Tag:   "rect",
 		Attrs: map[string]string{"fill": "red"},
 	}
-	parent := DefaultStyle()
-	s := ResolveStyle(node, parent)
+	parent := defaultStyle()
+	s := resolveStyle(node, parent)
 	if s.Fill == nil {
 		t.Fatal("Fill should not be nil after fill=\"red\"")
 	}
@@ -578,7 +578,7 @@ func TestResolveStyle_FillAttribute(t *testing.T) {
 func TestResolveStyle_StrokeInheritance(t *testing.T) {
 	// Parent has a stroke set.
 	parentStroke := Color{R: 0, G: 0, B: 1, A: 1}
-	parent := DefaultStyle()
+	parent := defaultStyle()
 	parent.Stroke = &parentStroke
 
 	// Child does not override stroke.
@@ -586,7 +586,7 @@ func TestResolveStyle_StrokeInheritance(t *testing.T) {
 		Tag:   "rect",
 		Attrs: map[string]string{},
 	}
-	s := ResolveStyle(child, parent)
+	s := resolveStyle(child, parent)
 	if s.Stroke == nil {
 		t.Fatal("Child should inherit parent stroke")
 	}
@@ -598,8 +598,8 @@ func TestResolveStyle_InlineStyleOverrides(t *testing.T) {
 		Tag:   "rect",
 		Attrs: map[string]string{"fill": "blue", "style": "fill:green"},
 	}
-	parent := DefaultStyle()
-	s := ResolveStyle(node, parent)
+	parent := defaultStyle()
+	s := resolveStyle(node, parent)
 	if s.Fill == nil {
 		t.Fatal("Fill should not be nil")
 	}
@@ -612,14 +612,14 @@ func TestResolveStyle_InlineStyleOverrides(t *testing.T) {
 }
 
 func TestResolveStyle_OpacityNotInherited(t *testing.T) {
-	parent := DefaultStyle()
+	parent := defaultStyle()
 	parent.Opacity = 0.5
 
 	child := &Node{
 		Tag:   "rect",
 		Attrs: map[string]string{},
 	}
-	s := ResolveStyle(child, parent)
+	s := resolveStyle(child, parent)
 	// Opacity is non-inherited; child should get default 1.0.
 	if !approxEqual(s.Opacity, 1.0) {
 		t.Errorf("Opacity should not be inherited, got %.4f, want 1.0", s.Opacity)
@@ -632,10 +632,10 @@ func TestResolveStyle_FillNone(t *testing.T) {
 		Attrs: map[string]string{"fill": "none"},
 	}
 	parentFill := Color{R: 1, G: 0, B: 0, A: 1}
-	parent := DefaultStyle()
+	parent := defaultStyle()
 	parent.Fill = &parentFill
 
-	s := ResolveStyle(node, parent)
+	s := resolveStyle(node, parent)
 	if s.Fill != nil {
 		t.Error("fill=\"none\" should result in nil Fill")
 	}
@@ -819,7 +819,7 @@ func TestParse_WhitespaceTextNodes(t *testing.T) {
 }
 
 func TestParsePath_EmptyDAttribute(t *testing.T) {
-	cmds, err := ParsePathData("")
+	cmds, err := parsePathData("")
 	if err != nil {
 		t.Fatalf("ParsePathData error: %v", err)
 	}
@@ -829,7 +829,7 @@ func TestParsePath_EmptyDAttribute(t *testing.T) {
 }
 
 func TestParsePath_WhitespaceOnly(t *testing.T) {
-	cmds, err := ParsePathData("   \t\n  ")
+	cmds, err := parsePathData("   \t\n  ")
 	if err != nil {
 		t.Fatalf("ParsePathData error: %v", err)
 	}
@@ -840,7 +840,7 @@ func TestParsePath_WhitespaceOnly(t *testing.T) {
 
 func TestParsePath_ZAloneNoPriorMoveto(t *testing.T) {
 	// A single Z without a prior moveto should not panic.
-	cmds, err := ParsePathData("Z")
+	cmds, err := parsePathData("Z")
 	if err != nil {
 		t.Fatalf("ParsePathData error: %v", err)
 	}
@@ -853,7 +853,7 @@ func TestParsePath_ZAloneNoPriorMoveto(t *testing.T) {
 }
 
 func TestParsePath_InvalidCommandLetter(t *testing.T) {
-	_, err := ParsePathData("M 0 0 X 10 10")
+	_, err := parsePathData("M 0 0 X 10 10")
 	if err == nil {
 		t.Error("expected error for invalid command letter 'X', got nil")
 	}
@@ -922,8 +922,8 @@ func TestResolveStyle_UnrecognizedProperties(t *testing.T) {
 		Tag:   "rect",
 		Attrs: map[string]string{"style": "fill:red; unknown-prop:value; another-thing:123"},
 	}
-	parent := DefaultStyle()
-	s := ResolveStyle(node, parent)
+	parent := defaultStyle()
+	s := resolveStyle(node, parent)
 	// Fill should still be parsed correctly.
 	if s.Fill == nil {
 		t.Fatal("Fill should not be nil after style with unrecognized properties")
@@ -933,9 +933,9 @@ func TestResolveStyle_UnrecognizedProperties(t *testing.T) {
 
 func TestParseColor_RGBOverflow(t *testing.T) {
 	// rgb(999,999,999) — values above 255 should be clamped to 1.0.
-	c, ok := ParseColor("rgb(999,999,999)")
+	c, ok := parseColor("rgb(999,999,999)")
 	if !ok {
-		t.Fatal("ParseColor(\"rgb(999,999,999)\") returned ok=false")
+		t.Fatal("parseColor(\"rgb(999,999,999)\") returned ok=false")
 	}
 	// Each component is 999/255 clamped to 1.0.
 	assertColor(t, "rgb overflow", c, 1.0, 1.0, 1.0, 1.0)
@@ -943,9 +943,9 @@ func TestParseColor_RGBOverflow(t *testing.T) {
 
 func TestParseColor_RGBNegative(t *testing.T) {
 	// rgb(-10,-10,-10) — negative values should be clamped to 0.
-	c, ok := ParseColor("rgb(-10,-10,-10)")
+	c, ok := parseColor("rgb(-10,-10,-10)")
 	if !ok {
-		t.Fatal("ParseColor(\"rgb(-10,-10,-10)\") returned ok=false")
+		t.Fatal("parseColor(\"rgb(-10,-10,-10)\") returned ok=false")
 	}
 	assertColor(t, "rgb negative", c, 0, 0, 0, 1)
 }
@@ -995,17 +995,17 @@ func TestTextAnchorStyleParsing(t *testing.T) {
 		Tag:   "text",
 		Attrs: map[string]string{"text-anchor": "middle"},
 	}
-	style := ResolveStyle(node, DefaultStyle())
+	style := resolveStyle(node, defaultStyle())
 	if style.TextAnchor != "middle" {
 		t.Errorf("expected TextAnchor=middle, got %q", style.TextAnchor)
 	}
 }
 
 func TestTextAnchorInheritance(t *testing.T) {
-	parent := DefaultStyle()
+	parent := defaultStyle()
 	parent.TextAnchor = "end"
 	child := &Node{Tag: "tspan", Attrs: map[string]string{}}
-	style := ResolveStyle(child, parent)
+	style := resolveStyle(child, parent)
 	if style.TextAnchor != "end" {
 		t.Errorf("expected TextAnchor inherited as end, got %q", style.TextAnchor)
 	}
@@ -1016,7 +1016,7 @@ func TestDominantBaselineParsing(t *testing.T) {
 		Tag:   "text",
 		Attrs: map[string]string{"dominant-baseline": "middle"},
 	}
-	style := ResolveStyle(node, DefaultStyle())
+	style := resolveStyle(node, defaultStyle())
 	if style.DominantBaseline != "middle" {
 		t.Errorf("expected DominantBaseline=middle, got %q", style.DominantBaseline)
 	}

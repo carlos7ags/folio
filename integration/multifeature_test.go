@@ -333,21 +333,21 @@ func TestMultiFeatureKitchenSink(t *testing.T) {
 	// Barcodes
 	doc.Add(layout.NewHeading("Barcodes", layout.H3))
 
-	qrCode, err := barcode.QR("https://github.com/carlos7ags/folio")
+	qrCode, err := barcode.NewQR("https://github.com/carlos7ags/folio")
 	if err != nil {
-		t.Fatalf("barcode.QR: %v", err)
+		t.Fatalf("barcode.NewQR: %v", err)
 	}
 	doc.Add(layout.NewBarcodeElement(qrCode, 100).SetHeight(100))
 
-	code128, err := barcode.Code128("FOLIO-2026")
+	code128, err := barcode.NewCode128("FOLIO-2026")
 	if err != nil {
-		t.Fatalf("barcode.Code128: %v", err)
+		t.Fatalf("barcode.NewCode128: %v", err)
 	}
 	doc.Add(layout.NewBarcodeElement(code128, 200).SetHeight(50))
 
-	ean, err := barcode.EAN13("978014028032")
+	ean, err := barcode.NewEAN13("978014028032")
 	if err != nil {
-		t.Fatalf("barcode.EAN13: %v", err)
+		t.Fatalf("barcode.NewEAN13: %v", err)
 	}
 	doc.Add(layout.NewBarcodeElement(ean, 200).SetHeight(60))
 

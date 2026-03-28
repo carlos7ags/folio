@@ -35,7 +35,7 @@ func generateFormPDF(t *testing.T, form *AcroForm) []byte {
 
 func TestTextFieldCreation(t *testing.T) {
 	form := NewAcroForm()
-	form.Add(TextField("name", [4]float64{72, 700, 300, 720}, 0).SetValue("John Doe"))
+	form.Add(NewTextField("name", [4]float64{72, 700, 300, 720}, 0).SetValue("John Doe"))
 
 	data := generateFormPDF(t, form)
 	pdf := string(data)
@@ -53,8 +53,8 @@ func TestTextFieldCreation(t *testing.T) {
 
 func TestCheckboxCreation(t *testing.T) {
 	form := NewAcroForm()
-	form.Add(Checkbox("agree", [4]float64{72, 680, 92, 700}, 0, true))
-	form.Add(Checkbox("newsletter", [4]float64{72, 650, 92, 670}, 0, false))
+	form.Add(NewCheckbox("agree", [4]float64{72, 680, 92, 700}, 0, true))
+	form.Add(NewCheckbox("newsletter", [4]float64{72, 650, 92, 670}, 0, false))
 
 	data := generateFormPDF(t, form)
 	pdf := string(data)
@@ -69,7 +69,7 @@ func TestCheckboxCreation(t *testing.T) {
 
 func TestDropdownCreation(t *testing.T) {
 	form := NewAcroForm()
-	form.Add(Dropdown("country", [4]float64{72, 620, 250, 640}, 0,
+	form.Add(NewDropdown("country", [4]float64{72, 620, 250, 640}, 0,
 		[]string{"USA", "Canada", "Mexico"}).SetValue("Canada"))
 
 	data := generateFormPDF(t, form)
@@ -85,7 +85,7 @@ func TestDropdownCreation(t *testing.T) {
 
 func TestRadioGroupCreation(t *testing.T) {
 	form := NewAcroForm()
-	form.Add(RadioGroup("size", []RadioOption{
+	form.Add(NewRadioGroup("size", []RadioOption{
 		{Value: "S", Rect: [4]float64{72, 580, 92, 600}, PageIndex: 0},
 		{Value: "M", Rect: [4]float64{102, 580, 122, 600}, PageIndex: 0},
 		{Value: "L", Rect: [4]float64{132, 580, 152, 600}, PageIndex: 0},
@@ -107,7 +107,7 @@ func TestRadioGroupCreation(t *testing.T) {
 // button would visually select all of them.
 func TestRadioGroupUniqueAppearances(t *testing.T) {
 	form := NewAcroForm()
-	form.Add(RadioGroup("pref", []RadioOption{
+	form.Add(NewRadioGroup("pref", []RadioOption{
 		{Value: "A", Rect: [4]float64{72, 580, 92, 600}, PageIndex: 0},
 		{Value: "B", Rect: [4]float64{102, 580, 122, 600}, PageIndex: 0},
 		{Value: "C", Rect: [4]float64{132, 580, 152, 600}, PageIndex: 0},
@@ -138,7 +138,7 @@ func TestRadioGroupUniqueAppearances(t *testing.T) {
 // streams draw visible borders (not empty content).
 func TestCheckboxAppearancesHaveBorder(t *testing.T) {
 	form := NewAcroForm()
-	form.Add(Checkbox("test", [4]float64{72, 680, 92, 700}, 0, false))
+	form.Add(NewCheckbox("test", [4]float64{72, 680, 92, 700}, 0, false))
 
 	data := generateFormPDF(t, form)
 	pdf := string(data)
@@ -163,7 +163,7 @@ func TestCheckboxAppearancesHaveBorder(t *testing.T) {
 func TestDropdownOptions(t *testing.T) {
 	opts := []string{"USA", "Canada", "Mexico", "Brazil"}
 	form := NewAcroForm()
-	form.Add(Dropdown("country", [4]float64{72, 620, 250, 640}, 0, opts))
+	form.Add(NewDropdown("country", [4]float64{72, 620, 250, 640}, 0, opts))
 
 	data := generateFormPDF(t, form)
 	pdf := string(data)
@@ -183,7 +183,7 @@ func TestDropdownOptions(t *testing.T) {
 func TestListBoxOptions(t *testing.T) {
 	opts := []string{"Go", "Rust", "Python"}
 	form := NewAcroForm()
-	form.Add(ListBox("lang", [4]float64{72, 400, 250, 500}, 0, opts))
+	form.Add(NewListBox("lang", [4]float64{72, 400, 250, 500}, 0, opts))
 
 	data := generateFormPDF(t, form)
 	pdf := string(data)
@@ -207,7 +207,7 @@ func TestListBoxOptions(t *testing.T) {
 
 func TestMultilineTextField(t *testing.T) {
 	form := NewAcroForm()
-	f := MultilineTextField("comments", [4]float64{72, 500, 400, 600}, 0)
+	f := NewMultilineTextField("comments", [4]float64{72, 500, 400, 600}, 0)
 	f.SetValue("Line 1\nLine 2")
 	form.Add(f)
 
@@ -221,7 +221,7 @@ func TestMultilineTextField(t *testing.T) {
 }
 
 func TestPasswordField(t *testing.T) {
-	f := PasswordField("secret", [4]float64{72, 460, 300, 480}, 0)
+	f := NewPasswordField("secret", [4]float64{72, 460, 300, 480}, 0)
 	if f.Flags&FlagPassword == 0 {
 		t.Error("expected password flag")
 	}
@@ -229,7 +229,7 @@ func TestPasswordField(t *testing.T) {
 
 func TestListBoxCreation(t *testing.T) {
 	form := NewAcroForm()
-	form.Add(ListBox("items", [4]float64{72, 400, 250, 500}, 0,
+	form.Add(NewListBox("items", [4]float64{72, 400, 250, 500}, 0,
 		[]string{"Apple", "Banana", "Cherry"}))
 
 	data := generateFormPDF(t, form)
@@ -240,7 +240,7 @@ func TestListBoxCreation(t *testing.T) {
 
 func TestSignatureField(t *testing.T) {
 	form := NewAcroForm()
-	form.Add(SignatureField("sig", [4]float64{72, 100, 250, 150}, 0))
+	form.Add(NewSignatureField("sig", [4]float64{72, 100, 250, 150}, 0))
 
 	data := generateFormPDF(t, form)
 	if !strings.Contains(string(data), "/FT /Sig") {
@@ -249,7 +249,7 @@ func TestSignatureField(t *testing.T) {
 }
 
 func TestFieldSetters(t *testing.T) {
-	f := TextField("test", [4]float64{0, 0, 100, 20}, 0)
+	f := NewTextField("test", [4]float64{0, 0, 100, 20}, 0)
 	f.SetReadOnly().SetRequired()
 	f.SetBackgroundColor(1, 1, 0.8)
 	f.SetBorderColor(0, 0, 0)
@@ -270,11 +270,11 @@ func TestFieldSetters(t *testing.T) {
 
 func TestMultipleFieldsOnPage(t *testing.T) {
 	form := NewAcroForm()
-	form.Add(TextField("first_name", [4]float64{72, 700, 250, 720}, 0))
-	form.Add(TextField("last_name", [4]float64{260, 700, 450, 720}, 0))
-	form.Add(TextField("email", [4]float64{72, 670, 450, 690}, 0))
-	form.Add(Checkbox("agree", [4]float64{72, 640, 92, 660}, 0, false))
-	form.Add(Dropdown("role", [4]float64{72, 610, 250, 630}, 0,
+	form.Add(NewTextField("first_name", [4]float64{72, 700, 250, 720}, 0))
+	form.Add(NewTextField("last_name", [4]float64{260, 700, 450, 720}, 0))
+	form.Add(NewTextField("email", [4]float64{72, 670, 450, 690}, 0))
+	form.Add(NewCheckbox("agree", [4]float64{72, 640, 92, 660}, 0, false))
+	form.Add(NewDropdown("role", [4]float64{72, 610, 250, 630}, 0,
 		[]string{"Developer", "Designer", "Manager"}))
 
 	data := generateFormPDF(t, form)
@@ -289,7 +289,7 @@ func TestMultipleFieldsOnPage(t *testing.T) {
 
 func TestAcroFormBuild(t *testing.T) {
 	form := NewAcroForm()
-	form.Add(TextField("test", [4]float64{0, 0, 100, 20}, 0))
+	form.Add(NewTextField("test", [4]float64{0, 0, 100, 20}, 0))
 
 	pageRefs := []*core.PdfIndirectReference{
 		core.NewPdfIndirectReference(1, 0),
@@ -326,7 +326,7 @@ func TestEmptyFormBuild(t *testing.T) {
 }
 
 func TestFieldDA(t *testing.T) {
-	f := TextField("test", [4]float64{0, 0, 100, 20}, 0)
+	f := NewTextField("test", [4]float64{0, 0, 100, 20}, 0)
 	f.FontSize = 14
 	f.TextColor = [3]float64{1, 0, 0}
 	da := buildDA(f)
@@ -345,9 +345,9 @@ func TestFormQpdfCheck(t *testing.T) {
 	}
 
 	form := NewAcroForm()
-	form.Add(TextField("name", [4]float64{72, 700, 300, 720}, 0).SetValue("Test User"))
-	form.Add(Checkbox("agree", [4]float64{72, 670, 92, 690}, 0, true))
-	form.Add(Dropdown("role", [4]float64{72, 640, 250, 660}, 0,
+	form.Add(NewTextField("name", [4]float64{72, 700, 300, 720}, 0).SetValue("Test User"))
+	form.Add(NewCheckbox("agree", [4]float64{72, 670, 92, 690}, 0, true))
+	form.Add(NewDropdown("role", [4]float64{72, 640, 250, 660}, 0,
 		[]string{"Dev", "Design", "PM"}).SetValue("Dev"))
 
 	data := generateFormPDF(t, form)

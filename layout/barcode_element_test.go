@@ -12,7 +12,7 @@ import (
 )
 
 func TestBarcodeElementCode128(t *testing.T) {
-	bc, err := barcode.Code128("Hello123")
+	bc, err := barcode.NewCode128("Hello123")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -33,7 +33,7 @@ func TestBarcodeElementCode128(t *testing.T) {
 }
 
 func TestBarcodeElementQR(t *testing.T) {
-	bc, err := barcode.QR("https://example.com")
+	bc, err := barcode.NewQR("https://example.com")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -48,7 +48,7 @@ func TestBarcodeElementQR(t *testing.T) {
 }
 
 func TestBarcodeElementEAN13(t *testing.T) {
-	bc, err := barcode.EAN13("590123412345")
+	bc, err := barcode.NewEAN13("590123412345")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -63,7 +63,7 @@ func TestBarcodeElementEAN13(t *testing.T) {
 }
 
 func TestBarcodeElementPlanLayout(t *testing.T) {
-	bc, err := barcode.Code128("Test")
+	bc, err := barcode.NewCode128("Test")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -83,7 +83,7 @@ func TestBarcodeElementPlanLayout(t *testing.T) {
 }
 
 func TestBarcodeElementNoSpace(t *testing.T) {
-	bc, err := barcode.Code128("Test")
+	bc, err := barcode.NewCode128("Test")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -97,7 +97,7 @@ func TestBarcodeElementNoSpace(t *testing.T) {
 }
 
 func TestBarcodeElementMeasurable(t *testing.T) {
-	bc, err := barcode.Code128("Test")
+	bc, err := barcode.NewCode128("Test")
 	if err != nil {
 		t.Fatal(err)
 	}

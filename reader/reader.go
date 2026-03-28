@@ -86,8 +86,8 @@ func (p *PageInfo) VisibleBox() Box {
 	return p.MediaBox
 }
 
-// Open reads and parses a PDF file from disk.
-func Open(path string) (*PdfReader, error) {
+// Load reads and parses a PDF file from disk.
+func Load(path string) (*PdfReader, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, fmt.Errorf("reader: %w", err)
@@ -351,7 +351,7 @@ func (r *PdfReader) Catalog() *core.PdfDictionary {
 // StructureTree parses and returns the document's structure tree.
 // Returns nil if the document is not tagged.
 func (r *PdfReader) StructureTree() *StructureTree {
-	return ParseStructureTree(r.catalog, r.resolver)
+	return parseStructureTree(r.catalog, r.resolver)
 }
 
 // ResolveObject resolves an indirect reference to its target object.
@@ -612,7 +612,7 @@ func (p *PageInfo) ExtractText() (string, error) {
 	if p.reader != nil {
 		res, resErr := p.Resources()
 		if resErr == nil && res != nil {
-			fonts = BuildFontCacheWithShared(res, p.reader.resolver, p.reader.getFontCache())
+			fonts = buildFontCacheWithShared(res, p.reader.resolver, p.reader.getFontCache())
 		}
 	}
 
@@ -646,7 +646,7 @@ func (p *PageInfo) TextSpans() ([]TextSpan, error) {
 	if p.reader != nil {
 		res, resErr := p.Resources()
 		if resErr == nil && res != nil {
-			fonts = BuildFontCacheWithShared(res, p.reader.resolver, p.reader.getFontCache())
+			fonts = buildFontCacheWithShared(res, p.reader.resolver, p.reader.getFontCache())
 		}
 	}
 
@@ -701,7 +701,7 @@ func (p *PageInfo) processContent() (*ContentProcessor, error) {
 	if p.reader != nil {
 		res, resErr := p.Resources()
 		if resErr == nil && res != nil {
-			fonts = BuildFontCacheWithShared(res, p.reader.resolver, p.reader.getFontCache())
+			fonts = buildFontCacheWithShared(res, p.reader.resolver, p.reader.getFontCache())
 		}
 	}
 
@@ -726,7 +726,7 @@ func (p *PageInfo) ExtractTaggedText() (string, error) {
 	}
 
 	// Parse structure tree from the reader's catalog.
-	tree := ParseStructureTree(p.reader.catalog, p.reader.resolver)
+	tree := parseStructureTree(p.reader.catalog, p.reader.resolver)
 	if tree == nil {
 		// Not a tagged PDF — fall back to LocationStrategy.
 		return p.ExtractTextWithStrategy(&LocationStrategy{})
@@ -745,7 +745,7 @@ func (p *PageInfo) ExtractTaggedText() (string, error) {
 	var fonts FontCache
 	res, resErr := p.Resources()
 	if resErr == nil && res != nil {
-		fonts = BuildFontCacheWithShared(res, p.reader.resolver, p.reader.getFontCache())
+		fonts = buildFontCacheWithShared(res, p.reader.resolver, p.reader.getFontCache())
 	}
 
 	// Process content stream to get spans with MCID.

@@ -13,7 +13,7 @@ import (
 // --- Code 128 tests ---
 
 func TestCode128Basic(t *testing.T) {
-	bc, err := Code128("Hello")
+	bc, err := NewCode128("Hello")
 	if err != nil {
 		t.Fatalf("Code128 failed: %v", err)
 	}
@@ -23,7 +23,7 @@ func TestCode128Basic(t *testing.T) {
 }
 
 func TestCode128Digits(t *testing.T) {
-	bc, err := Code128("1234567890")
+	bc, err := NewCode128("1234567890")
 	if err != nil {
 		t.Fatalf("Code128 failed: %v", err)
 	}
@@ -33,21 +33,21 @@ func TestCode128Digits(t *testing.T) {
 }
 
 func TestCode128Empty(t *testing.T) {
-	_, err := Code128("")
+	_, err := NewCode128("")
 	if err == nil {
 		t.Error("expected error for empty data")
 	}
 }
 
 func TestCode128InvalidChar(t *testing.T) {
-	_, err := Code128("Hello\x01World")
+	_, err := NewCode128("Hello\x01World")
 	if err == nil {
 		t.Error("expected error for control character")
 	}
 }
 
 func TestCode128Draw(t *testing.T) {
-	bc, err := Code128("Test123")
+	bc, err := NewCode128("Test123")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -65,7 +65,7 @@ func TestCode128AllPrintable(t *testing.T) {
 	for ch := byte(32); ch < 127; ch++ {
 		data += string(ch)
 	}
-	bc, err := Code128(data)
+	bc, err := NewCode128(data)
 	if err != nil {
 		t.Fatalf("Code128 with all printable ASCII failed: %v", err)
 	}
@@ -115,7 +115,7 @@ func TestCode128StopPattern(t *testing.T) {
 // --- QR Code tests ---
 
 func TestQRBasic(t *testing.T) {
-	bc, err := QR("Hello World")
+	bc, err := NewQR("Hello World")
 	if err != nil {
 		t.Fatalf("QR failed: %v", err)
 	}
@@ -129,7 +129,7 @@ func TestQRBasic(t *testing.T) {
 }
 
 func TestQRURL(t *testing.T) {
-	bc, err := QR("https://example.com/folio")
+	bc, err := NewQR("https://example.com/folio")
 	if err != nil {
 		t.Fatalf("QR failed: %v", err)
 	}
@@ -139,7 +139,7 @@ func TestQRURL(t *testing.T) {
 }
 
 func TestQREmpty(t *testing.T) {
-	_, err := QR("")
+	_, err := NewQR("")
 	if err == nil {
 		t.Error("expected error for empty data")
 	}
@@ -151,7 +151,7 @@ func TestQRLongData(t *testing.T) {
 	for i := range data {
 		data[i] = 'A' + byte(i%26)
 	}
-	bc, err := QR(string(data))
+	bc, err := NewQR(string(data))
 	if err != nil {
 		t.Fatalf("QR with 200 bytes failed: %v", err)
 	}
@@ -165,14 +165,14 @@ func TestQRTooLong(t *testing.T) {
 	for i := range data {
 		data[i] = 'x' // lowercase forces byte mode
 	}
-	_, err := QR(string(data))
+	_, err := NewQR(string(data))
 	if err == nil {
 		t.Error("expected error for data exceeding capacity")
 	}
 }
 
 func TestQRDraw(t *testing.T) {
-	bc, err := QR("Test")
+	bc, err := NewQR("Test")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -185,20 +185,20 @@ func TestQRDraw(t *testing.T) {
 
 func TestQRVersionSelection(t *testing.T) {
 	// Short data → version 1 (21x21).
-	bc1, _ := QR("Hi")
+	bc1, _ := NewQR("Hi")
 	if bc1.Width() != 21 {
 		t.Errorf("short data: size = %d, want 21 (version 1)", bc1.Width())
 	}
 
 	// Medium data → larger version.
-	bc2, _ := QR("This is a longer string that needs more capacity")
+	bc2, _ := NewQR("This is a longer string that needs more capacity")
 	if bc2.Width() <= 21 {
 		t.Errorf("medium data: size = %d, should be > 21", bc2.Width())
 	}
 }
 
 func TestQRNumericMode(t *testing.T) {
-	bc, err := QR("1234567890")
+	bc, err := NewQR("1234567890")
 	if err != nil {
 		t.Fatalf("QR numeric failed: %v", err)
 	}
@@ -210,7 +210,7 @@ func TestQRNumericMode(t *testing.T) {
 }
 
 func TestQRAlphanumericMode(t *testing.T) {
-	bc, err := QR("HELLO WORLD")
+	bc, err := NewQR("HELLO WORLD")
 	if err != nil {
 		t.Fatalf("QR alphanumeric failed: %v", err)
 	}
@@ -238,7 +238,7 @@ func TestQRVersion21Plus(t *testing.T) {
 	for i := range data {
 		data[i] = 'a' + byte(i%26) // lowercase forces byte mode
 	}
-	bc, err := QR(string(data))
+	bc, err := NewQR(string(data))
 	if err != nil {
 		t.Fatalf("QR with 700 bytes failed: %v", err)
 	}
@@ -254,7 +254,7 @@ func TestQRVersion40(t *testing.T) {
 	for i := range data {
 		data[i] = byte(32 + i%95)
 	}
-	bc, err := QRWithECC(string(data), ECCLevelL)
+	bc, err := NewQRWithECC(string(data), ECCLevelL)
 	if err != nil {
 		t.Fatalf("QR version 40 level L failed: %v", err)
 	}
@@ -271,7 +271,7 @@ func TestQRNumericLargeCapacity(t *testing.T) {
 	for i := range data {
 		data[i] = '0' + byte(i%10)
 	}
-	bc, err := QRWithECC(string(data), ECCLevelL)
+	bc, err := NewQRWithECC(string(data), ECCLevelL)
 	if err != nil {
 		t.Fatalf("QR with 5000 digits failed: %v", err)
 	}
@@ -298,7 +298,7 @@ func TestQRAlphanumericHelpers(t *testing.T) {
 // --- EAN-13 tests ---
 
 func TestEAN13Valid(t *testing.T) {
-	bc, err := EAN13("5901234123457")
+	bc, err := NewEAN13("5901234123457")
 	if err != nil {
 		t.Fatalf("EAN13 failed: %v", err)
 	}
@@ -311,7 +311,7 @@ func TestEAN13Valid(t *testing.T) {
 
 func TestEAN13AutoCheckDigit(t *testing.T) {
 	// Provide 12 digits, check digit should be computed.
-	bc, err := EAN13("590123412345")
+	bc, err := NewEAN13("590123412345")
 	if err != nil {
 		t.Fatalf("EAN13 with 12 digits failed: %v", err)
 	}
@@ -321,28 +321,28 @@ func TestEAN13AutoCheckDigit(t *testing.T) {
 }
 
 func TestEAN13WrongCheckDigit(t *testing.T) {
-	_, err := EAN13("5901234123450") // correct is 7
+	_, err := NewEAN13("5901234123450") // correct is 7
 	if err == nil {
 		t.Error("expected error for wrong check digit")
 	}
 }
 
 func TestEAN13WrongLength(t *testing.T) {
-	_, err := EAN13("12345")
+	_, err := NewEAN13("12345")
 	if err == nil {
 		t.Error("expected error for wrong length")
 	}
 }
 
 func TestEAN13NonNumeric(t *testing.T) {
-	_, err := EAN13("590123412345A")
+	_, err := NewEAN13("590123412345A")
 	if err == nil {
 		t.Error("expected error for non-numeric")
 	}
 }
 
 func TestEAN13Draw(t *testing.T) {
-	bc, err := EAN13("590123412345")
+	bc, err := NewEAN13("590123412345")
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -71,6 +71,9 @@ check that it respects these boundaries.
 | `document` | Top-level document assembly: pages, fonts, images, outlines, metadata, PDF/A, tagged PDF | Low-level PDF object wiring (that's `core`) |
 | `export` | C ABI for FFI consumers | Business logic — it delegates everything to other packages |
 | `cmd/folio` | CLI tool for merge, info, text extraction, signing | Library API (it's a thin consumer) |
+| `cmd/wasm` | WebAssembly entry point — exposes `folioRender` for browser use | Library API (thin consumer) |
+| `cmd/gen-metrics` | Code generator — parses AFM files, emits Go width/kern tables | Runtime logic (build-time only tool) |
+| `integration` | Cross-package integration tests (header/footer, import, running headers) | Production code — test-only package |
 
 ---
 
@@ -92,14 +95,58 @@ or at the same level (no cycles).
 ```
 
 Exceptions:
+- `document` imports `html` to offer HTML-to-PDF convenience methods
+  (`AddHTML`) that delegate to the converter.
+- `layout` imports `image` for image element rendering and background
+  image support in divs.
 - `reader` imports `document` for struct tree types and `font` for
   standard font metrics (used in text extraction width calculation).
 - `forms` imports `reader` for form filling on existing PDFs.
 
-These are intentional — they exist because reading an existing PDF
-requires understanding the same structures that writing creates. If
-these cross-layer imports grow, consider extracting shared types into
-`core` or a new `model` package.
+These are intentional — they exist because the functionality requires
+access to types defined in another layer. If these cross-layer imports
+grow, consider extracting shared types into `core` or a new `model`
+package.
+
+### Known structural TODOs
+
+These are deferred refactors that would improve the architecture but
+have high churn cost relative to immediate benefit. Tackle them when a
+natural trigger arises (e.g., a new package needs `Color`).
+
+- **TODO(A4): Unify `layout.Color` and `svg.Color`.** Two separate
+  Color types serve the same purpose. Extract a shared color type into
+  `core` or a new `style` package to eliminate conversion friction.
+  Trigger: when a third package (e.g., `markdown`) needs a Color type.
+
+- **TODO(A5): Reduce `layout` package surface area.** At ~75 exported
+  types, `layout` is the largest package. Primitives like `Color`,
+  `Margins`, `Padding`, `UnitValue` could move to a shared package.
+  Trigger: when `layout` grows further or when multiple packages need
+  these primitives independently.
+
+- **TODO(A6): Split `reader` into focused packages.** The `reader`
+  package handles parsing, text extraction, merging, and redaction —
+  four distinct concerns. Splitting into `reader`, `merge`, and
+  `redact` would improve cohesion. Trigger: when any of these areas
+  grows significantly or gains its own public API surface.
+
+---
+
+## Naming conventions
+
+Constructor names follow a consistent pattern across packages:
+
+| Pattern | Meaning | Example |
+|---|---|---|
+| `New*` | Construct from Go types or config | `NewDocument()`, `NewDiv()`, `NewEmbeddedFont(face)` |
+| `Parse*` | Construct from raw bytes (`[]byte`) | `ParseTTF(data)`, `Parse(pdfBytes)` |
+| `Load*` | Construct from a file path (`string`) | `LoadTTF(path)`, `LoadJPEG(path)` |
+
+When a package offers both file and bytes constructors, prefer `Load*`
+for paths and `Parse*` / `New*` for bytes. Value-type constructors
+(borders, colors) may use descriptive names without a prefix
+(e.g., `SolidBorder`, `DashedBorder`).
 
 ---
 
@@ -135,9 +182,64 @@ introduce these should be redirected or declined.
 | `golang.org/x/image/tiff` | TIFF decoding. Rarely used but required for completeness. | Could drop if TIFF support is removed. |
 | `golang.org/x/net/html` | HTML tokenization and tree construction. Correct HTML parsing is hard and well-solved. | No replacement planned. |
 
+The transitive dependency `golang.org/x/text` is pulled in by
+`golang.org/x/image` and `golang.org/x/net`. It is not imported
+directly by any Folio package.
+
 All other functionality (PDF parsing, encryption, signing, content
 streams, subsetting, barcode generation, SVG rendering) is implemented
 from scratch using only the Go standard library.
+
+---
+
+## Error handling
+
+Public API functions return `error`. Errors are wrapped with
+`fmt.Errorf("package: context: %w", err)` so callers can use
+`errors.Is` and `errors.Unwrap` to inspect causes. Each package
+prefixes its errors with the package name (e.g., `"reader: ..."`,
+`"sign: ..."`).
+
+Sentinel errors are used sparingly — only when callers need to branch
+on the error kind (e.g., `reader.ErrMemoryLimitExceeded`). Most
+functions return wrapped standard errors.
+
+Panics are used only for violated preconditions in constructors (nil
+font, negative size, invalid enum) where the caller has a programming
+error. They are never used for recoverable conditions or malformed
+input.
+
+---
+
+## Concurrency
+
+Individual Folio objects (documents, readers, layout elements) are
+**not safe for concurrent use** from multiple goroutines. This matches
+the standard Go convention: callers synchronize access if needed.
+
+The layout phase is designed for concurrent-friendly use: `PlanLayout`
+produces immutable `LayoutPlan` values with no shared mutable state,
+so multiple elements can be laid out concurrently if the caller
+manages goroutines.
+
+The `reader` package is safe to use from multiple goroutines **after**
+parsing completes (`Open`/`Parse` return), since the parsed state is
+read-only. Concurrent calls to `ExtractText` on different pages are
+safe.
+
+---
+
+## Versioning
+
+The library follows [semantic versioning](https://semver.org/). While
+on `v0.x`, breaking API changes may occur in minor releases. Each
+release includes a changelog documenting additions, changes, and
+breaking changes.
+
+The goal is to reach `v1.0` with a stable public API. Until then,
+breaking changes are batched into releases rather than sprinkled
+across patches, and deprecated symbols are kept for at least one
+minor release when feasible.
 
 ---
 

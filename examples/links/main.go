@@ -133,13 +133,13 @@ hr { margin: 6px 0; }
 	doc.Add(spacer(4))
 	doc.Add(sectionHeading("Inline Links in Rich Text"))
 	p := layout.NewStyledParagraph(
-		layout.Run("Read the ", font.Helvetica, 11),
-		layout.Run("installation guide", font.HelveticaBold, 11).
+		layout.NewRun("Read the ", font.Helvetica, 11),
+		layout.NewRun("installation guide", font.HelveticaBold, 11).
 			WithColor(layout.RGB(0.15, 0.25, 0.70)).
 			WithDecoration(layout.DecorationUnderline).
 			WithLinkURI("https://go.dev/doc/install"),
-		layout.Run(" to set up Go, then follow the ", font.Helvetica, 11),
-		layout.Run("getting started tutorial.", font.HelveticaBold, 11).
+		layout.NewRun(" to set up Go, then follow the ", font.Helvetica, 11),
+		layout.NewRun("getting started tutorial.", font.HelveticaBold, 11).
 			WithColor(layout.RGB(0.15, 0.25, 0.70)).
 			WithDecoration(layout.DecorationUnderline).
 			WithLinkURI("https://go.dev/doc/tutorial/getting-started"),
@@ -162,7 +162,7 @@ hr { margin: 6px 0; }
 	doc.Add(sectionHeading("Linked Heading"))
 	h2 := layout.NewHeadingWithFont("Resources", layout.H3, font.HelveticaBold, 13)
 	h2.SetRuns([]layout.TextRun{
-		layout.Run("Resources", font.HelveticaBold, 13).
+		layout.NewRun("Resources", font.HelveticaBold, 13).
 			WithColor(layout.RGB(0.15, 0.39, 0.92)).
 			WithDecoration(layout.DecorationUnderline).
 			WithLinkURI("https://example.com/resources"),
@@ -174,18 +174,18 @@ hr { margin: 6px 0; }
 	doc.Add(sectionHeading("Linked List Items"))
 	list := layout.NewList(font.Helvetica, 10)
 	list.AddItemRuns([]layout.TextRun{
-		layout.Run("Folio repository", font.Helvetica, 10).
+		layout.NewRun("Folio repository", font.Helvetica, 10).
 			WithColor(layout.RGB(0.15, 0.39, 0.92)).
 			WithDecoration(layout.DecorationUnderline).
 			WithLinkURI("https://github.com/carlos7ags/folio"),
 	})
 	list.AddItemRuns([]layout.TextRun{
-		layout.Run("See the ", font.Helvetica, 10),
-		layout.Run("Go docs", font.HelveticaBold, 10).
+		layout.NewRun("See the ", font.Helvetica, 10),
+		layout.NewRun("Go docs", font.HelveticaBold, 10).
 			WithColor(layout.RGB(0.15, 0.39, 0.92)).
 			WithDecoration(layout.DecorationUnderline).
 			WithLinkURI("https://pkg.go.dev"),
-		layout.Run(" for details.", font.Helvetica, 10),
+		layout.NewRun(" for details.", font.Helvetica, 10),
 	})
 	list.AddItem("Plain item (no link)")
 	doc.Add(list)
@@ -194,17 +194,17 @@ hr { margin: 6px 0; }
 	doc.Add(spacer(4))
 	doc.Add(sectionHeading("Multiple Links Per Line"))
 	doc.Add(layout.NewStyledParagraph(
-		layout.Run("Compare ", font.Helvetica, 10),
-		layout.Run("GitHub", font.HelveticaBold, 10).
+		layout.NewRun("Compare ", font.Helvetica, 10),
+		layout.NewRun("GitHub", font.HelveticaBold, 10).
 			WithColor(layout.RGB(0.15, 0.39, 0.92)).
 			WithDecoration(layout.DecorationUnderline).
 			WithLinkURI("https://github.com"),
-		layout.Run(" and ", font.Helvetica, 10),
-		layout.Run("GitLab", font.HelveticaBold, 10).
+		layout.NewRun(" and ", font.Helvetica, 10),
+		layout.NewRun("GitLab", font.HelveticaBold, 10).
 			WithColor(layout.RGB(0.15, 0.39, 0.92)).
 			WithDecoration(layout.DecorationUnderline).
 			WithLinkURI("https://gitlab.com"),
-		layout.Run(" for hosting.", font.Helvetica, 10),
+		layout.NewRun(" for hosting.", font.Helvetica, 10),
 	))
 
 	// Register named destinations and bookmarks.
@@ -242,7 +242,7 @@ hr { margin: 6px 0; }
 // sectionHeading creates a small bold heading.
 func sectionHeading(text string) *layout.Paragraph {
 	p := layout.NewStyledParagraph(
-		layout.Run(text, font.HelveticaBold, 12).
+		layout.NewRun(text, font.HelveticaBold, 12).
 			WithColor(layout.RGB(0.17, 0.24, 0.31)),
 	)
 	p.SetSpaceAfter(4)

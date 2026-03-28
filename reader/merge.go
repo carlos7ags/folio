@@ -33,7 +33,7 @@ func Merge(readers ...*PdfReader) (*Modifier, error) {
 func MergeFiles(paths ...string) (*Modifier, error) {
 	var readers []*PdfReader
 	for _, path := range paths {
-		r, err := Open(path)
+		r, err := Load(path)
 		if err != nil {
 			return nil, fmt.Errorf("merge: %w", err)
 		}

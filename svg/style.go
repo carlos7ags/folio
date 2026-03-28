@@ -35,7 +35,7 @@ type Style struct {
 }
 
 // DefaultStyle returns a Style with default values.
-func DefaultStyle() Style {
+func defaultStyle() Style {
 	return Style{
 		FillOpacity:      1,
 		FillRule:         "nonzero",
@@ -63,7 +63,7 @@ func DefaultStyle() Style {
 // font-family, font-size, font-weight, font-style, visibility.
 // Non-inherited (reset to defaults): opacity, display, stroke-dasharray,
 // stroke-dashoffset, transform.
-func ResolveStyle(node *Node, parent Style) Style {
+func resolveStyle(node *Node, parent Style) Style {
 	// Start with inherited properties from parent.
 	s := Style{
 		Fill:             parent.Fill,
@@ -119,7 +119,7 @@ func applyProperties(s *Style, props map[string]string) {
 				s.FillRef = ""
 			} else if ref := parseURLRef(val); ref != "" {
 				s.FillRef = ref
-			} else if c, ok := ParseColor(val); ok {
+			} else if c, ok := parseColor(val); ok {
 				cp := c
 				s.Fill = &cp
 				s.FillRef = ""
@@ -138,7 +138,7 @@ func applyProperties(s *Style, props map[string]string) {
 				s.StrokeRef = ""
 			} else if ref := parseURLRef(val); ref != "" {
 				s.StrokeRef = ref
-			} else if c, ok := ParseColor(val); ok {
+			} else if c, ok := parseColor(val); ok {
 				cp := c
 				s.Stroke = &cp
 				s.StrokeRef = ""

@@ -47,7 +47,7 @@ func main() {
 
 	y -= 22
 	p.AddText("Full Name:", font.Helvetica, 10, 72, y+4)
-	nameField := forms.TextField("fullName", rect(180, y, 350, y+18), 0).
+	nameField := forms.NewTextField("fullName", rect(180, y, 350, y+18), 0).
 		SetValue("Jane Smith").
 		SetRequired().
 		SetBorderColor(0.6, 0.6, 0.6).
@@ -55,17 +55,17 @@ func main() {
 
 	y -= 26
 	p.AddText("Email:", font.Helvetica, 10, 72, y+4)
-	emailField := forms.TextField("email", rect(180, y, 350, y+18), 0).
+	emailField := forms.NewTextField("email", rect(180, y, 350, y+18), 0).
 		SetBorderColor(0.6, 0.6, 0.6)
 
 	y -= 26
 	p.AddText("Password:", font.Helvetica, 10, 72, y+4)
-	passwordField := forms.PasswordField("password", rect(180, y, 350, y+18), 0).
+	passwordField := forms.NewPasswordField("password", rect(180, y, 350, y+18), 0).
 		SetBorderColor(0.6, 0.6, 0.6)
 
 	y -= 26
 	p.AddText("Read-only:", font.Helvetica, 10, 72, y+4)
-	readonlyField := forms.TextField("readonly", rect(180, y, 350, y+18), 0).
+	readonlyField := forms.NewTextField("readonly", rect(180, y, 350, y+18), 0).
 		SetValue("Cannot edit this").
 		SetReadOnly().
 		SetBackgroundColor(0.95, 0.95, 0.95)
@@ -76,7 +76,7 @@ func main() {
 
 	y -= 22
 	p.AddText("Comments:", font.Helvetica, 10, 72, y+40)
-	commentsField := forms.MultilineTextField("comments", rect(180, y, 450, y+58), 0).
+	commentsField := forms.NewMultilineTextField("comments", rect(180, y, 450, y+58), 0).
 		SetValue("Enter your comments here...\nMultiple lines supported.").
 		SetBorderColor(0.4, 0.4, 0.7)
 
@@ -86,11 +86,11 @@ func main() {
 
 	y -= 22
 	p.AddText("Agree to terms:", font.Helvetica, 10, 72, y+4)
-	termsCheckbox := forms.Checkbox("agreeTerms", rect(180, y, 196, y+16), 0, true)
+	termsCheckbox := forms.NewCheckbox("agreeTerms", rect(180, y, 196, y+16), 0, true)
 
 	y -= 22
 	p.AddText("Subscribe:", font.Helvetica, 10, 72, y+4)
-	subCheckbox := forms.Checkbox("subscribe", rect(180, y, 196, y+16), 0, false)
+	subCheckbox := forms.NewCheckbox("subscribe", rect(180, y, 196, y+16), 0, false)
 
 	// --- Radio Buttons ---
 	y -= 36
@@ -101,7 +101,7 @@ func main() {
 	p.AddText("Option A", font.Helvetica, 9, 198, y+4)
 	p.AddText("Option B", font.Helvetica, 9, 278, y+4)
 	p.AddText("Option C", font.Helvetica, 9, 358, y+4)
-	radioGroup := forms.RadioGroup("preference", []forms.RadioOption{
+	radioGroup := forms.NewRadioGroup("preference", []forms.RadioOption{
 		{Value: "A", Rect: rect(180, y, 196, y+16), PageIndex: 0},
 		{Value: "B", Rect: rect(260, y, 276, y+16), PageIndex: 0},
 		{Value: "C", Rect: rect(340, y, 356, y+16), PageIndex: 0},
@@ -113,7 +113,7 @@ func main() {
 
 	y -= 22
 	p.AddText("Country:", font.Helvetica, 10, 72, y+4)
-	dropdown := forms.Dropdown("country", rect(180, y, 350, y+20), 0,
+	dropdown := forms.NewDropdown("country", rect(180, y, 350, y+20), 0,
 		[]string{"United States", "Germany", "Japan", "Brazil", "Australia"}).
 		SetBorderColor(0.6, 0.6, 0.6)
 
@@ -123,7 +123,7 @@ func main() {
 
 	y -= 70
 	p.AddText("Languages:", font.Helvetica, 10, 72, y+50)
-	listbox := forms.ListBox("languages", rect(180, y, 350, y+60), 0,
+	listbox := forms.NewListBox("languages", rect(180, y, 350, y+60), 0,
 		[]string{"Go", "Python", "Rust", "TypeScript", "Java", "C++", "Ruby"}).
 		SetBorderColor(0.4, 0.6, 0.4)
 
@@ -133,13 +133,13 @@ func main() {
 
 	y -= 22
 	p.AddText("Blue border:", font.Helvetica, 10, 72, y+4)
-	blueField := forms.TextField("blue", rect(180, y, 350, y+18), 0).
+	blueField := forms.NewTextField("blue", rect(180, y, 350, y+18), 0).
 		SetBorderColor(0.2, 0.3, 0.8).
 		SetBackgroundColor(0.93, 0.95, 1.0)
 
 	y -= 26
 	p.AddText("Green border:", font.Helvetica, 10, 72, y+4)
-	greenField := forms.TextField("green", rect(180, y, 350, y+18), 0).
+	greenField := forms.NewTextField("green", rect(180, y, 350, y+18), 0).
 		SetBorderColor(0.2, 0.6, 0.3).
 		SetBackgroundColor(0.93, 1.0, 0.95).
 		SetValue("Styled input")
@@ -150,7 +150,7 @@ func main() {
 
 	y -= 22
 	p.AddText("Sign here:", font.Helvetica, 10, 72, y+4)
-	sigField := forms.SignatureField("signature", rect(180, y, 400, y+40), 0)
+	sigField := forms.NewSignatureField("signature", rect(180, y, 400, y+40), 0)
 
 	// --- Build the form ---
 	form := forms.NewAcroForm()

@@ -101,7 +101,7 @@ func pageGlyphs(r *PdfReader, pageIdx int) ([]GlyphSpan, error) {
 	ops := ParseContentStream(data)
 
 	resources, _ := page.Resources()
-	fonts := BuildFontCache(resources, r.resolver)
+	fonts := buildFontCache(resources, r.resolver)
 
 	proc := NewContentProcessor(fonts)
 	proc.SetExtractGlyphs(true)

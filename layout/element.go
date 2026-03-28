@@ -119,13 +119,13 @@ type TextRun struct {
 	BackgroundColor *Color      // if non-nil, a highlight rectangle is drawn behind the text
 }
 
-// Run creates a TextRun with a standard font.
-func Run(text string, f *font.Standard, fontSize float64) TextRun {
+// NewRun creates a TextRun with a standard font.
+func NewRun(text string, f *font.Standard, fontSize float64) TextRun {
 	return TextRun{Text: text, Font: f, FontSize: fontSize}
 }
 
-// RunEmbedded creates a TextRun with an embedded font.
-func RunEmbedded(text string, ef *font.EmbeddedFont, fontSize float64) TextRun {
+// NewRunEmbedded creates a TextRun with an embedded font.
+func NewRunEmbedded(text string, ef *font.EmbeddedFont, fontSize float64) TextRun {
 	return TextRun{Text: text, Embedded: ef, FontSize: fontSize}
 }
 

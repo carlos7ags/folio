@@ -8,7 +8,7 @@ import (
 )
 
 func TestWinAnsiEncodingASCII(t *testing.T) {
-	got := WinAnsiEncoding.Decode([]byte("Hello, World!"))
+	got := winAnsiEncoding.Decode([]byte("Hello, World!"))
 	if got != "Hello, World!" {
 		t.Errorf("WinAnsi ASCII = %q, want %q", got, "Hello, World!")
 	}
@@ -16,21 +16,21 @@ func TestWinAnsiEncodingASCII(t *testing.T) {
 
 func TestWinAnsiEncodingSpecial(t *testing.T) {
 	// Byte 0x93 = left double quote, 0x94 = right double quote in Windows-1252.
-	got := WinAnsiEncoding.Decode([]byte{0x93, 'H', 'i', 0x94})
+	got := winAnsiEncoding.Decode([]byte{0x93, 'H', 'i', 0x94})
 	if got != "\u201CHi\u201D" {
 		t.Errorf("WinAnsi special = %q (%U), want \\u201CHi\\u201D", got, []rune(got))
 	}
 }
 
 func TestWinAnsiEncodingEuro(t *testing.T) {
-	got := WinAnsiEncoding.Decode([]byte{0x80})
+	got := winAnsiEncoding.Decode([]byte{0x80})
 	if got != "€" {
 		t.Errorf("WinAnsi Euro = %q, want €", got)
 	}
 }
 
 func TestMacRomanEncodingASCII(t *testing.T) {
-	got := MacRomanEncoding.Decode([]byte("Test"))
+	got := macRomanEncoding.Decode([]byte("Test"))
 	if got != "Test" {
 		t.Errorf("MacRoman ASCII = %q", got)
 	}
@@ -38,14 +38,14 @@ func TestMacRomanEncodingASCII(t *testing.T) {
 
 func TestMacRomanEncodingSpecial(t *testing.T) {
 	// Mac Roman 0x8A = ä (Adieresis), 0xC4 = ƒ (florin)
-	got := MacRomanEncoding.Decode([]byte{0x8A})
+	got := macRomanEncoding.Decode([]byte{0x8A})
 	if got != "ä" {
 		t.Errorf("MacRoman 0x8A = %q, want ä", got)
 	}
 }
 
 func TestStandardEncodingBasic(t *testing.T) {
-	got := StandardEncoding.Decode([]byte("ABC"))
+	got := standardEncoding.Decode([]byte("ABC"))
 	if got != "ABC" {
 		t.Errorf("Standard = %q", got)
 	}
@@ -66,16 +66,16 @@ func TestGlyphToRune(t *testing.T) {
 		{"nonexistent", 0},
 	}
 	for _, tc := range tests {
-		got := GlyphToRune(tc.name)
+		got := glyphToRune(tc.name)
 		if got != tc.want {
-			t.Errorf("GlyphToRune(%q) = %U, want %U", tc.name, got, tc.want)
+			t.Errorf("glyphToRune(%q) = %U, want %U", tc.name, got, tc.want)
 		}
 	}
 }
 
 func TestEncodingDecodeZero(t *testing.T) {
 	// Byte 0 should not produce output (maps to rune 0 = null).
-	got := WinAnsiEncoding.Decode([]byte{0, 'A', 0})
+	got := winAnsiEncoding.Decode([]byte{0, 'A', 0})
 	if got != "A" {
 		t.Errorf("zero bytes = %q, want %q", got, "A")
 	}

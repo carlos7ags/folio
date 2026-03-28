@@ -143,9 +143,9 @@ doc.Save("report.pdf")
 
 ```go
 p := layout.NewStyledParagraph(
-    layout.Run("Normal text ", font.Helvetica, 12),
-    layout.Run("bold ", font.HelveticaBold, 12),
-    layout.Run("colored and underlined", font.Helvetica, 12).
+    layout.NewRun("Normal text ", font.Helvetica, 12),
+    layout.NewRun("bold ", font.HelveticaBold, 12),
+    layout.NewRun("colored and underlined", font.Helvetica, 12).
         WithColor(layout.ColorRed).
         WithUnderline(),
 )
@@ -182,13 +182,13 @@ cell.SetVAlign(layout.VAlignMiddle)
 ```go
 import "github.com/carlos7ags/folio/barcode"
 
-qr, _ := barcode.QR("https://example.com")
+qr, _ := barcode.NewQR("https://example.com")
 doc.Add(layout.NewBarcodeElement(qr, 100).SetAlign(layout.AlignCenter))
 
-bc, _ := barcode.Code128("SHIP-2024-001")
+bc, _ := barcode.NewCode128("SHIP-2024-001")
 doc.Add(layout.NewBarcodeElement(bc, 200))
 
-ean, _ := barcode.EAN13("590123412345")
+ean, _ := barcode.NewEAN13("590123412345")
 doc.Add(layout.NewBarcodeElement(ean, 150))
 ```
 
@@ -200,9 +200,9 @@ doc.Add(layout.NewBarcodeElement(ean, 150))
 import "github.com/carlos7ags/folio/forms"
 
 form := forms.NewAcroForm()
-form.Add(forms.TextField("name", [4]float64{72, 700, 300, 720}, 0))
-form.Add(forms.Checkbox("agree", [4]float64{72, 670, 92, 690}, 0, false))
-form.Add(forms.Dropdown("role", [4]float64{72, 640, 250, 660}, 0,
+form.Add(forms.NewTextField("name", [4]float64{72, 700, 300, 720}, 0))
+form.Add(forms.NewCheckbox("agree", [4]float64{72, 670, 92, 690}, 0, false))
+form.Add(forms.NewDropdown("role", [4]float64{72, 640, 250, 660}, 0,
     []string{"Developer", "Designer", "Manager"}))
 
 doc.SetAcroForm(form)
@@ -238,14 +238,14 @@ via the `Signer` interface. Uses Go stdlib crypto.
 import "github.com/carlos7ags/folio/reader"
 
 // Read
-r, _ := reader.Open("document.pdf")
+r, _ := reader.Load("document.pdf")
 fmt.Println("Pages:", r.PageCount())
 page, _ := r.Page(0)
 text, _ := page.ExtractText()
 
 // Merge
-r1, _ := reader.Open("doc1.pdf")
-r2, _ := reader.Open("doc2.pdf")
+r1, _ := reader.Load("doc1.pdf")
+r2, _ := reader.Load("doc2.pdf")
 m, _ := reader.Merge(r1, r2)
 m.SaveTo("merged.pdf")
 ```
@@ -282,7 +282,7 @@ Load existing PDFs as templates and add dynamic content on top — the standard
 workflow for invoices, receipts, certificates, and letterheads.
 
 ```go
-r, _ := reader.Open("template.pdf")
+r, _ := reader.Load("template.pdf")
 imp, _ := reader.ExtractPageImport(r, 0)
 
 doc := document.NewDocument(document.PageSizeLetter)

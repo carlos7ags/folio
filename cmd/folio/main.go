@@ -113,7 +113,7 @@ func cmdMerge(args []string) error {
 
 	var readers []*reader.PdfReader
 	for _, path := range inputs {
-		r, err := reader.Open(path)
+		r, err := reader.Load(path)
 		if err != nil {
 			return fmt.Errorf("open %s: %w", path, err)
 		}
@@ -156,7 +156,7 @@ func cmdInfo(args []string) error {
 		return fmt.Errorf("usage: folio info file.pdf")
 	}
 
-	r, err := reader.Open(args[0])
+	r, err := reader.Load(args[0])
 	if err != nil {
 		return err
 	}
@@ -191,7 +191,7 @@ func cmdPages(args []string) error {
 		return fmt.Errorf("usage: folio pages file.pdf")
 	}
 
-	r, err := reader.Open(args[0])
+	r, err := reader.Load(args[0])
 	if err != nil {
 		return err
 	}
@@ -217,7 +217,7 @@ func cmdText(args []string) error {
 		return fmt.Errorf("usage: folio text file.pdf [page_number]")
 	}
 
-	r, err := reader.Open(args[0])
+	r, err := reader.Load(args[0])
 	if err != nil {
 		return err
 	}
@@ -392,7 +392,7 @@ func cmdExtract(args []string) error {
 		return fmt.Errorf("usage: folio extract file.pdf [-page N] [-strategy simple|location]")
 	}
 
-	r, err := reader.Open(file)
+	r, err := reader.Load(file)
 	if err != nil {
 		return err
 	}

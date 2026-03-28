@@ -21,7 +21,7 @@ type PathCommand struct {
 // H/V are converted to L.
 // S is converted to C (with reflected control point).
 // T is converted to Q (with reflected control point).
-func ParsePathData(d string) ([]PathCommand, error) {
+func parsePathData(d string) ([]PathCommand, error) {
 	tokens, err := tokenizePath(d)
 	if err != nil {
 		return nil, err
@@ -168,7 +168,7 @@ func ParsePathData(d string) ([]PathCommand, error) {
 // Parameters match SVG A command: rx, ry, xAxisRotation (degrees), largeArc (0/1),
 // sweep (0/1), endX, endY, and the current point (startX, startY).
 // Returns a slice of PathCommand with Type='C'.
-func ArcToCubics(startX, startY, rx, ry, xAxisRotation float64, largeArc, sweep bool, endX, endY float64) []PathCommand {
+func arcToCubics(startX, startY, rx, ry, xAxisRotation float64, largeArc, sweep bool, endX, endY float64) []PathCommand {
 	// Degenerate: same start and end point — nothing to draw.
 	if startX == endX && startY == endY {
 		return nil

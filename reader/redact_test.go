@@ -38,7 +38,7 @@ func TestSerializeContentOpsRoundTrip(t *testing.T) {
 	if len(ops) == 0 {
 		t.Fatal("expected parsed ops")
 	}
-	output := SerializeContentOps(ops)
+	output := serializeContentOps(ops)
 	// Re-parse the output and verify same operators.
 	ops2 := ParseContentStream(output)
 	if len(ops2) != len(ops) {

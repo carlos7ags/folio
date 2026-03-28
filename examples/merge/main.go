@@ -136,8 +136,8 @@ func createReport(title string, bullets []string) []byte {
 
 	for _, b := range bullets {
 		p := layout.NewStyledParagraph(
-			layout.Run("• ", font.Helvetica, 11),
-			layout.Run(b, font.Helvetica, 11),
+			layout.NewRun("• ", font.Helvetica, 11),
+			layout.NewRun(b, font.Helvetica, 11),
 		)
 		p.SetLeading(1.4)
 		p.SetSpaceAfter(4)

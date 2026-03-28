@@ -80,8 +80,8 @@ type Field struct {
 	children []*Field
 }
 
-// TextField creates a text input field.
-func TextField(name string, rect [4]float64, pageIndex int) *Field {
+// NewTextField creates a text input field.
+func NewTextField(name string, rect [4]float64, pageIndex int) *Field {
 	return &Field{
 		Name:        name,
 		Type:        FieldText,
@@ -93,22 +93,22 @@ func TextField(name string, rect [4]float64, pageIndex int) *Field {
 	}
 }
 
-// MultilineTextField creates a multi-line text area.
-func MultilineTextField(name string, rect [4]float64, pageIndex int) *Field {
-	f := TextField(name, rect, pageIndex)
+// NewMultilineTextField creates a multi-line text area.
+func NewMultilineTextField(name string, rect [4]float64, pageIndex int) *Field {
+	f := NewTextField(name, rect, pageIndex)
 	f.Flags |= FlagMultiline
 	return f
 }
 
-// PasswordField creates a password input field.
-func PasswordField(name string, rect [4]float64, pageIndex int) *Field {
-	f := TextField(name, rect, pageIndex)
+// NewPasswordField creates a password input field.
+func NewPasswordField(name string, rect [4]float64, pageIndex int) *Field {
+	f := NewTextField(name, rect, pageIndex)
 	f.Flags |= FlagPassword
 	return f
 }
 
-// Checkbox creates a checkbox field.
-func Checkbox(name string, rect [4]float64, pageIndex int, checked bool) *Field {
+// NewCheckbox creates a checkbox field.
+func NewCheckbox(name string, rect [4]float64, pageIndex int, checked bool) *Field {
 	f := &Field{
 		Name:        name,
 		Type:        FieldCheckbox,
@@ -126,9 +126,9 @@ func Checkbox(name string, rect [4]float64, pageIndex int, checked bool) *Field 
 	return f
 }
 
-// RadioGroup creates a radio button group with the given options.
+// NewRadioGroup creates a radio button group with the given options.
 // Each RadioOption becomes a child widget field representing one button.
-func RadioGroup(name string, options []RadioOption) *Field {
+func NewRadioGroup(name string, options []RadioOption) *Field {
 	parent := &Field{
 		Name:  name,
 		Type:  FieldRadio,
@@ -155,8 +155,8 @@ type RadioOption struct {
 	PageIndex int        // zero-based page index
 }
 
-// Dropdown creates a dropdown (combo box) field.
-func Dropdown(name string, rect [4]float64, pageIndex int, options []string) *Field {
+// NewDropdown creates a dropdown (combo box) field.
+func NewDropdown(name string, rect [4]float64, pageIndex int, options []string) *Field {
 	return &Field{
 		Name:        name,
 		Type:        FieldDropdown,
@@ -170,8 +170,8 @@ func Dropdown(name string, rect [4]float64, pageIndex int, options []string) *Fi
 	}
 }
 
-// ListBox creates a list box field.
-func ListBox(name string, rect [4]float64, pageIndex int, options []string) *Field {
+// NewListBox creates a list box field.
+func NewListBox(name string, rect [4]float64, pageIndex int, options []string) *Field {
 	return &Field{
 		Name:        name,
 		Type:        FieldListBox,
@@ -184,8 +184,8 @@ func ListBox(name string, rect [4]float64, pageIndex int, options []string) *Fie
 	}
 }
 
-// SignatureField creates a digital signature field.
-func SignatureField(name string, rect [4]float64, pageIndex int) *Field {
+// NewSignatureField creates a digital signature field.
+func NewSignatureField(name string, rect [4]float64, pageIndex int) *Field {
 	return &Field{
 		Name:        name,
 		Type:        FieldSignature,

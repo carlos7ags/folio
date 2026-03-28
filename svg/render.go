@@ -86,7 +86,7 @@ func (s *SVG) DrawWithOptions(stream *content.Stream, x, y, w, h float64, opts R
 	opts.defs = s.defs
 
 	// Walk the tree with the default parent style.
-	parentStyle := DefaultStyle()
+	parentStyle := defaultStyle()
 	for _, child := range s.root.Children {
 		renderNode(stream, child, parentStyle, opts)
 	}
@@ -105,7 +105,7 @@ func renderNode(stream *content.Stream, node *Node, parentStyle Style, opts Rend
 		return
 	}
 
-	style := ResolveStyle(node, parentStyle)
+	style := resolveStyle(node, parentStyle)
 
 	// Skip hidden elements.
 	if style.Display == "none" {
@@ -354,7 +354,7 @@ func renderPath(stream *content.Stream, node *Node, style Style) {
 		return
 	}
 
-	cmds, err := ParsePathData(d)
+	cmds, err := parsePathData(d)
 	if err != nil || len(cmds) == 0 {
 		return
 	}
@@ -439,7 +439,7 @@ func emitPathCommands(stream *content.Stream, cmds []PathCommand) {
 				largeArc := cmd.Args[3] != 0
 				sweep := cmd.Args[4] != 0
 				endX, endY := cmd.Args[5], cmd.Args[6]
-				cubics := ArcToCubics(curX, curY, rx, ry, xRot, largeArc, sweep, endX, endY)
+				cubics := arcToCubics(curX, curY, rx, ry, xRot, largeArc, sweep, endX, endY)
 				for _, c := range cubics {
 					if c.Type == 'C' && len(c.Args) >= 6 {
 						stream.CurveTo(c.Args[0], c.Args[1], c.Args[2], c.Args[3], c.Args[4], c.Args[5])
@@ -570,7 +570,7 @@ func renderTextWithTspan(stream *content.Stream, node *Node, parentStyle Style, 
 			continue
 		}
 
-		childStyle := ResolveStyle(child, parentStyle)
+		childStyle := resolveStyle(child, parentStyle)
 
 		// Absolute repositioning.
 		if _, ok := child.Attrs["x"]; ok {
@@ -700,7 +700,7 @@ func resolveGradientColor(defs map[string]*Node, id string) *Color {
 		if colorStr == "" {
 			continue
 		}
-		if c, ok := ParseColor(colorStr); ok {
+		if c, ok := parseColor(colorStr); ok {
 			// Apply stop-opacity if present.
 			if opStr, has := child.Attrs["stop-opacity"]; has {
 				if v, err := strconv.ParseFloat(opStr, 64); err == nil {

@@ -18,9 +18,9 @@ type StructureTree struct {
 	Root *StructNode `json:"root"`
 }
 
-// ParseStructureTree extracts the structure tree from a PDF catalog.
+// parseStructureTree extracts the structure tree from a PDF catalog.
 // Returns nil if the document is not tagged (no /MarkInfo or /StructTreeRoot).
-func ParseStructureTree(catalog *core.PdfDictionary, res *resolver) *StructureTree {
+func parseStructureTree(catalog *core.PdfDictionary, res *resolver) *StructureTree {
 	if catalog == nil {
 		return nil
 	}

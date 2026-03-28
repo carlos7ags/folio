@@ -68,16 +68,16 @@ func main() {
 			"Open in Adobe Acrobat to see the signature panel.",
 		font.Helvetica, 11))
 	doc.Add(layout.NewStyledParagraph(
-		layout.Run("Signer: ", font.HelveticaBold, 10),
-		layout.Run(cert.Subject.CommonName, font.Helvetica, 10),
+		layout.NewRun("Signer: ", font.HelveticaBold, 10),
+		layout.NewRun(cert.Subject.CommonName, font.Helvetica, 10),
 	).SetSpaceBefore(8))
 	doc.Add(layout.NewStyledParagraph(
-		layout.Run("Organization: ", font.HelveticaBold, 10),
-		layout.Run(strings.Join(cert.Subject.Organization, ", "), font.Helvetica, 10),
+		layout.NewRun("Organization: ", font.HelveticaBold, 10),
+		layout.NewRun(strings.Join(cert.Subject.Organization, ", "), font.Helvetica, 10),
 	))
 	doc.Add(layout.NewStyledParagraph(
-		layout.Run("Signed at: ", font.HelveticaBold, 10),
-		layout.Run(time.Now().Format("2006-01-02 15:04:05 MST"), font.Helvetica, 10),
+		layout.NewRun("Signed at: ", font.HelveticaBold, 10),
+		layout.NewRun(time.Now().Format("2006-01-02 15:04:05 MST"), font.Helvetica, 10),
 	))
 
 	var buf bytes.Buffer

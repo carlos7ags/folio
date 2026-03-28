@@ -109,8 +109,8 @@ func (s *ExternalSigner) Algorithm() Algorithm { return s.algo }
 // CertificateChain returns the signer's certificate chain.
 func (s *ExternalSigner) CertificateChain() []*x509.Certificate { return s.certs }
 
-// LoadPKCS12 loads a PKCS#12 (.p12/.pfx) file and returns a LocalSigner.
-func LoadPKCS12(data []byte, password string) (*LocalSigner, error) {
+// ParsePKCS12 parses a PKCS#12 (.p12/.pfx) archive from bytes and returns a LocalSigner.
+func ParsePKCS12(data []byte, password string) (*LocalSigner, error) {
 	key, cert, err := decodePKCS12(data, password)
 	if err != nil {
 		return nil, fmt.Errorf("sign: load PKCS12: %w", err)

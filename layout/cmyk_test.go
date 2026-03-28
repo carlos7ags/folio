@@ -53,7 +53,7 @@ func TestCMYKBackgroundRendering(t *testing.T) {
 }
 
 func TestCMYKDecorationRendering(t *testing.T) {
-	run := Run("Underlined", font.Helvetica, 12).
+	run := NewRun("Underlined", font.Helvetica, 12).
 		WithColor(CMYK(1, 0, 0, 0)).
 		WithUnderline()
 	p := NewStyledParagraph(run)

@@ -8,7 +8,7 @@ import "fmt"
 // EAN13 generates an EAN-13 barcode from a 13-digit string.
 // If 12 digits are provided, the check digit is computed automatically.
 // Returns an error if the input is not 12 or 13 digits.
-func EAN13(data string) (*Barcode, error) {
+func NewEAN13(data string) (*Barcode, error) {
 	// Validate input.
 	for _, ch := range data {
 		if ch < '0' || ch > '9' {

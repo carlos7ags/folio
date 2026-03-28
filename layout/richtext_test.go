@@ -10,7 +10,7 @@ import (
 )
 
 func TestStyledParagraphSingleRun(t *testing.T) {
-	p := NewStyledParagraph(Run("Hello World", font.Helvetica, 12))
+	p := NewStyledParagraph(NewRun("Hello World", font.Helvetica, 12))
 	lines := p.Layout(500)
 	if len(lines) != 1 {
 		t.Fatalf("expected 1 line, got %d", len(lines))
@@ -25,9 +25,9 @@ func TestStyledParagraphSingleRun(t *testing.T) {
 
 func TestStyledParagraphMixedFonts(t *testing.T) {
 	p := NewStyledParagraph(
-		Run("Normal ", font.Helvetica, 12),
-		Run("bold", font.HelveticaBold, 12),
-		Run(" text.", font.Helvetica, 12),
+		NewRun("Normal ", font.Helvetica, 12),
+		NewRun("bold", font.HelveticaBold, 12),
+		NewRun(" text.", font.Helvetica, 12),
 	)
 	lines := p.Layout(500)
 	if len(lines) != 1 {
@@ -51,8 +51,8 @@ func TestStyledParagraphMixedFonts(t *testing.T) {
 
 func TestStyledParagraphMixedSizes(t *testing.T) {
 	p := NewStyledParagraph(
-		Run("Big", font.Helvetica, 24),
-		Run(" small", font.Helvetica, 10),
+		NewRun("Big", font.Helvetica, 24),
+		NewRun(" small", font.Helvetica, 10),
 	)
 	lines := p.Layout(500)
 	if len(lines) != 1 {
@@ -76,8 +76,8 @@ func TestStyledParagraphMixedSizes(t *testing.T) {
 func TestStyledParagraphColor(t *testing.T) {
 	red := RGB(1, 0, 0)
 	p := NewStyledParagraph(
-		Run("Black", font.Helvetica, 12),
-		Run(" red", font.Helvetica, 12).WithColor(red),
+		NewRun("Black", font.Helvetica, 12),
+		NewRun(" red", font.Helvetica, 12).WithColor(red),
 	)
 	lines := p.Layout(500)
 	if len(lines) != 1 {
@@ -94,9 +94,9 @@ func TestStyledParagraphColor(t *testing.T) {
 
 func TestStyledParagraphWordWrap(t *testing.T) {
 	p := NewStyledParagraph(
-		Run("Start ", font.Helvetica, 12),
-		Run("middle ", font.HelveticaBold, 12),
-		Run("end of a longer text that should wrap across lines.", font.Helvetica, 12),
+		NewRun("Start ", font.Helvetica, 12),
+		NewRun("middle ", font.HelveticaBold, 12),
+		NewRun("end of a longer text that should wrap across lines.", font.Helvetica, 12),
 	)
 	lines := p.Layout(200)
 	if len(lines) < 2 {
@@ -114,8 +114,8 @@ func TestStyledParagraphWordWrap(t *testing.T) {
 
 func TestStyledParagraphEmptyRun(t *testing.T) {
 	p := NewStyledParagraph(
-		Run("", font.Helvetica, 12),
-		Run("Hello", font.Helvetica, 12),
+		NewRun("", font.Helvetica, 12),
+		NewRun("Hello", font.Helvetica, 12),
 	)
 	lines := p.Layout(500)
 	if len(lines) != 1 {
@@ -128,8 +128,8 @@ func TestStyledParagraphEmptyRun(t *testing.T) {
 
 func TestStyledParagraphAllEmpty(t *testing.T) {
 	p := NewStyledParagraph(
-		Run("", font.Helvetica, 12),
-		Run("  ", font.Helvetica, 12),
+		NewRun("", font.Helvetica, 12),
+		NewRun("  ", font.Helvetica, 12),
 	)
 	lines := p.Layout(500)
 	if len(lines) != 0 {
@@ -139,7 +139,7 @@ func TestStyledParagraphAllEmpty(t *testing.T) {
 
 func TestStyledParagraphAlignment(t *testing.T) {
 	p := NewStyledParagraph(
-		Run("Centered", font.Helvetica, 12),
+		NewRun("Centered", font.Helvetica, 12),
 	).SetAlign(AlignCenter)
 	lines := p.Layout(500)
 	if len(lines) != 1 {
@@ -152,8 +152,8 @@ func TestStyledParagraphAlignment(t *testing.T) {
 
 func TestStyledParagraphSpaceAfterPerWord(t *testing.T) {
 	p := NewStyledParagraph(
-		Run("Big", font.Helvetica, 24),
-		Run(" small text", font.Helvetica, 8),
+		NewRun("Big", font.Helvetica, 24),
+		NewRun(" small text", font.Helvetica, 8),
 	)
 	lines := p.Layout(500)
 	words := lines[0].Words
@@ -168,12 +168,12 @@ func TestStyledParagraphSpaceAfterPerWord(t *testing.T) {
 }
 
 func TestRunWithColor(t *testing.T) {
-	r := Run("test", font.Helvetica, 12).WithColor(RGB(0.5, 0.5, 0.5))
+	r := NewRun("test", font.Helvetica, 12).WithColor(RGB(0.5, 0.5, 0.5))
 	if r.Color.R != 0.5 || r.Color.G != 0.5 || r.Color.B != 0.5 {
 		t.Errorf("unexpected color: %+v", r.Color)
 	}
 	// Original run should be unmodified (value receiver).
-	r2 := Run("test", font.Helvetica, 12)
+	r2 := NewRun("test", font.Helvetica, 12)
 	if r2.Color != ColorBlack {
 		t.Errorf("original run should be black: %+v", r2.Color)
 	}
@@ -216,8 +216,8 @@ func TestRGBConstructor(t *testing.T) {
 // Regression test for #25.
 func TestPunctuationMergedAcrossRuns(t *testing.T) {
 	p := NewStyledParagraph(
-		Run("click here", font.HelveticaBold, 12),
-		Run(". Then continue.", font.Helvetica, 12),
+		NewRun("click here", font.HelveticaBold, 12),
+		NewRun(". Then continue.", font.Helvetica, 12),
 	)
 	words, _ := p.measureWords(400)
 	// Expected words: ["click", "here.", "Then", "continue."]
@@ -248,8 +248,8 @@ func TestPunctuationMergedAcrossRuns(t *testing.T) {
 func TestPunctuationMergeMatchesSingleRun(t *testing.T) {
 	single := NewParagraph("click here. Then continue.", font.Helvetica, 12)
 	multi := NewStyledParagraph(
-		Run("click here", font.Helvetica, 12),
-		Run(". Then continue.", font.Helvetica, 12),
+		NewRun("click here", font.Helvetica, 12),
+		NewRun(". Then continue.", font.Helvetica, 12),
 	)
 	singleWords, _ := single.measureWords(400)
 	multiWords, _ := multi.measureWords(400)
@@ -267,9 +267,9 @@ func TestPunctuationMergeMatchesSingleRun(t *testing.T) {
 // boundary merges into the preceding word.
 func TestPunctuationCommaAfterStyledRun(t *testing.T) {
 	p := NewStyledParagraph(
-		Run("see ", font.Helvetica, 12),
-		Run("this", font.HelveticaBold, 12),
-		Run(", that.", font.Helvetica, 12),
+		NewRun("see ", font.Helvetica, 12),
+		NewRun("this", font.HelveticaBold, 12),
+		NewRun(", that.", font.Helvetica, 12),
 	)
 	words, _ := p.measureWords(400)
 	foundThisComma := false
@@ -295,8 +295,8 @@ func TestPunctuationCommaAfterStyledRun(t *testing.T) {
 // a word boundary and the period is NOT merged into the previous word.
 func TestPunctuationLeadingSpaceNotMerged(t *testing.T) {
 	p := NewStyledParagraph(
-		Run("word", font.Helvetica, 12),
-		Run(" . separate", font.Helvetica, 12),
+		NewRun("word", font.Helvetica, 12),
+		NewRun(" . separate", font.Helvetica, 12),
 	)
 	words, _ := p.measureWords(400)
 	// The "." should be a standalone word because the run starts with a space.
@@ -319,8 +319,8 @@ func TestPunctuationLeadingSpaceNotMerged(t *testing.T) {
 // characters (e.g. ")." or "...") are all merged.
 func TestPunctuationMultipleChars(t *testing.T) {
 	p := NewStyledParagraph(
-		Run("end", font.Helvetica, 12),
-		Run(").", font.Helvetica, 12),
+		NewRun("end", font.Helvetica, 12),
+		NewRun(").", font.Helvetica, 12),
 	)
 	words, _ := p.measureWords(400)
 	foundMerged := false
@@ -342,7 +342,7 @@ func TestPunctuationMultipleChars(t *testing.T) {
 // start of the paragraph (no preceding word) is not merged anywhere.
 func TestPunctuationFirstRunNotMerged(t *testing.T) {
 	p := NewStyledParagraph(
-		Run("...start", font.Helvetica, 12),
+		NewRun("...start", font.Helvetica, 12),
 	)
 	words, _ := p.measureWords(400)
 	if len(words) != 1 || words[0].Text != "...start" {

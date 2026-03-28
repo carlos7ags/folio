@@ -21,7 +21,7 @@ import (
 //
 //export folio_reader_open
 func folio_reader_open(path *C.char) C.uint64_t {
-	r, err := reader.Open(C.GoString(path))
+	r, err := reader.Load(C.GoString(path))
 	if err != nil {
 		setLastError(err.Error())
 		return 0

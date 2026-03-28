@@ -20,7 +20,7 @@ type Matrix struct {
 }
 
 // Identity returns the identity matrix.
-func Identity() Matrix { return Matrix{A: 1, D: 1} }
+func identity() Matrix { return Matrix{A: 1, D: 1} }
 
 // Translate returns a translation matrix.
 func Translate(tx, ty float64) Matrix {
@@ -67,8 +67,8 @@ func (m Matrix) Multiply(n Matrix) Matrix {
 // ParseTransform parses an SVG transform attribute string like
 // "translate(10,20) rotate(45) scale(2)" into a combined matrix.
 // Supported functions: translate, scale, rotate, skewX, skewY, matrix.
-func ParseTransform(s string) Matrix {
-	result := Identity()
+func parseTransform(s string) Matrix {
+	result := identity()
 	s = strings.TrimSpace(s)
 	for len(s) > 0 {
 		// skip whitespace and commas
@@ -151,7 +151,7 @@ func applyTransformFunc(name string, args []float64) Matrix {
 
 	case "rotate":
 		if len(args) == 0 {
-			return Identity()
+			return identity()
 		}
 		angle := args[0]
 		if len(args) >= 3 {
@@ -165,21 +165,21 @@ func applyTransformFunc(name string, args []float64) Matrix {
 		if len(args) >= 1 {
 			return SkewX(args[0])
 		}
-		return Identity()
+		return identity()
 
 	case "skewY":
 		if len(args) >= 1 {
 			return SkewY(args[0])
 		}
-		return Identity()
+		return identity()
 
 	case "matrix":
 		if len(args) >= 6 {
 			return Matrix{A: args[0], B: args[1], C: args[2], D: args[3], E: args[4], F: args[5]}
 		}
-		return Identity()
+		return identity()
 
 	default:
-		return Identity()
+		return identity()
 	}
 }

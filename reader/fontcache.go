@@ -101,17 +101,17 @@ func (fe *FontEntry) TextWidth(raw []byte) int {
 // FontCache maps font resource names (e.g. "F1") to their FontEntry.
 type FontCache map[string]*FontEntry
 
-// BuildFontCache constructs a FontCache from a page's Resources dictionary.
+// buildFontCache constructs a FontCache from a page's Resources dictionary.
 // The resolver is used to dereference indirect objects (font dicts, streams).
-func BuildFontCache(resources *core.PdfDictionary, res *resolver) FontCache {
-	return BuildFontCacheWithShared(resources, res, nil)
+func buildFontCache(resources *core.PdfDictionary, res *resolver) FontCache {
+	return buildFontCacheWithShared(resources, res, nil)
 }
 
-// BuildFontCacheWithShared constructs a FontCache like BuildFontCache, but
+// buildFontCacheWithShared constructs a FontCache like buildFontCache, but
 // reuses parsed FontEntry values from a shared cross-page cache keyed by
 // indirect reference object number. This avoids re-parsing the same font
 // dictionary on every page of a multi-page document.
-func BuildFontCacheWithShared(resources *core.PdfDictionary, res *resolver, shared map[int]*FontEntry) FontCache {
+func buildFontCacheWithShared(resources *core.PdfDictionary, res *resolver, shared map[int]*FontEntry) FontCache {
 	if resources == nil {
 		return nil
 	}
@@ -199,11 +199,11 @@ func parseFontEntry(fd *core.PdfDictionary, res *resolver) *FontEntry {
 		case *core.PdfName:
 			switch enc.Value {
 			case "WinAnsiEncoding":
-				fe.encoding = WinAnsiEncoding
+				fe.encoding = winAnsiEncoding
 			case "MacRomanEncoding":
-				fe.encoding = MacRomanEncoding
+				fe.encoding = macRomanEncoding
 			case "StandardEncoding":
-				fe.encoding = StandardEncoding
+				fe.encoding = standardEncoding
 			}
 		case *core.PdfDictionary:
 			fe.encoding = parseEncodingDict(enc, res)
@@ -223,12 +223,12 @@ func parseFontEntry(fd *core.PdfDictionary, res *resolver) *FontEntry {
 
 	// 4. Standard font recognition — if no encoding was declared in the PDF,
 	// standard Type1 fonts (Helvetica, Times, Courier, etc.) use
-	// WinAnsiEncoding by default and have well-known glyph widths.
+	// winAnsiEncoding by default and have well-known glyph widths.
 	// PDF viewers are required to know these metrics (ISO 32000 §9.6.2.2),
 	// so PDFs typically omit /Widths for standard fonts.
 	if baseName := getBaseFont(fd); baseName != "" {
 		if byteWidths := font.StandardFontByteWidths(baseName); byteWidths != nil {
-			fe.encoding = WinAnsiEncoding
+			fe.encoding = winAnsiEncoding
 			fe.firstChar = 0
 			fe.widths = byteWidths
 			return fe
@@ -245,15 +245,15 @@ func parseEncodingDict(d *core.PdfDictionary, res *resolver) *Encoding {
 	if bn, ok := d.Get("BaseEncoding").(*core.PdfName); ok {
 		switch bn.Value {
 		case "WinAnsiEncoding":
-			base = WinAnsiEncoding
+			base = winAnsiEncoding
 		case "MacRomanEncoding":
-			base = MacRomanEncoding
+			base = macRomanEncoding
 		case "StandardEncoding":
-			base = StandardEncoding
+			base = standardEncoding
 		}
 	}
 	if base == nil {
-		base = StandardEncoding
+		base = standardEncoding
 	}
 
 	// Clone base encoding so we can modify it with Differences.
@@ -278,7 +278,7 @@ func parseEncodingDict(d *core.PdfDictionary, res *resolver) *Encoding {
 			code = int(v.IntValue())
 		case *core.PdfName:
 			if code >= 0 && code < 256 {
-				if r := GlyphToRune(v.Value); r != 0 {
+				if r := glyphToRune(v.Value); r != 0 {
 					enc.table[code] = r
 				}
 			}

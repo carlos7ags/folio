@@ -127,13 +127,13 @@ func dataCapacity(version int, level ECCLevel, mode qrMode) int {
 // QR generates a QR Code barcode from a string.
 // Uses the most efficient encoding mode with error correction level M (15% recovery).
 // Automatically selects the smallest version (1-40) that fits the data.
-func QR(data string) (*Barcode, error) {
-	return QRWithECC(data, ECCLevelM)
+func NewQR(data string) (*Barcode, error) {
+	return NewQRWithECC(data, ECCLevelM)
 }
 
-// QRWithECC generates a QR Code barcode with the specified error correction level.
+// NewQRWithECC generates a QR Code barcode with the specified error correction level.
 // Automatically selects the most efficient encoding mode and smallest version (1-40).
-func QRWithECC(data string, level ECCLevel) (*Barcode, error) {
+func NewQRWithECC(data string, level ECCLevel) (*Barcode, error) {
 	if len(data) == 0 {
 		return nil, fmt.Errorf("barcode: empty data")
 	}

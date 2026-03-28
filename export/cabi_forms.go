@@ -34,7 +34,7 @@ func folio_form_add_text_field(formH C.uint64_t, name *C.char, x1, y1, x2, y2 C.
 		return errCode
 	}
 	rect := [4]float64{float64(x1), float64(y1), float64(x2), float64(y2)}
-	af.Add(forms.TextField(C.GoString(name), rect, int(pageIndex)))
+	af.Add(forms.NewTextField(C.GoString(name), rect, int(pageIndex)))
 	return errOK
 }
 
@@ -47,7 +47,7 @@ func folio_form_add_checkbox(formH C.uint64_t, name *C.char, x1, y1, x2, y2 C.do
 		return errCode
 	}
 	rect := [4]float64{float64(x1), float64(y1), float64(x2), float64(y2)}
-	af.Add(forms.Checkbox(C.GoString(name), rect, int(pageIndex), checked != 0))
+	af.Add(forms.NewCheckbox(C.GoString(name), rect, int(pageIndex), checked != 0))
 	return errOK
 }
 
@@ -68,7 +68,7 @@ func folio_form_add_dropdown(formH C.uint64_t, name *C.char, x1, y1, x2, y2 C.do
 			goOpts[i] = C.GoString(cArray[i])
 		}
 	}
-	af.Add(forms.Dropdown(C.GoString(name), rect, int(pageIndex), goOpts))
+	af.Add(forms.NewDropdown(C.GoString(name), rect, int(pageIndex), goOpts))
 	return errOK
 }
 
@@ -81,7 +81,7 @@ func folio_form_add_signature(formH C.uint64_t, name *C.char, x1, y1, x2, y2 C.d
 		return errCode
 	}
 	rect := [4]float64{float64(x1), float64(y1), float64(x2), float64(y2)}
-	af.Add(forms.SignatureField(C.GoString(name), rect, int(pageIndex)))
+	af.Add(forms.NewSignatureField(C.GoString(name), rect, int(pageIndex)))
 	return errOK
 }
 

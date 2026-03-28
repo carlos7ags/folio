@@ -152,7 +152,7 @@ func TestTableCellEmbedded(t *testing.T) {
 
 func TestRunEmbedded(t *testing.T) {
 	ef := loadTestTTF(t)
-	run := RunEmbedded("Embedded text", ef, 12)
+	run := NewRunEmbedded("Embedded text", ef, 12)
 	if run.Embedded != ef {
 		t.Error("expected embedded font on run")
 	}
@@ -165,7 +165,7 @@ func TestRunEmbedded(t *testing.T) {
 
 func TestParagraphAddRun(t *testing.T) {
 	p := NewParagraph("Hello", font.Helvetica, 12)
-	p.AddRun(Run("World", font.HelveticaBold, 14))
+	p.AddRun(NewRun("World", font.HelveticaBold, 14))
 
 	lines := p.Layout(400)
 	if len(lines) == 0 {

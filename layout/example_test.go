@@ -61,7 +61,7 @@ func ExampleDiv() {
 }
 
 func ExampleNewBarcodeElement() {
-	bc, _ := barcode.QR("https://example.com")
+	bc, _ := barcode.NewQR("https://example.com")
 	elem := layout.NewBarcodeElement(bc, 100).SetAlign(layout.AlignCenter)
 
 	plan := elem.PlanLayout(layout.LayoutArea{Width: 468, Height: 500})

@@ -16,7 +16,7 @@ type Color struct {
 // ParseColor parses an SVG color string.
 // Supports: named colors, #rgb, #rrggbb, rgb(r,g,b), rgba(r,g,b,a), "none", "currentColor".
 // Returns ok=false for "none" or unparseable values.
-func ParseColor(s string) (Color, bool) {
+func parseColor(s string) (Color, bool) {
 	s = strings.TrimSpace(s)
 	if s == "" {
 		return Color{}, false
