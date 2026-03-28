@@ -296,12 +296,12 @@ func TestParseColorComponentClamping(t *testing.T) {
 		{"0", 0},
 		{"255", 1.0},
 		{"128", 128.0 / 255},
-		{"300", 1.0},   // clamped to 1.0
-		{"-50", 0},     // clamped to 0
+		{"300", 1.0}, // clamped to 1.0
+		{"-50", 0},   // clamped to 0
 		{"100%", 1.0},
 		{"0%", 0},
-		{"150%", 1.0},  // clamped to 1.0
-		{"-10%", 0},    // clamped to 0
+		{"150%", 1.0}, // clamped to 1.0
+		{"-10%", 0},   // clamped to 0
 	}
 	for _, tt := range tests {
 		got := parseColorComponent(tt.input)
@@ -3725,6 +3725,30 @@ func TestAttrSelectorPresenceCaseInsensitive(t *testing.T) {
 	}
 	if len(elems) == 0 {
 		t.Fatal("expected elements")
+	}
+}
+
+func TestCSSEscapeSequences(t *testing.T) {
+	// A class name containing a literal dot, escaped in the CSS selector.
+	htmlStr := `<style>.my\.class { font-weight: bold; }</style><p class="my.class">Escaped</p>`
+	elems, err := Convert(htmlStr, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(elems) == 0 {
+		t.Fatal("expected elements — escaped selector should match")
+	}
+}
+
+func TestCSSEscapeInID(t *testing.T) {
+	// An ID containing a literal colon, escaped in the CSS selector.
+	htmlStr := `<style>#my\:id { color: red; }</style><p id="my:id">Escaped</p>`
+	elems, err := Convert(htmlStr, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(elems) == 0 {
+		t.Fatal("expected elements — escaped ID selector should match")
 	}
 }
 
