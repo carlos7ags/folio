@@ -128,7 +128,7 @@ func attrSelectorMatches(as attrSelector, n *html.Node) bool {
 	switch as.op {
 	case "": // presence only [attr]
 		for _, a := range n.Attr {
-			if a.Key == as.name {
+			if strings.EqualFold(a.Key, as.name) {
 				return true
 			}
 		}
@@ -371,9 +371,12 @@ func parseAnPlusB(s string) (a, b int) {
 }
 
 // nodeAttr returns the value of an attribute on a node.
+// The comparison is case-insensitive because HTML attribute names are
+// case-insensitive and CSS selector attribute names are lowercased
+// during parsing.
 func nodeAttr(n *html.Node, name string) string {
 	for _, a := range n.Attr {
-		if a.Key == name {
+		if strings.EqualFold(a.Key, name) {
 			return a.Val
 		}
 	}
