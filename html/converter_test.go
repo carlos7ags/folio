@@ -4906,3 +4906,148 @@ func TestBookmarkLevelZero(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+// --- :is() and :where() selector tests ---
+
+func TestIsSelector(t *testing.T) {
+	src := `<style>
+	:is(h1, h2, h3) { color: red; }
+	</style>
+	<h1>Title</h1><h2>Subtitle</h2><p>Normal</p>`
+	elems, err := Convert(src, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(elems) < 3 {
+		t.Fatalf("expected at least 3 elements, got %d", len(elems))
+	}
+}
+
+func TestWhereSelector(t *testing.T) {
+	src := `<style>
+	:where(.a, .b) { font-weight: bold; }
+	</style>
+	<p class="a">A</p><p class="b">B</p><p class="c">C</p>`
+	elems, err := Convert(src, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(elems) < 3 {
+		t.Fatalf("expected at least 3 elements, got %d", len(elems))
+	}
+}
+
+func TestIsSelectorNoMatch(t *testing.T) {
+	// :is() with no matching selectors should not apply.
+	src := `<style>
+	:is(.x, .y) { color: blue; }
+	</style>
+	<p class="a">No match</p>`
+	_, err := Convert(src, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestIsSelectorNested(t *testing.T) {
+	// :is() used in a compound selector: div :is(p, span)
+	src := `<style>
+	div :is(p, span) { font-style: italic; }
+	</style>
+	<div><p>Italic</p><span>Also italic</span></div>`
+	_, err := Convert(src, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+// --- repeating gradient tests ---
+
+func TestRepeatingLinearGradient(t *testing.T) {
+	src := `<div style="background: repeating-linear-gradient(45deg, red, blue 20px); height: 100px; width: 200px;">
+		<p>Striped background</p>
+	</div>`
+	elems, err := Convert(src, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(elems) < 1 {
+		t.Fatal("expected at least 1 element")
+	}
+}
+
+func TestRepeatingRadialGradient(t *testing.T) {
+	src := `<div style="background: repeating-radial-gradient(circle, red, blue 20px); height: 100px; width: 200px;">
+		<p>Radial</p>
+	</div>`
+	elems, err := Convert(src, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(elems) < 1 {
+		t.Fatal("expected at least 1 element")
+	}
+}
+
+func TestRepeatingGradientInBackgroundImage(t *testing.T) {
+	src := `<div style="background-image: repeating-linear-gradient(red, blue); height: 50px;">
+		<p>BG image</p>
+	</div>`
+	_, err := Convert(src, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+// --- column-width tests ---
+
+func TestColumnWidthAutoCount(t *testing.T) {
+	// column-width: 150px with a 500px container should produce ~3 columns.
+	src := `<div style="column-width: 150px;">
+		<p>A</p><p>B</p><p>C</p><p>D</p><p>E</p><p>F</p>
+	</div>`
+	elems, err := Convert(src, &Options{PageWidth: 500})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(elems) < 1 {
+		t.Fatal("expected at least 1 element")
+	}
+	plan := elems[0].PlanLayout(layout.LayoutArea{Width: 500, Height: 800})
+	if plan.Status != layout.LayoutFull {
+		t.Fatal("expected LayoutFull")
+	}
+}
+
+func TestColumnWidthNarrowContainer(t *testing.T) {
+	// column-width wider than container should produce 1 column.
+	src := `<div style="column-width: 500px;">
+		<p>Only one column possible.</p>
+	</div>`
+	_, err := Convert(src, &Options{PageWidth: 300})
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestColumnsShorthandWithWidth(t *testing.T) {
+	// "columns: 200px" sets column-width, not column-count.
+	src := `<div style="columns: 200px;">
+		<p>A</p><p>B</p><p>C</p>
+	</div>`
+	_, err := Convert(src, &Options{PageWidth: 600})
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestColumnsShorthandCountAndWidth(t *testing.T) {
+	// "columns: 3 200px" sets both.
+	src := `<div style="columns: 3 200px;">
+		<p>A</p><p>B</p><p>C</p>
+	</div>`
+	_, err := Convert(src, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+}

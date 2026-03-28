@@ -167,6 +167,7 @@ type computedStyle struct {
 
 	// Columns
 	ColumnCount     int
+	ColumnWidth     float64 // CSS column-width in points (0 = auto)
 	ColumnGap       float64
 	ColumnRuleWidth float64
 	ColumnRuleStyle string // "solid", "dashed", "dotted"

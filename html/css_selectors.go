@@ -192,6 +192,22 @@ func pseudoMatches(pseudo string, n *html.Node) bool {
 		}
 		innerPart := parseSelectorPart(inner)
 		return !partMatches(innerPart, n)
+	case strings.HasPrefix(pseudo, "is(") && strings.HasSuffix(pseudo, ")"),
+		strings.HasPrefix(pseudo, "where(") && strings.HasSuffix(pseudo, ")"):
+		// :is() and :where() match if any selector in the list matches.
+		openParen := strings.IndexByte(pseudo, '(')
+		inner := pseudo[openParen+1 : len(pseudo)-1]
+		for _, sel := range strings.Split(inner, ",") {
+			sel = strings.TrimSpace(sel)
+			if sel == "" {
+				continue
+			}
+			part := parseSelectorPart(sel)
+			if partMatches(part, n) {
+				return true
+			}
+		}
+		return false
 	default:
 		return false
 	}

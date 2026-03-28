@@ -280,10 +280,10 @@ func parseBackgroundImage(val string) (kind string, inner string) {
 		inner = strings.Trim(inner, `"'`)
 		return "url", inner
 	}
-	if strings.HasPrefix(lower, "linear-gradient(") {
+	if strings.HasPrefix(lower, "linear-gradient(") || strings.HasPrefix(lower, "repeating-linear-gradient(") {
 		return "linear-gradient", extractFunctionArgs(val)
 	}
-	if strings.HasPrefix(lower, "radial-gradient(") {
+	if strings.HasPrefix(lower, "radial-gradient(") || strings.HasPrefix(lower, "repeating-radial-gradient(") {
 		return "radial-gradient", extractFunctionArgs(val)
 	}
 	return "", val
