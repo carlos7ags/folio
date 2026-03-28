@@ -10,6 +10,63 @@ type TextMeasurer interface {
 	MeasureString(text string, fontSize float64) float64
 }
 
+// Ascent returns the typographic ascent for the standard font, scaled to
+// the given font size in points. Values are from the PDF spec (Appendix D).
+func (f *Standard) Ascent(fontSize float64) float64 {
+	a := standardAscent[f.name]
+	if a == 0 {
+		a = 718 // Helvetica default
+	}
+	return float64(a) / 1000 * fontSize
+}
+
+// Descent returns the typographic descent for the standard font, scaled to
+// the given font size in points. The value is positive (distance below baseline).
+func (f *Standard) Descent(fontSize float64) float64 {
+	d := standardDescent[f.name]
+	if d == 0 {
+		d = 207 // Helvetica default
+	}
+	return float64(d) / 1000 * fontSize
+}
+
+// Standard font ascent/descent values from the PDF spec (Appendix D).
+// Ascent is the distance above the baseline, descent is the distance below
+// (stored as positive values here).
+var standardAscent = map[string]int{
+	"Helvetica":             718,
+	"Helvetica-Bold":        718,
+	"Helvetica-Oblique":     718,
+	"Helvetica-BoldOblique": 718,
+	"Times-Roman":           683,
+	"Times-Bold":            683,
+	"Times-Italic":          683,
+	"Times-BoldItalic":      683,
+	"Courier":               629,
+	"Courier-Bold":          626,
+	"Courier-Oblique":       629,
+	"Courier-BoldOblique":   626,
+	"Symbol":                673,
+	"ZapfDingbats":          677,
+}
+
+var standardDescent = map[string]int{
+	"Helvetica":             207,
+	"Helvetica-Bold":        207,
+	"Helvetica-Oblique":     207,
+	"Helvetica-BoldOblique": 207,
+	"Times-Roman":           217,
+	"Times-Bold":            217,
+	"Times-Italic":          217,
+	"Times-BoldItalic":      217,
+	"Courier":               157,
+	"Courier-Bold":          142,
+	"Courier-Oblique":       157,
+	"Courier-BoldOblique":   142,
+	"Symbol":                216,
+	"ZapfDingbats":          143,
+}
+
 // MeasureString implements TextMeasurer for standard fonts.
 // Uses hardcoded width tables from the PDF spec (Appendix D).
 func (f *Standard) MeasureString(text string, fontSize float64) float64 {

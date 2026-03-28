@@ -63,10 +63,25 @@ func drawTextLine(ctx DrawContext, words []Word, x, baselineY, maxWidth float64,
 			}
 
 			if word.BackgroundColor != nil {
-				// Compute the highlight rectangle covering the word.
-				// Ascent ≈ 0.8 * FontSize, descent ≈ 0.2 * FontSize.
-				ascent := word.FontSize * 0.8
-				descent := word.FontSize * 0.2
+				// Compute the highlight rectangle covering the word using
+				// actual font metrics (ascent/descent from PDF spec Appendix D).
+				var ascent, descent float64
+				if word.Font != nil {
+					ascent = word.Font.Ascent(word.FontSize)
+					descent = word.Font.Descent(word.FontSize)
+				} else if word.Embedded != nil {
+					face := word.Embedded.Face()
+					upem := float64(face.UnitsPerEm())
+					ascent = float64(face.Ascent()) / upem * word.FontSize
+					d := face.Descent() // negative
+					if d < 0 {
+						d = -d
+					}
+					descent = float64(d) / upem * word.FontSize
+				} else {
+					ascent = word.FontSize * 0.75
+					descent = word.FontSize * 0.25
+				}
 				rectH := ascent + descent
 				rectY := baselineY - descent // bottom of rect in PDF coordinates
 
@@ -292,7 +307,13 @@ func drawDecorations(stream *content.Stream, word Word, x, baselineY float64) {
 	}
 
 	if word.Decoration&DecorationUnderline != 0 {
-		uy := baselineY - word.FontSize*0.15
+		// Underline position: slightly below baseline (~descent * 0.75).
+		var uy float64
+		if word.Font != nil {
+			uy = baselineY - word.Font.Descent(word.FontSize)*0.75
+		} else {
+			uy = baselineY - word.FontSize*0.15
+		}
 		switch word.DecorationStyle {
 		case "double":
 			// Draw two lines separated by the line width.
@@ -311,7 +332,13 @@ func drawDecorations(stream *content.Stream, word Word, x, baselineY float64) {
 		}
 	}
 	if word.Decoration&DecorationStrikethrough != 0 {
-		sy := baselineY + word.FontSize*0.3
+		// Strikethrough position: roughly at x-height (~ascent * 0.4).
+		var sy float64
+		if word.Font != nil {
+			sy = baselineY + word.Font.Ascent(word.FontSize)*0.4
+		} else {
+			sy = baselineY + word.FontSize*0.3
+		}
 		switch word.DecorationStyle {
 		case "double":
 			stream.MoveTo(x, sy)
