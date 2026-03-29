@@ -699,6 +699,20 @@ func TestTableCellSpacingPlanLayout(t *testing.T) {
 	}
 }
 
+func TestTablePlanLayoutNoAvailableHeight(t *testing.T) {
+	tbl := NewTable()
+	r := tbl.AddRow()
+	r.AddCell("One", font.Helvetica, 10)
+	r.AddCell("Two", font.Helvetica, 10)
+
+	for _, h := range []float64{0, -50} {
+		plan := tbl.PlanLayout(LayoutArea{Width: 400, Height: h})
+		if plan.Status != LayoutNothing {
+			t.Fatalf("height %.1f: expected LayoutNothing, got %d", h, plan.Status)
+		}
+	}
+}
+
 func TestTableCellSpacingIgnoredWithCollapse(t *testing.T) {
 	// When border-collapse is enabled, spacing should be ignored.
 	tbl := NewTable()

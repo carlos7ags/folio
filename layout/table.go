@@ -804,6 +804,10 @@ func (t *Table) Layout(maxWidth float64) []Line {
 // PlanLayout implements Element. Tables split between rows, repeating
 // header rows on each new page.
 func (t *Table) PlanLayout(area LayoutArea) LayoutPlan {
+	if area.Height <= 0 {
+		return LayoutPlan{Status: LayoutNothing}
+	}
+
 	colWidths := t.resolveColWidths(area.Width)
 	grid := t.buildGrid(colWidths)
 	if len(grid) == 0 {
