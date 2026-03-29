@@ -697,10 +697,25 @@ func (c *converter) convertElementInner(n *html.Node, style computedStyle) []lay
 		return c.convertCSSTable(n, style)
 	}
 
+	// Replaced elements (images, SVGs) must use their specialized converters
+	// regardless of display value. CSS display on a replaced element affects
+	// layout participation, not how the media itself is rendered. Without
+	// this early dispatch, display:inline-block SVG/IMG would enter
+	// convertBlock and produce an empty container instead of actual media.
+	// (In paragraph-level inline flow, collectRuns handles these elements
+	// via convertInlineElement before the display:inline-block branch.)
+	switch n.DataAtom {
+	case atom.Img:
+		return c.convertImage(n, style)
+	case atom.Svg:
+		return c.convertSVG(n, style)
+	}
+
 	// Inline-block: renders as a block (Div) but participates in inline flow.
-	// For PDF purposes, treat as a block with box-model support.
-	// Special elements (SVG, IMG) fall through to their specific handlers below.
-	if style.Display == "inline-block" && n.DataAtom != atom.Svg && n.DataAtom != atom.Img {
+	// When inline-block elements appear inside a paragraph, collectRuns
+	// handles them as inline element runs. At the top level (here), they
+	// still render as blocks since there is no inline flow context.
+	if style.Display == "inline-block" {
 		return c.convertBlock(n, style)
 	}
 
@@ -725,10 +740,6 @@ func (c *converter) convertElementInner(n *html.Node, style computedStyle) []lay
 		return c.convertHr(style)
 	case atom.Pre:
 		return c.convertPre(n, style)
-	case atom.Img:
-		return c.convertImage(n, style)
-	case atom.Svg:
-		return c.convertSVG(n, style)
 	case atom.Div, atom.Section, atom.Article, atom.Main, atom.Header,
 		atom.Footer, atom.Nav, atom.Aside:
 		return c.convertBlock(n, style)

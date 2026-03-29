@@ -73,7 +73,7 @@ func splitRunsAtBr(runs []layout.TextRun) [][]layout.TextRun {
 // buildParagraphFromRuns creates a styled paragraph from a slice of TextRuns.
 func (c *converter) buildParagraphFromRuns(runs []layout.TextRun, style computedStyle) *layout.Paragraph {
 	var p *layout.Paragraph
-	if len(runs) == 1 && runs[0].Embedded == nil && runs[0].Color == (layout.Color{}) {
+	if len(runs) == 1 && runs[0].InlineElement == nil && runs[0].Embedded == nil && runs[0].Color == (layout.Color{}) {
 		// Simple case: single run, standard font, default color.
 		p = layout.NewParagraph(runs[0].Text, runs[0].Font, runs[0].FontSize)
 	} else {
@@ -247,6 +247,8 @@ func (c *converter) convertInlineContainer(n *html.Node, style computedStyle) []
 }
 
 // collectRuns gathers inline content as TextRuns, recursing into inline children.
+// Images, SVGs, and elements with display:inline-block are converted to inline
+// element runs that flow within the paragraph like words.
 func (c *converter) collectRuns(n *html.Node, style computedStyle) []layout.TextRun {
 	var runs []layout.TextRun
 	for child := n.FirstChild; child != nil; child = child.NextSibling {
@@ -281,6 +283,31 @@ func (c *converter) collectRuns(n *html.Node, style computedStyle) []layout.Text
 				continue
 			}
 			childStyle := c.computeElementStyle(child, style)
+
+			// Images and SVGs are inline by default in HTML (replaced
+			// elements). Honor display overrides: "none" hides them,
+			// "block" skips them in inline flow (they would need to be
+			// handled as block-level elements outside the paragraph).
+			// All other display values (default "", "inline",
+			// "inline-block") are treated as inline.
+			if child.DataAtom == atom.Img || child.DataAtom == atom.Svg {
+				if childStyle.Display == "none" || childStyle.Display == "block" {
+					continue
+				}
+				if el := c.convertInlineElement(child, childStyle); el != nil {
+					runs = append(runs, layout.TextRun{InlineElement: el})
+				}
+				continue
+			}
+
+			// Elements with display:inline-block flow inline as atomic boxes.
+			if childStyle.Display == "inline-block" {
+				if el := c.convertInlineBlockElement(child, childStyle); el != nil {
+					runs = append(runs, layout.TextRun{InlineElement: el})
+				}
+				continue
+			}
+
 			childRuns := c.collectRuns(child, childStyle)
 			// Propagate href from <a> elements to all child runs.
 			if child.DataAtom == atom.A {
@@ -295,6 +322,32 @@ func (c *converter) collectRuns(n *html.Node, style computedStyle) []layout.Text
 		}
 	}
 	return runs
+}
+
+// convertInlineElement converts an <img> or <svg> node into a single
+// layout.Element suitable for inline placement within a paragraph.
+func (c *converter) convertInlineElement(n *html.Node, style computedStyle) layout.Element {
+	var elems []layout.Element
+	switch n.DataAtom {
+	case atom.Img:
+		elems = c.convertImage(n, style)
+	case atom.Svg:
+		elems = c.convertSVG(n, style)
+	}
+	if len(elems) > 0 {
+		return elems[0]
+	}
+	return nil
+}
+
+// convertInlineBlockElement converts a display:inline-block element into a
+// layout.Element suitable for inline placement within a paragraph.
+func (c *converter) convertInlineBlockElement(n *html.Node, style computedStyle) layout.Element {
+	elems := c.convertBlock(n, style)
+	if len(elems) > 0 {
+		return elems[0]
+	}
+	return nil
 }
 
 // collectListItemRuns collects styled TextRuns from a <li> element,
