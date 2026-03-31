@@ -87,8 +87,10 @@ func (c *converter) applyTagDefaults(n *html.Node, style *computedStyle) {
 		style.FontSize = style.FontSize * 0.833
 	case atom.Sub:
 		style.FontSize = style.FontSize * 0.75
+		style.VerticalAlign = "sub"
 	case atom.Sup:
 		style.FontSize = style.FontSize * 0.75
+		style.VerticalAlign = "super"
 	case atom.Code:
 		style.FontFamily = "courier"
 	case atom.Pre:

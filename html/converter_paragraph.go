@@ -254,7 +254,15 @@ func (c *converter) collectRuns(n *html.Node, style computedStyle) []layout.Text
 	for child := n.FirstChild; child != nil; child = child.NextSibling {
 		switch child.Type {
 		case html.TextNode:
-			text := processWhitespace(child.Data, style.WhiteSpace)
+			// Use inline-aware whitespace collapsing that preserves
+			// leading/trailing spaces per CSS Text Module Level 3 §4.1.1.
+			// Block-level contexts use processWhitespace which strips them.
+			var text string
+			if style.WhiteSpace == "pre" || style.WhiteSpace == "pre-wrap" || style.WhiteSpace == "pre-line" {
+				text = processWhitespace(child.Data, style.WhiteSpace)
+			} else {
+				text = collapseWhitespaceInline(child.Data)
+			}
 			if text == "" {
 				continue
 			}

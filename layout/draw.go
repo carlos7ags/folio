@@ -54,11 +54,7 @@ func drawTextLine(ctx DrawContext, words []Word, x, baselineY, maxWidth float64,
 		bgX := x
 		for i, word := range words {
 			if word.InlineBlock != nil {
-				spaceW := words[0].SpaceAfter
-				if spaceW == 0 {
-					spaceW = 3
-				}
-				bgX += word.InlineWidth + spaceW
+				bgX += word.InlineWidth + word.SpaceAfter
 				continue
 			}
 
@@ -109,11 +105,7 @@ func drawTextLine(ctx DrawContext, words []Word, x, baselineY, maxWidth float64,
 				if align == AlignJustify && !isLast {
 					advance = word.Width + extraSpace
 				} else {
-					spaceW := word.SpaceAfter
-					if spaceW == 0 && len(words) > 0 {
-						spaceW = words[0].SpaceAfter
-					}
-					advance = word.Width + spaceW
+					advance = word.Width + word.SpaceAfter
 				}
 			}
 			bgX += advance
@@ -126,11 +118,7 @@ func drawTextLine(ctx DrawContext, words []Word, x, baselineY, maxWidth float64,
 		// Inline-block words: skip text rendering (rendered as child PlacedBlocks).
 		if word.InlineBlock != nil {
 			if i < len(words)-1 {
-				spaceW := words[0].SpaceAfter
-				if spaceW == 0 {
-					spaceW = 3
-				}
-				curX += word.InlineWidth + spaceW
+				curX += word.InlineWidth + word.SpaceAfter
 			}
 			continue
 		}
@@ -175,11 +163,7 @@ func drawTextLine(ctx DrawContext, words []Word, x, baselineY, maxWidth float64,
 			if align == AlignJustify && !isLast {
 				advance = word.Width + extraSpace
 			} else {
-				spaceW := word.SpaceAfter
-				if spaceW == 0 && len(words) > 0 {
-					spaceW = words[0].SpaceAfter
-				}
-				advance = word.Width + spaceW
+				advance = word.Width + word.SpaceAfter
 			}
 		}
 

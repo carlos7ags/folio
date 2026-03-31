@@ -130,6 +130,34 @@ func collapseWhitespace(s string) string {
 	return strings.Join(strings.Fields(s), " ")
 }
 
+// collapseWhitespaceInline collapses runs of whitespace into single spaces
+// while preserving a leading and/or trailing space if the original had one.
+// Per CSS Text Module Level 3 §4.1.1 (Phase I), whitespace collapsing
+// operates across inline element boundaries and does NOT strip
+// leading/trailing spaces from individual text nodes. Use this variant
+// in inline formatting contexts (collectRuns) where boundary whitespace
+// signals inter-word spacing between adjacent styled runs.
+func collapseWhitespaceInline(s string) string {
+	collapsed := strings.Join(strings.Fields(s), " ")
+	if collapsed == "" {
+		// Whitespace-only text node: preserve as a single space so it
+		// maintains inter-element spacing (e.g. "<b>bold</b> <i>italic</i>").
+		if len(s) > 0 {
+			return " "
+		}
+		return ""
+	}
+	hasLeading := s[0] == ' ' || s[0] == '\t' || s[0] == '\n' || s[0] == '\r' || s[0] == '\f'
+	hasTrailing := s[len(s)-1] == ' ' || s[len(s)-1] == '\t' || s[len(s)-1] == '\n' || s[len(s)-1] == '\r' || s[len(s)-1] == '\f'
+	if hasLeading {
+		collapsed = " " + collapsed
+	}
+	if hasTrailing {
+		collapsed = collapsed + " "
+	}
+	return collapsed
+}
+
 // applyTextTransform applies a CSS text-transform value to a string.
 func applyTextTransform(s, transform string) string {
 	switch transform {

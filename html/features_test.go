@@ -1723,3 +1723,239 @@ func TestInlineBlockSVGInFlexRendersMedia(t *testing.T) {
 		t.Errorf("consumed = %.1f, expected >= 40 (SVG should render as media in flex container)", plan.Consumed)
 	}
 }
+
+// --- Sub/Sup baseline shift ---
+
+func TestSubBaselineShiftValue(t *testing.T) {
+	// <sub> should produce a negative BaselineShift (shifted down).
+	src := `<p>H<sub>2</sub>O</p>`
+	elems, err := Convert(src, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(elems) == 0 {
+		t.Fatal("expected elements")
+	}
+	p := elems[0].(*layout.Paragraph)
+	lines := p.Layout(400)
+	if len(lines) == 0 {
+		t.Fatal("expected at least one line")
+	}
+	// Find the "2" word — it should have negative BaselineShift.
+	var found bool
+	for _, w := range lines[0].Words {
+		if w.Text == "2" {
+			found = true
+			if w.BaselineShift >= 0 {
+				t.Errorf("sub word BaselineShift = %.2f, want negative", w.BaselineShift)
+			}
+		}
+	}
+	if !found {
+		t.Error("expected a word with text '2'")
+	}
+}
+
+func TestSupBaselineShiftValue(t *testing.T) {
+	// <sup> should produce a positive BaselineShift (shifted up).
+	src := `<p>E=mc<sup>2</sup></p>`
+	elems, err := Convert(src, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(elems) == 0 {
+		t.Fatal("expected elements")
+	}
+	p := elems[0].(*layout.Paragraph)
+	lines := p.Layout(400)
+	if len(lines) == 0 {
+		t.Fatal("expected at least one line")
+	}
+	// "E=mc" should have shift=0, "2" should have positive shift.
+	for _, w := range lines[0].Words {
+		if w.Text == "2" {
+			if w.BaselineShift <= 0 {
+				t.Errorf("sup word BaselineShift = %.2f, want positive", w.BaselineShift)
+			}
+		}
+		if w.Text == "E=mc" {
+			if w.BaselineShift != 0 {
+				t.Errorf("normal word BaselineShift = %.2f, want 0", w.BaselineShift)
+			}
+		}
+	}
+}
+
+func TestSubAdjacentSpacing(t *testing.T) {
+	// H<sub>2</sub>O — "H" and "2" should be glued (SpaceAfter=0).
+	src := `<p>H<sub>2</sub>O</p>`
+	elems, err := Convert(src, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p := elems[0].(*layout.Paragraph)
+	lines := p.Layout(400)
+	if len(lines) == 0 {
+		t.Fatal("expected at least one line")
+	}
+	for i, w := range lines[0].Words {
+		if w.Text == "H" && i < len(lines[0].Words)-1 {
+			if w.SpaceAfter != 0 {
+				t.Errorf("'H' SpaceAfter = %.2f, want 0 (should be glued to subscript)", w.SpaceAfter)
+			}
+		}
+		if w.Text == "2" && i < len(lines[0].Words)-1 {
+			if w.SpaceAfter != 0 {
+				t.Errorf("'2' SpaceAfter = %.2f, want 0 (should be glued to 'O')", w.SpaceAfter)
+			}
+		}
+	}
+}
+
+func TestSupInHeading(t *testing.T) {
+	src := `<h2>E=mc<sup>2</sup></h2>`
+	elems, err := Convert(src, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(elems) == 0 {
+		t.Fatal("expected elements")
+	}
+	plan := elems[0].PlanLayout(layout.LayoutArea{Width: 500, Height: 1000})
+	if plan.Status != layout.LayoutFull {
+		t.Errorf("expected LayoutFull, got %v", plan.Status)
+	}
+	// Should be a single block (one line), not split into multiple lines.
+	if len(plan.Blocks) != 1 {
+		t.Errorf("expected 1 block (single line heading), got %d", len(plan.Blocks))
+	}
+}
+
+func TestCaffeineFormula(t *testing.T) {
+	src := `<p>C<sub>8</sub>H<sub>10</sub>N<sub>4</sub>O<sub>2</sub></p>`
+	elems, err := Convert(src, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p := elems[0].(*layout.Paragraph)
+	lines := p.Layout(400)
+	if len(lines) != 1 {
+		t.Fatalf("expected 1 line, got %d", len(lines))
+	}
+	// All adjacent word pairs should have SpaceAfter=0 (no gaps in formula).
+	words := lines[0].Words
+	for i := 0; i < len(words)-1; i++ {
+		if words[i].SpaceAfter != 0 {
+			t.Errorf("word[%d] %q SpaceAfter = %.2f, want 0", i, words[i].Text, words[i].SpaceAfter)
+		}
+	}
+}
+
+func TestSpaceBetweenStyledInlineElements(t *testing.T) {
+	// "<b>bold</b> <i>italic</i>" — the space text node between elements
+	// must be preserved so "bold" and "italic" don't merge.
+	src := `<p><b>bold</b> <i>italic</i></p>`
+	elems, err := Convert(src, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p := elems[0].(*layout.Paragraph)
+	lines := p.Layout(400)
+	if len(lines) == 0 {
+		t.Fatal("expected at least one line")
+	}
+	// Should have two separate words with space between them.
+	var foundBold, foundItalic bool
+	for _, w := range lines[0].Words {
+		if w.Text == "bold" {
+			foundBold = true
+			if w.SpaceAfter == 0 {
+				t.Error("'bold' SpaceAfter should be non-zero (space before italic)")
+			}
+		}
+		if w.Text == "italic" {
+			foundItalic = true
+		}
+	}
+	if !foundBold || !foundItalic {
+		t.Errorf("expected words 'bold' and 'italic', got %v", lines[0].Words)
+	}
+}
+
+func TestNoSpaceBetweenAdjacentStyledElements(t *testing.T) {
+	// "<i>italic</i><b>bold</b>" — no whitespace between elements,
+	// should render flush.
+	src := `<p><i>italic</i><b>bold</b></p>`
+	elems, err := Convert(src, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p := elems[0].(*layout.Paragraph)
+	lines := p.Layout(400)
+	if len(lines) == 0 {
+		t.Fatal("expected at least one line")
+	}
+	for _, w := range lines[0].Words {
+		if w.Text == "italic" && w.SpaceAfter != 0 {
+			t.Errorf("'italic' SpaceAfter = %.2f, want 0 (no space before bold)", w.SpaceAfter)
+		}
+	}
+}
+
+func TestSupFollowedByPunctuation(t *testing.T) {
+	// "7<sup>th</sup>! works" — the "!" should NOT inherit superscript styling.
+	src := `<p>April 7<sup>th</sup>! works</p>`
+	elems, err := Convert(src, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p := elems[0].(*layout.Paragraph)
+	lines := p.Layout(500)
+	if len(lines) == 0 {
+		t.Fatal("expected at least one line")
+	}
+	for _, w := range lines[0].Words {
+		if w.Text == "!" || w.Text == "!works" || w.Text == "th!" {
+			if w.BaselineShift != 0 {
+				t.Errorf("word %q has BaselineShift=%.2f, want 0 (should not be superscript)", w.Text, w.BaselineShift)
+			}
+			if w.FontSize != 12 {
+				t.Errorf("word %q has FontSize=%.1f, want 12 (should not inherit sup size)", w.Text, w.FontSize)
+			}
+		}
+	}
+	// "works" should be a separate word with a space before it.
+	var foundWorks bool
+	for _, w := range lines[0].Words {
+		if w.Text == "works" {
+			foundWorks = true
+		}
+	}
+	if !foundWorks {
+		t.Error("expected 'works' as a separate word")
+	}
+}
+
+func TestCommaBetweenSubscripts(t *testing.T) {
+	// x<sub>i</sub>,<sub>j</sub> — comma should NOT inherit subscript styling.
+	src := `<p>x<sub>i</sub>,<sub>j</sub></p>`
+	elems, err := Convert(src, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p := elems[0].(*layout.Paragraph)
+	lines := p.Layout(400)
+	if len(lines) == 0 {
+		t.Fatal("expected at least one line")
+	}
+	for _, w := range lines[0].Words {
+		if w.Text == "," {
+			if w.BaselineShift != 0 {
+				t.Errorf("comma BaselineShift = %.2f, want 0", w.BaselineShift)
+			}
+			if w.FontSize != 12 {
+				t.Errorf("comma FontSize = %.1f, want 12", w.FontSize)
+			}
+		}
+	}
+}

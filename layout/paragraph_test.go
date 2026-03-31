@@ -856,3 +856,41 @@ func TestLeftAlignedParagraphInlineChildBlockConsistency(t *testing.T) {
 		t.Errorf("child X = %.2f, expected ~0 for leading inline element", childX)
 	}
 }
+
+func TestAdjacentRunsNoSpace(t *testing.T) {
+	// "C" + subscript "8" + "H" should have no inter-word space.
+	// Simulates C<sub>8</sub>H from HTML.
+	p := NewStyledParagraph(
+		NewRun("C", font.Helvetica, 12),
+		NewRun("8", font.Helvetica, 9), // smaller font like <sub>
+		NewRun("H", font.Helvetica, 12),
+	)
+	lines := p.Layout(500)
+	if len(lines) != 1 {
+		t.Fatalf("expected 1 line, got %d", len(lines))
+	}
+	// "C" should have SpaceAfter=0 (glued to "8").
+	// "8" should have SpaceAfter=0 (glued to "H").
+	for i, w := range lines[0].Words {
+		if i < len(lines[0].Words)-1 && w.SpaceAfter != 0 {
+			t.Errorf("word[%d] %q: SpaceAfter=%.2f, want 0 (adjacent runs)", i, w.Text, w.SpaceAfter)
+		}
+	}
+}
+
+func TestAdjacentRunsWithSpacePreserved(t *testing.T) {
+	// "Hello " + "world" — trailing space in first run means they ARE
+	// separate words and should keep SpaceAfter.
+	p := NewStyledParagraph(
+		NewRun("Hello ", font.Helvetica, 12),
+		NewRun("world", font.Helvetica, 12),
+	)
+	lines := p.Layout(500)
+	if len(lines) != 1 {
+		t.Fatalf("expected 1 line, got %d", len(lines))
+	}
+	// "Hello" should have non-zero SpaceAfter.
+	if lines[0].Words[0].SpaceAfter == 0 {
+		t.Error("expected non-zero SpaceAfter between 'Hello' and 'world'")
+	}
+}

@@ -207,9 +207,14 @@ func (p *Paragraph) Layout(maxWidth float64) []Line {
 
 	for i, run := range p.runs {
 		if run.InlineElement != nil {
+			glueAdjacentRuns(measured, p.runs, i)
 			measured = append(measured, measureInlineElement(run, maxWidth, measured, p.runs, i))
 			continue
 		}
+
+		// Zero the previous word's SpaceAfter when this run abuts it
+		// with no whitespace (e.g. "C" + "<sub>8</sub>").
+		glueAdjacentRuns(measured, p.runs, i)
 
 		measurer := runMeasurer(run)
 		spaceW := measurer.MeasureString(" ", run.FontSize) + run.WordSpacing
@@ -388,6 +393,47 @@ func runMeasurer(run TextRun) font.TextMeasurer {
 		return run.Embedded
 	}
 	return run.Font
+}
+
+// runsAdjacent returns true when run at index i directly abuts the previous
+// run with no whitespace between them. This happens with inline elements like
+// <sub>/<sup> where "C<sub>8</sub>" produces runs ["C", "8"] with no space.
+// When true, the last word of the previous run should have SpaceAfter = 0
+// so the words render flush against each other.
+func runsAdjacent(runs []TextRun, i int) bool {
+	if i <= 0 || len(runs) <= i {
+		return false
+	}
+	cur := runs[i]
+	prev := runs[i-1]
+	// Skip inline element runs — they have their own spacing logic.
+	if cur.InlineElement != nil || prev.InlineElement != nil {
+		return false
+	}
+	if cur.Text == "" || prev.Text == "" {
+		return false
+	}
+	// If previous run ends without whitespace and current starts without
+	// whitespace, the runs are adjacent (no inter-word space).
+	lastChar := prev.Text[len(prev.Text)-1]
+	firstChar := cur.Text[0]
+	return !isASCIISpace(lastChar) && !isASCIISpace(firstChar)
+}
+
+// isASCIISpace checks for ASCII whitespace. HTML parsers normalize most
+// whitespace to ASCII, so this covers the practical cases. Non-ASCII
+// whitespace (e.g. \u00A0 non-breaking space) is not treated as a
+// separator, which matches browser behavior (NBSP doesn't break words).
+func isASCIISpace(b byte) bool {
+	return b == ' ' || b == '\t' || b == '\n' || b == '\r'
+}
+
+// glueAdjacentRuns zeroes SpaceAfter on the last measured word when the
+// current run directly abuts the previous run with no whitespace.
+func glueAdjacentRuns(measured []Word, runs []TextRun, runIdx int) {
+	if runsAdjacent(runs, runIdx) && len(measured) > 0 {
+		measured[len(measured)-1].SpaceAfter = 0
+	}
 }
 
 // measureInlineElement measures an inline element run and returns a Word
@@ -895,9 +941,14 @@ func (p *Paragraph) measureWords(maxWidth float64) ([]Word, float64) {
 
 	for i, run := range p.runs {
 		if run.InlineElement != nil {
+			glueAdjacentRuns(measured, p.runs, i)
 			measured = append(measured, measureInlineElement(run, maxWidth, measured, p.runs, i))
 			continue
 		}
+
+		// Zero the previous word's SpaceAfter when this run abuts it
+		// with no whitespace (e.g. "C" + "<sub>8</sub>").
+		glueAdjacentRuns(measured, p.runs, i)
 
 		measurer := runMeasurer(run)
 		spaceW := measurer.MeasureString(" ", run.FontSize) + run.WordSpacing
@@ -907,17 +958,24 @@ func (p *Paragraph) measureWords(maxWidth float64) ([]Word, float64) {
 		// already have words, append the punctuation to the previous word.
 		// The punctuation renders in the previous word's font, which is
 		// visually correct — "here." should look like one word.
+		// Skip merging when the previous word has different styling (font size
+		// or baseline shift), as the punctuation should use the current run's
+		// styling, not the previous word's. This prevents "th" (superscript)
+		// from absorbing "!" (normal) in "7<sup>th</sup>! works".
 		if len(measured) > 0 && len(text) > 0 && !isSpace(rune(text[0])) {
-			punct, rest := splitLeadingPunct(text)
-			if punct != "" {
-				prev := &measured[len(measured)-1]
-				prev.Text += punct
-				prevMeasurer := wordMeasurer(*prev)
-				prev.Width = prevMeasurer.MeasureString(prev.Text, prev.FontSize)
-				if prev.LetterSpacing != 0 {
-					prev.Width += prev.LetterSpacing * float64(len([]rune(prev.Text))-1)
+			prev := &measured[len(measured)-1]
+			sameStyle := prev.FontSize == run.FontSize && prev.BaselineShift == run.BaselineShift
+			if sameStyle {
+				punct, rest := splitLeadingPunct(text)
+				if punct != "" {
+					prev.Text += punct
+					prevMeasurer := wordMeasurer(*prev)
+					prev.Width = prevMeasurer.MeasureString(prev.Text, prev.FontSize)
+					if prev.LetterSpacing != 0 {
+						prev.Width += prev.LetterSpacing * float64(len([]rune(prev.Text))-1)
+					}
+					text = rest
 				}
-				text = rest
 			}
 		}
 
@@ -1158,40 +1216,46 @@ func truncateWithEllipsis(line Line, maxWidth float64) Line {
 	return line
 }
 
+// wordToRun converts a Word back to a TextRun, preserving all styling fields.
+func wordToRun(w Word) TextRun {
+	return TextRun{
+		Text:            w.Text,
+		Font:            w.Font,
+		Embedded:        w.Embedded,
+		FontSize:        w.FontSize,
+		Color:           w.Color,
+		Decoration:      w.Decoration,
+		DecorationColor: w.DecorationColor,
+		DecorationStyle: w.DecorationStyle,
+		BaselineShift:   w.BaselineShift,
+		LetterSpacing:   w.LetterSpacing,
+		WordSpacing:     w.WordSpacing,
+		LinkURI:         w.LinkURI,
+		TextShadow:      w.TextShadow,
+		BackgroundColor: w.BackgroundColor,
+	}
+}
+
 // cloneWithWords creates a new Paragraph with the same style but different words.
 // Used to create overflow paragraphs during splitting.
 func (p *Paragraph) cloneWithWords(words []Word) *Paragraph {
-	// Reconstruct runs from words (simplified: one run per word group with same styling).
+	// Reconstruct runs from words. Group consecutive words with identical
+	// styling into a single run. All Word-level styling fields must be
+	// compared and preserved to avoid losing baseline shift, letter spacing,
+	// links, highlights, etc. on page-split paragraphs.
 	var runs []TextRun
 	if len(words) > 0 {
-		// Group consecutive words with the same font/color into runs.
-		cur := TextRun{
-			Text:            words[0].Text,
-			Font:            words[0].Font,
-			Embedded:        words[0].Embedded,
-			FontSize:        words[0].FontSize,
-			Color:           words[0].Color,
-			Decoration:      words[0].Decoration,
-			DecorationColor: words[0].DecorationColor,
-			DecorationStyle: words[0].DecorationStyle,
-		}
+		cur := wordToRun(words[0])
 		for _, w := range words[1:] {
 			if w.Font == cur.Font && w.Embedded == cur.Embedded &&
 				w.FontSize == cur.FontSize && w.Color == cur.Color &&
-				w.Decoration == cur.Decoration {
+				w.Decoration == cur.Decoration && w.BaselineShift == cur.BaselineShift &&
+				w.LetterSpacing == cur.LetterSpacing && w.WordSpacing == cur.WordSpacing &&
+				w.LinkURI == cur.LinkURI && w.BackgroundColor == cur.BackgroundColor {
 				cur.Text += " " + w.Text
 			} else {
 				runs = append(runs, cur)
-				cur = TextRun{
-					Text:            w.Text,
-					Font:            w.Font,
-					Embedded:        w.Embedded,
-					FontSize:        w.FontSize,
-					Color:           w.Color,
-					Decoration:      w.Decoration,
-					DecorationColor: w.DecorationColor,
-					DecorationStyle: w.DecorationStyle,
-				}
+				cur = wordToRun(w)
 			}
 		}
 		runs = append(runs, cur)
