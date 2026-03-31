@@ -351,7 +351,7 @@ func (l *List) planAt(area LayoutArea, baseIndent float64) LayoutPlan {
 				Tag:   "LI",
 				Links: linkSpans(wl),
 				Draw: func(ctx DrawContext, absX, absTopY float64) {
-					baselineY := absTopY - capturedHeight
+					baselineY := absTopY - computeBaseline(capturedWords, capturedHeight)
 					if len(capturedMarker) > 0 {
 						drawTextLine(ctx, capturedMarker, absX, baselineY, capturedIndent, AlignLeft, true)
 					}

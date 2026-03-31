@@ -894,3 +894,40 @@ func TestAdjacentRunsWithSpacePreserved(t *testing.T) {
 		t.Error("expected non-zero SpaceAfter between 'Hello' and 'world'")
 	}
 }
+
+func TestComputeBaselineStandardFont(t *testing.T) {
+	words := []Word{{Font: font.Helvetica, FontSize: 12}}
+	lineH := 14.4
+	baseline := computeBaseline(words, lineH)
+	ascent := font.Helvetica.Ascent(12)
+	descent := font.Helvetica.Descent(12)
+	expected := (lineH + ascent - descent) / 2
+	if math.Abs(baseline-expected) > 0.01 {
+		t.Errorf("baseline = %.4f, want %.4f", baseline, expected)
+	}
+}
+
+func TestComputeBaselineFallback(t *testing.T) {
+	el := &fixedElement{width: 20, height: 16}
+	words := []Word{{InlineBlock: el, InlineWidth: 20, InlineHeight: 16}}
+	baseline := computeBaseline(words, 20)
+	expected := 20.0 * 0.8
+	if math.Abs(baseline-expected) > 0.01 {
+		t.Errorf("baseline = %.2f, want %.2f", baseline, expected)
+	}
+}
+
+func TestComputeBaselineMixedSizes(t *testing.T) {
+	words := []Word{
+		{Font: font.Helvetica, FontSize: 12},
+		{Font: font.Helvetica, FontSize: 24},
+	}
+	lineH := 28.8
+	baseline := computeBaseline(words, lineH)
+	ascent24 := font.Helvetica.Ascent(24)
+	descent24 := font.Helvetica.Descent(24)
+	expected := (lineH + ascent24 - descent24) / 2
+	if math.Abs(baseline-expected) > 0.01 {
+		t.Errorf("baseline = %.4f, want %.4f", baseline, expected)
+	}
+}

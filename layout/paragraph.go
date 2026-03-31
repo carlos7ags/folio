@@ -395,6 +395,44 @@ func runMeasurer(run TextRun) font.TextMeasurer {
 	return run.Font
 }
 
+// computeBaseline returns the distance from the top of the line box to the
+// text baseline using CSS half-leading (CSS 2.1 §10.8.1):
+//
+//	leading = lineH - (ascent + descent)
+//	half-leading = leading / 2
+//	baseline from top = half-leading + ascent = (lineH + ascent - descent) / 2
+//
+// When a line has mixed font sizes, the largest baseline wins so that all
+// text on the line shares a common baseline position.
+func computeBaseline(words []Word, lineH float64) float64 {
+	baseline := 0.0
+	for _, w := range words {
+		if w.InlineBlock != nil {
+			continue
+		}
+		var ascent, descent float64
+		if w.Font != nil {
+			ascent = w.Font.Ascent(w.FontSize)
+			descent = w.Font.Descent(w.FontSize)
+		} else if w.Embedded != nil {
+			face := w.Embedded.Face()
+			upem := float64(face.UnitsPerEm())
+			ascent = float64(face.Ascent()) / upem * w.FontSize
+			descent = -float64(face.Descent()) / upem * w.FontSize
+		}
+		if ascent > 0 {
+			wb := (lineH + ascent - descent) / 2
+			if wb > baseline {
+				baseline = wb
+			}
+		}
+	}
+	if baseline == 0 {
+		baseline = lineH * 0.8
+	}
+	return baseline
+}
+
 // runsAdjacent returns true when run at index i directly abuts the previous
 // run with no whitespace between them. This happens with inline elements like
 // <sub>/<sup> where "C<sub>8</sub>" produces runs ["C", "8"] with no space.
@@ -886,7 +924,8 @@ func (p *Paragraph) PlanLayout(area LayoutArea) LayoutPlan {
 				if capturedBg != nil {
 					drawBackground(ctx, *capturedBg, absX, absTopY, capturedWidth, capturedLineH)
 				}
-				drawTextLine(ctx, capturedWords, absX, absTopY-capturedLineH, capturedWidth, capturedAlign, capturedIsLast)
+				baseline := computeBaseline(capturedWords, capturedLineH)
+				drawTextLine(ctx, capturedWords, absX, absTopY-baseline, capturedWidth, capturedAlign, capturedIsLast)
 			},
 			Children: inlineChildren,
 		}

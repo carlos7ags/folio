@@ -276,7 +276,8 @@ func (tl *TabbedLine) PlanLayout(area LayoutArea) LayoutPlan {
 			Height: lineHeight,
 			Tag:    "P",
 			Draw: func(ctx DrawContext, absX, absTopY float64) {
-				drawTextLine(ctx, capturedWords, absX, absTopY-lineHeight, capturedWidth, AlignLeft, true)
+				baseline := computeBaseline(capturedWords, lineHeight)
+				drawTextLine(ctx, capturedWords, absX, absTopY-baseline, capturedWidth, AlignLeft, true)
 			},
 		}},
 	}
