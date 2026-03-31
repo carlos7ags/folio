@@ -139,7 +139,9 @@ type computedStyle struct {
 	BorderCollapse string  // "separate", "collapse"
 	BorderSpacingH float64 // horizontal border-spacing (points)
 	BorderSpacingV float64 // vertical border-spacing (points)
-	VerticalAlign  string  // "top", "middle", "bottom" (for table cells)
+	VerticalAlign      string  // "top", "middle", "bottom", "super", "sub" (for table cells and inline)
+	BaselineShiftValue float64 // explicit baseline-shift in points (from CSS baseline-shift property)
+	BaselineShiftSet   bool    // true if baseline-shift was explicitly set via CSS
 
 	// Visual effects
 	BorderRadius   float64 // uniform corner radius (points, 0 = sharp)

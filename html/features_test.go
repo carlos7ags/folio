@@ -642,28 +642,74 @@ func TestHeadingColor(t *testing.T) {
 // --- vertical-align on inline elements ---
 
 func TestVerticalAlignSuper(t *testing.T) {
-	html := `<p>Normal <span style="vertical-align: super; font-size: 8pt">TM</span> text</p>`
-	elems, err := Convert(html, nil)
+	src := `<p>Normal <span style="vertical-align: super; font-size: 8pt">TM</span> text</p>`
+	elems, err := Convert(src, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(elems) == 0 {
 		t.Fatal("expected elements")
 	}
-	plan := elems[0].PlanLayout(layout.LayoutArea{Width: 400, Height: 1000})
-	if plan.Consumed <= 0 {
-		t.Error("vertical-align:super should render text")
+	p := elems[0].(*layout.Paragraph)
+	lines := p.Layout(400)
+	if len(lines) == 0 {
+		t.Fatal("expected at least one line")
+	}
+	var foundTM, foundNormal bool
+	for _, w := range lines[0].Words {
+		if w.Text == "TM" {
+			foundTM = true
+			if w.BaselineShift <= 0 {
+				t.Errorf("'TM' BaselineShift = %.2f, want positive (super)", w.BaselineShift)
+			}
+			if w.FontSize != 8 {
+				t.Errorf("'TM' FontSize = %.1f, want 8", w.FontSize)
+			}
+		}
+		if w.Text == "Normal" {
+			foundNormal = true
+			if w.BaselineShift != 0 {
+				t.Errorf("'Normal' BaselineShift = %.2f, want 0", w.BaselineShift)
+			}
+		}
+	}
+	if !foundTM {
+		t.Error("expected word 'TM'")
+	}
+	if !foundNormal {
+		t.Error("expected word 'Normal'")
 	}
 }
 
 func TestVerticalAlignSub(t *testing.T) {
-	html := `<p>H<sub style="vertical-align: sub">2</sub>O</p>`
-	elems, err := Convert(html, nil)
+	src := `<p>H<sub style="vertical-align: sub">2</sub>O</p>`
+	elems, err := Convert(src, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(elems) == 0 {
 		t.Fatal("expected elements")
+	}
+	p := elems[0].(*layout.Paragraph)
+	lines := p.Layout(400)
+	if len(lines) == 0 {
+		t.Fatal("expected at least one line")
+	}
+	for _, w := range lines[0].Words {
+		if w.Text == "2" {
+			if w.BaselineShift >= 0 {
+				t.Errorf("'2' BaselineShift = %.2f, want negative (sub)", w.BaselineShift)
+			}
+			if w.FontSize >= 12 {
+				t.Errorf("'2' FontSize = %.1f, want smaller than 12 (sub reduces size)", w.FontSize)
+			}
+		}
+		if w.Text == "H" && w.BaselineShift != 0 {
+			t.Errorf("'H' BaselineShift = %.2f, want 0", w.BaselineShift)
+		}
+		if w.Text == "O" && w.BaselineShift != 0 {
+			t.Errorf("'O' BaselineShift = %.2f, want 0", w.BaselineShift)
+		}
 	}
 }
 
@@ -1955,6 +2001,158 @@ func TestCommaBetweenSubscripts(t *testing.T) {
 			}
 			if w.FontSize != 12 {
 				t.Errorf("comma FontSize = %.1f, want 12", w.FontSize)
+			}
+		}
+	}
+}
+
+func TestBaselineShiftCSSSuper(t *testing.T) {
+	src := `<p>normal<span style="baseline-shift: super; font-size: 75%">super</span></p>`
+	elems, err := Convert(src, nil)
+	if err != nil { t.Fatal(err) }
+	p := elems[0].(*layout.Paragraph)
+	lines := p.Layout(400)
+	if len(lines) == 0 { t.Fatal("expected at least one line") }
+	for _, w := range lines[0].Words {
+		if w.Text == "super" && w.BaselineShift <= 0 {
+			t.Errorf("baseline-shift:super word shift = %.2f, want positive", w.BaselineShift)
+		}
+	}
+}
+
+func TestBaselineShiftCSSLength(t *testing.T) {
+	src := `<p>normal<span style="baseline-shift: 5pt; font-size: 75%">shifted</span></p>`
+	elems, err := Convert(src, nil)
+	if err != nil { t.Fatal(err) }
+	p := elems[0].(*layout.Paragraph)
+	lines := p.Layout(400)
+	if len(lines) == 0 { t.Fatal("expected at least one line") }
+	for _, w := range lines[0].Words {
+		if w.Text == "shifted" {
+			if w.BaselineShift < 4.9 || w.BaselineShift > 5.1 {
+				t.Errorf("baseline-shift:5pt word shift = %.2f, want ~5.0", w.BaselineShift)
+			}
+		}
+	}
+}
+
+func TestBaselineShiftCSSNegative(t *testing.T) {
+	src := `<p>normal<span style="baseline-shift: -3pt">dropped</span></p>`
+	elems, err := Convert(src, nil)
+	if err != nil { t.Fatal(err) }
+	p := elems[0].(*layout.Paragraph)
+	lines := p.Layout(400)
+	if len(lines) == 0 { t.Fatal("expected at least one line") }
+	for _, w := range lines[0].Words {
+		if w.Text == "dropped" {
+			if w.BaselineShift > -2.9 || w.BaselineShift < -3.1 {
+				t.Errorf("baseline-shift:-3pt word shift = %.2f, want ~-3.0", w.BaselineShift)
+			}
+		}
+	}
+}
+
+func TestVerticalAlignLength(t *testing.T) {
+	src := `<p>normal<span style="vertical-align: 4pt; font-size: 75%">raised</span></p>`
+	elems, err := Convert(src, nil)
+	if err != nil { t.Fatal(err) }
+	p := elems[0].(*layout.Paragraph)
+	lines := p.Layout(400)
+	if len(lines) == 0 { t.Fatal("expected at least one line") }
+	for _, w := range lines[0].Words {
+		if w.Text == "raised" {
+			if w.BaselineShift < 3.9 || w.BaselineShift > 4.1 {
+				t.Errorf("vertical-align:4pt shift = %.2f, want ~4.0", w.BaselineShift)
+			}
+		}
+	}
+}
+
+func TestVerticalAlignOverridesBaselineShift(t *testing.T) {
+	src := `<p>normal<span style="baseline-shift: 10pt; vertical-align: sub">text</span></p>`
+	elems, err := Convert(src, nil)
+	if err != nil { t.Fatal(err) }
+	p := elems[0].(*layout.Paragraph)
+	lines := p.Layout(400)
+	if len(lines) == 0 { t.Fatal("expected at least one line") }
+	for _, w := range lines[0].Words {
+		if w.Text == "text" {
+			if w.BaselineShift >= 0 {
+				t.Errorf("vertical-align:sub should override baseline-shift:10pt, got shift=%.2f", w.BaselineShift)
+			}
+		}
+	}
+}
+
+func TestBaselineShiftCSSSub(t *testing.T) {
+	src := `<p>normal<span style="baseline-shift: sub; font-size: 75%">sub</span></p>`
+	elems, err := Convert(src, nil)
+	if err != nil { t.Fatal(err) }
+	p := elems[0].(*layout.Paragraph)
+	lines := p.Layout(400)
+	for _, w := range lines[0].Words {
+		if w.Text == "sub" && w.BaselineShift >= 0 {
+			t.Errorf("baseline-shift:sub shift = %.2f, want negative", w.BaselineShift)
+		}
+	}
+}
+
+func TestBaselineShiftZero(t *testing.T) {
+	// Explicit zero should override a tag default like <sup>.
+	src := `<p>normal<sup style="baseline-shift: 0">flat</sup></p>`
+	elems, err := Convert(src, nil)
+	if err != nil { t.Fatal(err) }
+	p := elems[0].(*layout.Paragraph)
+	lines := p.Layout(400)
+	for _, w := range lines[0].Words {
+		if w.Text == "flat" && w.BaselineShift != 0 {
+			t.Errorf("baseline-shift:0 on <sup> shift = %.2f, want 0", w.BaselineShift)
+		}
+	}
+}
+
+func TestBaselineShiftEmUnit(t *testing.T) {
+	src := `<p>normal<span style="baseline-shift: 0.5em">half</span></p>`
+	elems, err := Convert(src, nil)
+	if err != nil { t.Fatal(err) }
+	p := elems[0].(*layout.Paragraph)
+	lines := p.Layout(400)
+	for _, w := range lines[0].Words {
+		if w.Text == "half" {
+			// 0.5em at 12pt = 6pt
+			if w.BaselineShift < 5.9 || w.BaselineShift > 6.1 {
+				t.Errorf("baseline-shift:0.5em shift = %.2f, want ~6.0", w.BaselineShift)
+			}
+		}
+	}
+}
+
+func TestBaselineShiftInvalid(t *testing.T) {
+	src := `<p>normal<span style="baseline-shift: garbage">text</span></p>`
+	elems, err := Convert(src, nil)
+	if err != nil { t.Fatal(err) }
+	p := elems[0].(*layout.Paragraph)
+	lines := p.Layout(400)
+	for _, w := range lines[0].Words {
+		if w.Text == "text" && w.BaselineShift != 0 {
+			t.Errorf("invalid baseline-shift should produce 0, got %.2f", w.BaselineShift)
+		}
+	}
+}
+
+func TestBaselineShiftThenVerticalAlign(t *testing.T) {
+	// Reverse order: numeric then keyword — keyword should win.
+	src := `<p><span style="vertical-align: sub; baseline-shift: 5pt">text</span></p>`
+	elems, err := Convert(src, nil)
+	if err != nil { t.Fatal(err) }
+	p := elems[0].(*layout.Paragraph)
+	lines := p.Layout(400)
+	for _, w := range lines[0].Words {
+		if w.Text == "text" {
+			// baseline-shift: 5pt is declared AFTER vertical-align: sub,
+			// so the numeric 5pt should win.
+			if w.BaselineShift < 4.9 || w.BaselineShift > 5.1 {
+				t.Errorf("baseline-shift after vertical-align: shift = %.2f, want ~5.0", w.BaselineShift)
 			}
 		}
 	}

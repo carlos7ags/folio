@@ -12,8 +12,6 @@ import (
 	"golang.org/x/net/html/atom"
 )
 
-// baselineShiftFromStyle computes the vertical baseline offset for
-// CSS vertical-align values like "super", "sub", "text-top", "text-bottom".
 // textShadowFromStyle converts a CSS text-shadow to a layout.TextShadow.
 func textShadowFromStyle(style computedStyle) *layout.TextShadow {
 	if style.TextShadow == nil {
@@ -27,7 +25,15 @@ func textShadowFromStyle(style computedStyle) *layout.TextShadow {
 	}
 }
 
+// baselineShiftFromStyle computes the vertical baseline offset in points.
+// An explicit numeric value (from CSS baseline-shift or vertical-align with
+// a length) takes precedence over keyword values like "super" and "sub".
 func baselineShiftFromStyle(style computedStyle) float64 {
+	// Explicit baseline-shift value (from CSS baseline-shift property)
+	// takes precedence over vertical-align keywords.
+	if style.BaselineShiftSet {
+		return style.BaselineShiftValue
+	}
 	switch style.VerticalAlign {
 	case "super":
 		return style.FontSize * 0.35 // raise by ~35% of font size
