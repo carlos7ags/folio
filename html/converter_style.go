@@ -569,6 +569,35 @@ func (c *converter) applyProperty(prop, val string, style *computedStyle) {
 		v := strings.TrimSpace(strings.ToLower(val))
 		if v == "top" || v == "middle" || v == "bottom" || v == "super" || v == "sub" || v == "baseline" || v == "text-top" || v == "text-bottom" {
 			style.VerticalAlign = v
+			style.BaselineShiftSet = false // keyword overrides any prior numeric shift
+		} else if l := parseCSSLengthWithUnit(v); l != nil {
+			// CSS 2.1 §10.8.1: vertical-align accepts lengths and percentages.
+			// Percentages resolve against line-height per spec.
+			// toPoints(relativeTo, fontSize): relativeTo for %, fontSize for em.
+			lineH := style.FontSize * style.LineHeight
+			style.BaselineShiftValue = l.toPoints(lineH, style.FontSize)
+			style.BaselineShiftSet = true
+		}
+	case "baseline-shift":
+		v := strings.TrimSpace(strings.ToLower(val))
+		switch v {
+		case "super":
+			style.VerticalAlign = "super"
+			style.BaselineShiftSet = false
+		case "sub":
+			style.VerticalAlign = "sub"
+			style.BaselineShiftSet = false
+		case "baseline":
+			style.VerticalAlign = ""
+			style.BaselineShiftSet = false
+		default:
+			// Length or percentage value. Percentages resolve against
+			// line-height per CSS Inline Layout Module Level 3 §4.3.
+			if l := parseCSSLengthWithUnit(v); l != nil {
+				lineH := style.FontSize * style.LineHeight
+				style.BaselineShiftValue = l.toPoints(lineH, style.FontSize)
+				style.BaselineShiftSet = true
+			}
 		}
 	case "border-top":
 		w, s, clr := parseBorderFull(val, style.FontSize)

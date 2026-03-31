@@ -72,14 +72,10 @@ func splitRunsAtBr(runs []layout.TextRun) [][]layout.TextRun {
 
 // buildParagraphFromRuns creates a styled paragraph from a slice of TextRuns.
 func (c *converter) buildParagraphFromRuns(runs []layout.TextRun, style computedStyle) *layout.Paragraph {
-	var p *layout.Paragraph
-	if len(runs) == 1 && runs[0].InlineElement == nil && runs[0].Embedded == nil && runs[0].Color == (layout.Color{}) {
-		// Simple case: single run, standard font, default color.
-		p = layout.NewParagraph(runs[0].Text, runs[0].Font, runs[0].FontSize)
-	} else {
-		// Styled: multiple runs, embedded font, or custom color.
-		p = layout.NewStyledParagraph(runs...)
-	}
+	// Always use NewStyledParagraph to preserve all TextRun fields
+	// (BaselineShift, BackgroundColor, Decoration, etc.). The NewParagraph
+	// fast path was a premature optimization that discarded per-run styling.
+	p := layout.NewStyledParagraph(runs...)
 
 	p.SetAlign(style.TextAlign)
 	if style.TextAlignLastSet {
