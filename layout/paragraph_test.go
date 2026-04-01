@@ -931,3 +931,62 @@ func TestComputeBaselineMixedSizes(t *testing.T) {
 		t.Errorf("baseline = %.4f, want %.4f", baseline, expected)
 	}
 }
+
+func TestConsecutiveNewlinesProduceEmptyLines(t *testing.T) {
+	p := NewParagraph("First\n\nSecond", font.Helvetica, 12)
+	lines := p.Layout(500)
+	if len(lines) != 3 {
+		t.Fatalf("expected 3 lines (with empty middle line), got %d", len(lines))
+	}
+	// Middle line should have one blank word.
+	if len(lines[1].Words) != 1 || lines[1].Words[0].Text != "" {
+		t.Errorf("expected empty middle line, got %d words: %v", len(lines[1].Words), lines[1].Words)
+	}
+}
+
+func TestTripleNewlines(t *testing.T) {
+	p := NewParagraph("A\n\n\nB", font.Helvetica, 12)
+	lines := p.Layout(500)
+	if len(lines) != 4 {
+		t.Fatalf("expected 4 lines (2 empty), got %d", len(lines))
+	}
+}
+
+func TestSingleNewlineNoEmptyLine(t *testing.T) {
+	// Single \n should produce a line break but no empty line.
+	p := NewParagraph("First\nSecond", font.Helvetica, 12)
+	lines := p.Layout(500)
+	if len(lines) != 2 {
+		t.Fatalf("expected 2 lines, got %d", len(lines))
+	}
+}
+
+func TestTrailingDoubleNewline(t *testing.T) {
+	p := NewParagraph("Text\n\n", font.Helvetica, 12)
+	lines := p.Layout(500)
+	// Should produce at least 2 lines: "Text" and an empty line.
+	if len(lines) < 2 {
+		t.Fatalf("expected at least 2 lines, got %d", len(lines))
+	}
+}
+
+func TestConsecutiveNewlinesPlanLayout(t *testing.T) {
+	p := NewParagraph("First\n\nSecond", font.Helvetica, 12)
+	plan := p.PlanLayout(LayoutArea{Width: 500, Height: 1000})
+	if plan.Status != LayoutFull {
+		t.Fatalf("expected LayoutFull, got %d", plan.Status)
+	}
+	// Should have 3 blocks: "First", empty line, "Second".
+	if len(plan.Blocks) != 3 {
+		t.Errorf("expected 3 blocks, got %d", len(plan.Blocks))
+	}
+}
+
+func TestPureNewlinesParagraph(t *testing.T) {
+	p := NewParagraph("\n\n", font.Helvetica, 12)
+	lines := p.Layout(500)
+	// "\n\n" = empty first line, empty second line.
+	if len(lines) < 1 {
+		t.Fatalf("expected at least 1 line for pure newlines, got %d", len(lines))
+	}
+}

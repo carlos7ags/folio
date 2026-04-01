@@ -223,6 +223,16 @@ func (p *Paragraph) Layout(maxWidth float64) []Line {
 		nextLineBreak := false
 		for _, w := range words {
 			if w == lineBreakMarker {
+				if nextLineBreak {
+					// Consecutive line breaks (\n\n): insert a blank word
+					// to produce an empty line in the output.
+					measured = append(measured, Word{
+						Font:      run.Font,
+						Embedded:  run.Embedded,
+						FontSize:  run.FontSize,
+						LineBreak: true,
+					})
+				}
 				nextLineBreak = true
 				continue
 			}
@@ -1022,6 +1032,14 @@ func (p *Paragraph) measureWords(maxWidth float64) ([]Word, float64) {
 		nextLineBreak := false
 		for _, w := range words {
 			if w == lineBreakMarker {
+				if nextLineBreak {
+					measured = append(measured, Word{
+						Font:      run.Font,
+						Embedded:  run.Embedded,
+						FontSize:  run.FontSize,
+						LineBreak: true,
+					})
+				}
 				nextLineBreak = true
 				continue
 			}
