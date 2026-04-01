@@ -1304,12 +1304,38 @@ func (p *Paragraph) cloneWithWords(words []Word) *Paragraph {
 	var runs []TextRun
 	if len(words) > 0 {
 		cur := wordToRun(words[0])
+		// If the first word is a blank line (from \n\n), start text with
+		// "\n" so splitWords produces a lineBreakMarker for the empty line.
+		if words[0].Text == "" && words[0].LineBreak {
+			cur.Text = "\n"
+		}
 		for _, w := range words[1:] {
-			if w.Font == cur.Font && w.Embedded == cur.Embedded &&
+			// Blank words (from consecutive \n\n) represent empty lines.
+			// Serialize as "\n" so splitWords regenerates lineBreakMarkers.
+			// Blank words have no visible text so style doesn't matter.
+			if w.Text == "" && w.LineBreak {
+				cur.Text += "\n"
+				continue
+			}
+			sameRun := w.Font == cur.Font && w.Embedded == cur.Embedded &&
 				w.FontSize == cur.FontSize && w.Color == cur.Color &&
 				w.Decoration == cur.Decoration && w.BaselineShift == cur.BaselineShift &&
 				w.LetterSpacing == cur.LetterSpacing && w.WordSpacing == cur.WordSpacing &&
-				w.LinkURI == cur.LinkURI && w.BackgroundColor == cur.BackgroundColor {
+				w.LinkURI == cur.LinkURI && w.BackgroundColor == cur.BackgroundColor
+			// A word with LineBreak=true had a forced \n before it.
+			if w.LineBreak {
+				if sameRun {
+					cur.Text += "\n" + w.Text
+				} else {
+					// Style changes at line break: put \n at end of
+					// current run, flush it, start new run for w.
+					cur.Text += "\n"
+					runs = append(runs, cur)
+					cur = wordToRun(w)
+				}
+				continue
+			}
+			if sameRun {
 				cur.Text += " " + w.Text
 			} else {
 				runs = append(runs, cur)

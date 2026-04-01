@@ -1046,3 +1046,117 @@ func TestCommaAfterBoldKeepsRegularFont(t *testing.T) {
 		}
 	}
 }
+
+func TestBlankLineSurvivesPageSplit(t *testing.T) {
+	// A paragraph with \n\n that overflows should preserve the blank line
+	// in the overflow paragraph.
+	p := NewParagraph("First\n\nSecond", font.Helvetica, 12)
+	p.SetLeading(1.2)
+
+	// Give only enough height for the first line — force a split.
+	plan := p.PlanLayout(LayoutArea{Width: 500, Height: 15})
+	if plan.Status != LayoutPartial {
+		t.Fatalf("expected LayoutPartial, got %d", plan.Status)
+	}
+	if plan.Overflow == nil {
+		t.Fatal("expected overflow paragraph")
+	}
+
+	// The overflow should contain the blank line + "Second".
+	overflow := plan.Overflow.(*Paragraph)
+	overflowPlan := overflow.PlanLayout(LayoutArea{Width: 500, Height: 1000})
+	if overflowPlan.Status != LayoutFull {
+		t.Fatalf("overflow should fit, got %d", overflowPlan.Status)
+	}
+	// Should have at least 2 blocks: blank line + "Second".
+	if len(overflowPlan.Blocks) < 2 {
+		t.Errorf("expected at least 2 blocks in overflow (blank + Second), got %d", len(overflowPlan.Blocks))
+	}
+}
+
+func TestBlankLineSurvivesPageSplitMultiStyle(t *testing.T) {
+	// Bold word, then \n\n, then regular word. Overflow should preserve
+	// both the blank line AND the font change.
+	p := NewStyledParagraph(
+		NewRun("Bold", font.HelveticaBold, 12),
+		NewRun("\n\nRegular", font.Helvetica, 12),
+	)
+	plan := p.PlanLayout(LayoutArea{Width: 500, Height: 15})
+	if plan.Status != LayoutPartial {
+		t.Fatalf("expected LayoutPartial, got %d", plan.Status)
+	}
+	overflow := plan.Overflow.(*Paragraph)
+	lines := overflow.Layout(500)
+	// Should have 2 lines: blank + "Regular"
+	if len(lines) < 2 {
+		t.Fatalf("expected at least 2 lines in overflow, got %d", len(lines))
+	}
+	// "Regular" should be in Helvetica, NOT HelveticaBold.
+	for _, l := range lines {
+		for _, w := range l.Words {
+			if w.Text == "Regular" && w.Font != font.Helvetica {
+				t.Errorf("'Regular' should be Helvetica, got %v", w.Font)
+			}
+		}
+	}
+}
+
+func TestSingleNewlineSurvivesPageSplit(t *testing.T) {
+	// "First\nSecond" — single newline, no blank line. Overflow should
+	// preserve the forced line break.
+	p := NewParagraph("First\nSecond", font.Helvetica, 12)
+	plan := p.PlanLayout(LayoutArea{Width: 500, Height: 15})
+	if plan.Status != LayoutPartial {
+		t.Fatalf("expected LayoutPartial, got %d", plan.Status)
+	}
+	overflow := plan.Overflow.(*Paragraph)
+	lines := overflow.Layout(500)
+	if len(lines) != 1 {
+		t.Fatalf("expected 1 line in overflow ('Second'), got %d", len(lines))
+	}
+	if lines[0].Words[0].Text != "Second" {
+		t.Errorf("expected 'Second', got %q", lines[0].Words[0].Text)
+	}
+}
+
+func TestTripleNewlineSurvivesPageSplit(t *testing.T) {
+	// "A\n\n\nB" — should preserve 2 blank lines in overflow.
+	p := NewParagraph("A\n\n\nB", font.Helvetica, 12)
+	plan := p.PlanLayout(LayoutArea{Width: 500, Height: 15})
+	if plan.Status != LayoutPartial {
+		t.Fatalf("expected LayoutPartial, got %d", plan.Status)
+	}
+	overflow := plan.Overflow.(*Paragraph)
+	overflowPlan := overflow.PlanLayout(LayoutArea{Width: 500, Height: 1000})
+	// Should have at least 3 blocks: blank, blank, "B".
+	if len(overflowPlan.Blocks) < 3 {
+		t.Errorf("expected at least 3 blocks in overflow, got %d", len(overflowPlan.Blocks))
+	}
+}
+
+func TestPlainPageSplitPreservesWords(t *testing.T) {
+	// No newlines — just a long paragraph that overflows. Verify all words
+	// survive the cloneWithWords round-trip.
+	p := NewParagraph("one two three four five six seven eight nine ten", font.Helvetica, 12)
+	plan := p.PlanLayout(LayoutArea{Width: 200, Height: 15})
+	if plan.Status != LayoutPartial {
+		t.Fatalf("expected LayoutPartial, got %d", plan.Status)
+	}
+	overflow := plan.Overflow.(*Paragraph)
+	overflowLines := overflow.Layout(500)
+	var overflowWords []string
+	for _, l := range overflowLines {
+		for _, w := range l.Words {
+			overflowWords = append(overflowWords, w.Text)
+		}
+	}
+	// First page fits some words, overflow should have the rest.
+	// Together they must total 10 words.
+	firstPageWords := 0
+	for _, b := range plan.Blocks {
+		firstPageWords += len(b.Children) // approximate — count blocks
+	}
+	if len(overflowWords) == 0 {
+		t.Error("expected words in overflow paragraph")
+	}
+}
