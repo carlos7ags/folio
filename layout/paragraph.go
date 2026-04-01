@@ -1013,7 +1013,8 @@ func (p *Paragraph) measureWords(maxWidth float64) ([]Word, float64) {
 		// from absorbing "!" (normal) in "7<sup>th</sup>! works".
 		if len(measured) > 0 && len(text) > 0 && !isSpace(rune(text[0])) {
 			prev := &measured[len(measured)-1]
-			sameStyle := prev.FontSize == run.FontSize && prev.BaselineShift == run.BaselineShift
+			sameStyle := prev.Font == run.Font && prev.Embedded == run.Embedded &&
+				prev.FontSize == run.FontSize && prev.BaselineShift == run.BaselineShift
 			if sameStyle {
 				punct, rest := splitLeadingPunct(text)
 				if punct != "" {

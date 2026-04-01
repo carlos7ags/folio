@@ -21,6 +21,12 @@ func TestStyledParagraphSingleRun(t *testing.T) {
 	if lines[0].Words[0].Text != "Hello" || lines[0].Words[1].Text != "World" {
 		t.Error("unexpected word text")
 	}
+	if lines[0].Words[0].Font != font.Helvetica {
+		t.Errorf("expected Helvetica font, got %v", lines[0].Words[0].Font)
+	}
+	if lines[0].Words[0].FontSize != 12 {
+		t.Errorf("expected fontSize 12, got %.1f", lines[0].Words[0].FontSize)
+	}
 }
 
 func TestStyledParagraphMixedFonts(t *testing.T) {
@@ -102,13 +108,13 @@ func TestStyledParagraphWordWrap(t *testing.T) {
 	if len(lines) < 2 {
 		t.Errorf("expected multiple lines, got %d", len(lines))
 	}
-	// Words should flow across runs — a bold word may end up on line 2.
+	// Count all words across lines — input has 11 words, all must survive.
 	allWords := 0
 	for _, l := range lines {
 		allWords += len(l.Words)
 	}
-	if allWords < 5 {
-		t.Errorf("expected at least 5 words total, got %d", allWords)
+	if allWords != 12 {
+		t.Errorf("expected 12 words total, got %d", allWords)
 	}
 }
 
@@ -158,9 +164,9 @@ func TestStyledParagraphSpaceAfterPerWord(t *testing.T) {
 	lines := p.Layout(500)
 	words := lines[0].Words
 	// Each word should have SpaceAfter from its own font/size.
+	// Helvetica space width at 24pt vs 8pt should differ.
 	if words[0].SpaceAfter == words[1].SpaceAfter {
-		t.Log("SpaceAfter differs by font size — expected different values for different sizes")
-		// Helvetica space width at 24pt vs 8pt should differ.
+		t.Errorf("SpaceAfter should differ by font size: 24pt=%.2f, 8pt=%.2f", words[0].SpaceAfter, words[1].SpaceAfter)
 	}
 	if words[0].SpaceAfter <= 0 {
 		t.Error("SpaceAfter should be positive")
@@ -210,35 +216,34 @@ func TestRGBConstructor(t *testing.T) {
 	}
 }
 
-// TestPunctuationMergedAcrossRuns verifies that a period at the start of
-// a new run is merged into the last word of the previous run, producing
-// "here." as one word instead of "here" + "." as two separate words.
-// Regression test for #25.
-func TestPunctuationMergedAcrossRuns(t *testing.T) {
+// TestPunctuationNotMergedAcrossFontBoundary verifies that punctuation at
+// a font boundary is NOT merged into the preceding word when the fonts
+// differ. The period should keep its own (regular) font, not inherit bold.
+// Regression test for #30, supersedes #25 behavior for cross-font cases.
+func TestPunctuationNotMergedAcrossFontBoundary(t *testing.T) {
 	p := NewStyledParagraph(
 		NewRun("click here", font.HelveticaBold, 12),
 		NewRun(". Then continue.", font.Helvetica, 12),
 	)
 	words, _ := p.measureWords(400)
-	// Expected words: ["click", "here.", "Then", "continue."]
-	// NOT: ["click", "here", ".", "Then", "continue."]
-	for _, w := range words {
-		if w.Text == "." {
-			t.Errorf("period should be merged into previous word, but found standalone '.' word")
-		}
-	}
-	foundHereDot := false
+	// "here" should be bold, "." should be regular (separate word).
 	for _, w := range words {
 		if w.Text == "here." {
-			foundHereDot = true
+			t.Error("period should NOT be merged into bold word across font boundary")
 		}
 	}
-	if !foundHereDot {
-		texts := make([]string, len(words))
-		for i, w := range words {
-			texts[i] = w.Text
+	// The period must exist as its own word with regular font.
+	foundPeriod := false
+	for _, w := range words {
+		if w.Text == "." {
+			foundPeriod = true
+			if w.Font != font.Helvetica {
+				t.Errorf("period should be Helvetica, got %v", w.Font)
+			}
 		}
-		t.Errorf("expected word 'here.' but got words: %v", texts)
+	}
+	if !foundPeriod {
+		t.Error("expected standalone '.' word in output")
 	}
 }
 
@@ -263,30 +268,38 @@ func TestPunctuationMergeMatchesSingleRun(t *testing.T) {
 	}
 }
 
-// TestPunctuationCommaAfterStyledRun verifies that a comma at a style
-// boundary merges into the preceding word.
-func TestPunctuationCommaAfterStyledRun(t *testing.T) {
+// TestPunctuationCommaKeepsOwnFontAcrossBoundary verifies that a comma
+// after a bold word keeps regular font when the fonts differ.
+func TestPunctuationCommaKeepsOwnFontAcrossBoundary(t *testing.T) {
 	p := NewStyledParagraph(
 		NewRun("see ", font.Helvetica, 12),
 		NewRun("this", font.HelveticaBold, 12),
 		NewRun(", that.", font.Helvetica, 12),
 	)
 	words, _ := p.measureWords(400)
-	foundThisComma := false
+	// "this" should be bold, comma should NOT be merged into it.
 	for _, w := range words {
 		if w.Text == "this," {
-			foundThisComma = true
-		}
-		if w.Text == "," {
-			t.Error("comma should be merged, not standalone")
+			t.Error("comma should NOT be merged into bold word across font boundary")
 		}
 	}
-	if !foundThisComma {
+	// Verify the comma exists as part of its own run's words with regular font.
+	// The run ", that." starts with comma, so after splitWords it becomes [",", "that."].
+	foundCommaWord := false
+	for _, w := range words {
+		if w.Text == "," || (len(w.Text) > 0 && w.Text[0] == ',') {
+			foundCommaWord = true
+			if w.Font == font.HelveticaBold {
+				t.Errorf("comma should be regular font, got bold")
+			}
+		}
+	}
+	if !foundCommaWord {
 		texts := make([]string, len(words))
 		for i, w := range words {
 			texts[i] = w.Text
 		}
-		t.Errorf("expected word 'this,' but got: %v", texts)
+		t.Errorf("expected word starting with comma, got: %v", texts)
 	}
 }
 

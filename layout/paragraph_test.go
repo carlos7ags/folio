@@ -964,9 +964,13 @@ func TestSingleNewlineNoEmptyLine(t *testing.T) {
 func TestTrailingDoubleNewline(t *testing.T) {
 	p := NewParagraph("Text\n\n", font.Helvetica, 12)
 	lines := p.Layout(500)
-	// Should produce at least 2 lines: "Text" and an empty line.
-	if len(lines) < 2 {
-		t.Fatalf("expected at least 2 lines, got %d", len(lines))
+	// "Text\n\n" = "Text" line, then empty line from \n\n.
+	if len(lines) != 2 {
+		t.Fatalf("expected 2 lines, got %d", len(lines))
+	}
+	// Second line should be the blank word.
+	if len(lines[1].Words) != 1 || lines[1].Words[0].Text != "" {
+		t.Errorf("expected empty second line, got words: %v", lines[1].Words)
 	}
 }
 
@@ -985,8 +989,60 @@ func TestConsecutiveNewlinesPlanLayout(t *testing.T) {
 func TestPureNewlinesParagraph(t *testing.T) {
 	p := NewParagraph("\n\n", font.Helvetica, 12)
 	lines := p.Layout(500)
-	// "\n\n" = empty first line, empty second line.
-	if len(lines) < 1 {
-		t.Fatalf("expected at least 1 line for pure newlines, got %d", len(lines))
+	// "\n\n" with no surrounding text produces a blank word from the
+	// consecutive newlines. At minimum 1 line with a blank word.
+	if len(lines) == 0 {
+		t.Fatal("expected at least 1 line for pure newlines")
+	}
+	// The line should contain a blank word.
+	if lines[0].Words[0].Text != "" {
+		t.Errorf("expected blank word, got %q", lines[0].Words[0].Text)
+	}
+}
+
+func TestPunctuationKeepsOwnFont(t *testing.T) {
+	// <b>here</b>. — the period should render in regular font, not bold.
+	p := NewStyledParagraph(
+		NewRun("here", font.HelveticaBold, 12),
+		NewRun(".", font.Helvetica, 12),
+	)
+	plan := p.PlanLayout(LayoutArea{Width: 500, Height: 1000})
+	if plan.Status != LayoutFull {
+		t.Fatal("expected LayoutFull")
+	}
+	// Also verify via Layout which doesn't use splitLeadingPunct.
+	lines := p.Layout(500)
+	if len(lines) == 0 {
+		t.Fatal("expected at least one line")
+	}
+	for _, w := range lines[0].Words {
+		if w.Text == "." && w.Font != font.Helvetica {
+			t.Errorf("period should be Helvetica, got %v", w.Font)
+		}
+		if w.Text == "here" && w.Font != font.HelveticaBold {
+			t.Errorf("'here' should be Helvetica-Bold, got %v", w.Font)
+		}
+	}
+	// Period should be glued (SpaceAfter=0) but keep its own font.
+	for _, w := range lines[0].Words {
+		if w.Text == "here" && w.SpaceAfter != 0 {
+			t.Errorf("'here' SpaceAfter = %.2f, want 0 (glued to period)", w.SpaceAfter)
+		}
+	}
+}
+
+func TestCommaAfterBoldKeepsRegularFont(t *testing.T) {
+	// <b>word</b>, rest — comma should be regular.
+	p := NewStyledParagraph(
+		NewRun("word", font.HelveticaBold, 12),
+		NewRun(", rest", font.Helvetica, 12),
+	)
+	lines := p.Layout(500)
+	for _, w := range lines[0].Words {
+		if w.Text == "word," || w.Text == "," {
+			if w.Font == font.HelveticaBold {
+				t.Errorf("comma/word should not be bold, got %v", w.Font)
+			}
+		}
 	}
 }
