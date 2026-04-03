@@ -74,18 +74,18 @@ func NoBorders() CellBorders {
 
 // Cell represents a single cell in a table.
 type Cell struct {
-	text     string
-	font     *font.Standard
-	embedded *font.EmbeddedFont
-	fontSize float64
-	content  Element // rich content (if non-nil, overrides text/font)
-	align    Align
-	valign   VAlign
-	padding  float64  // uniform padding (all sides)
-	padSides *Padding // per-side padding (overrides uniform when set)
-	borders  CellBorders
-	colspan  int
-	rowspan  int
+	text         string
+	font         *font.Standard
+	embedded     *font.EmbeddedFont
+	fontSize     float64
+	content      Element // rich content (if non-nil, overrides text/font)
+	align        Align
+	valign       VAlign
+	padding      float64  // uniform padding (all sides)
+	padSides     *Padding // per-side padding (overrides uniform when set)
+	borders      CellBorders
+	colspan      int
+	rowspan      int
 	bgColor      *Color     // background fill color (nil = transparent)
 	hintW        float64    // CSS width hint in points (0 = not set)
 	borderRadius [4]float64 // corner radii [TL, TR, BR, BL] (points, 0 = sharp)
