@@ -74,20 +74,21 @@ func NoBorders() CellBorders {
 
 // Cell represents a single cell in a table.
 type Cell struct {
-	text     string
-	font     *font.Standard
-	embedded *font.EmbeddedFont
-	fontSize float64
-	content  Element // rich content (if non-nil, overrides text/font)
-	align    Align
-	valign   VAlign
-	padding  float64  // uniform padding (all sides)
-	padSides *Padding // per-side padding (overrides uniform when set)
-	borders  CellBorders
-	colspan  int
-	rowspan  int
-	bgColor  *Color  // background fill color (nil = transparent)
-	hintW    float64 // CSS width hint in points (0 = not set)
+	text         string
+	font         *font.Standard
+	embedded     *font.EmbeddedFont
+	fontSize     float64
+	content      Element // rich content (if non-nil, overrides text/font)
+	align        Align
+	valign       VAlign
+	padding      float64  // uniform padding (all sides)
+	padSides     *Padding // per-side padding (overrides uniform when set)
+	borders      CellBorders
+	colspan      int
+	rowspan      int
+	bgColor      *Color     // background fill color (nil = transparent)
+	hintW        float64    // CSS width hint in points (0 = not set)
+	borderRadius [4]float64 // corner radii [TL, TR, BR, BL] (points, 0 = sharp)
 }
 
 // SetWidthHint sets the CSS width hint for this cell (in points).
@@ -151,6 +152,19 @@ func (c *Cell) padLeft() float64 {
 // SetBorders sets the cell borders.
 func (c *Cell) SetBorders(b CellBorders) *Cell {
 	c.borders = b
+	return c
+}
+
+// SetBorderRadius sets a uniform corner radius on all four corners.
+func (c *Cell) SetBorderRadius(r float64) *Cell {
+	c.borderRadius = [4]float64{r, r, r, r}
+	return c
+}
+
+// SetBorderRadiusPerCorner sets per-corner radii: top-left, top-right,
+// bottom-right, bottom-left (matching CSS border-radius order).
+func (c *Cell) SetBorderRadiusPerCorner(tl, tr, br, bl float64) *Cell {
+	c.borderRadius = [4]float64{tl, tr, br, bl}
 	return c
 }
 
@@ -993,6 +1007,12 @@ func collapseBorders(grid []gridRow) {
 
 	for rowIdx, gr := range grid {
 		for cellIdx, gc := range gr.cells {
+			// Border-collapse clears interior borders, making them mixed.
+			// Per CSS Backgrounds Level 3, border-radius is ignored in
+			// collapse mode — drawCellBordersRounded falls back to straight
+			// segments when borders differ. Clear radius to skip the check.
+			gc.cell.borderRadius = [4]float64{}
+
 			// Remove right border unless this is the last cell in the row.
 			isLastCol := cellIdx == len(gr.cells)-1
 			if !isLastCol {
@@ -1018,6 +1038,35 @@ func drawCellBorders(stream *content.Stream, borders CellBorders, x, y, w, h flo
 	drawStyledBorder(stream, borders.Left, x, y, x, y+h)
 	// Right border: from bottom-right to top-right
 	drawStyledBorder(stream, borders.Right, x+w, y, x+w, y+h)
+}
+
+// drawBackgroundRounded fills a rounded rectangle background for a cell.
+// x, y is bottom-left; w, h are dimensions; r is [TL, TR, BR, BL] radii.
+func drawBackgroundRounded(ctx DrawContext, bg Color, x, y, w, h float64, r [4]float64) {
+	ctx.Stream.SaveState()
+	setFillColor(ctx.Stream, bg)
+	ctx.Stream.RoundedRectPerCorner(x, y, w, h, r[0], r[1], r[2], r[3])
+	ctx.Stream.Fill()
+	ctx.Stream.RestoreState()
+}
+
+// drawCellBordersRounded draws cell borders with rounded corners.
+// When all four borders are identical, draws a single rounded rect stroke.
+// Otherwise falls back to straight border segments.
+func drawCellBordersRounded(stream *content.Stream, borders CellBorders, x, y, w, h float64, r [4]float64) {
+	if borders.Top.Width > 0 && borders.Top == borders.Right &&
+		borders.Top == borders.Bottom && borders.Top == borders.Left {
+		stream.SaveState()
+		setStrokeColor(stream, borders.Top.Color)
+		stream.SetLineWidth(borders.Top.Width)
+		stream.RoundedRectPerCorner(x, y, w, h, r[0], r[1], r[2], r[3])
+		stream.Stroke()
+		stream.RestoreState()
+		return
+	}
+	// Mixed borders: fall back to straight segments (rounded mixed borders
+	// would require per-corner arc drawing for each side independently).
+	drawCellBorders(stream, borders, x, y, w, h)
 }
 
 // drawStyledBorder draws a single border line with the appropriate style.
@@ -1115,13 +1164,23 @@ func drawTableRowDirect(ctx DrawContext, tbl *Table, grid []gridRow, rowIndex in
 		}
 		cellBottomY := topY - gr.height
 
-		// Background fill.
+		// Background fill (with optional rounded corners).
+		r := gc.cell.borderRadius
+		hasRadius := r[0] > 0 || r[1] > 0 || r[2] > 0 || r[3] > 0
 		if gc.cell.bgColor != nil {
-			drawBackground(ctx, *gc.cell.bgColor, cellX, topY, gc.spanWidth, gr.height)
+			if hasRadius {
+				drawBackgroundRounded(ctx, *gc.cell.bgColor, cellX, cellBottomY, gc.spanWidth, gr.height, r)
+			} else {
+				drawBackground(ctx, *gc.cell.bgColor, cellX, topY, gc.spanWidth, gr.height)
+			}
 		}
 
-		// Borders.
-		drawCellBorders(ctx.Stream, gc.cell.borders, cellX, cellBottomY, gc.spanWidth, gr.height)
+		// Borders (with optional rounded corners).
+		if hasRadius {
+			drawCellBordersRounded(ctx.Stream, gc.cell.borders, cellX, cellBottomY, gc.spanWidth, gr.height, r)
+		} else {
+			drawCellBorders(ctx.Stream, gc.cell.borders, cellX, cellBottomY, gc.spanWidth, gr.height)
+		}
 
 		// Cell content.
 		if gc.cell.content != nil {

@@ -183,6 +183,14 @@ func (c *converter) convertCSSTable(n *html.Node, style computedStyle) []layout.
 				if cellStyle.hasBorder() {
 					layoutCell.SetBorders(buildCellBorders(cellStyle))
 				}
+				if cellStyle.BorderRadiusTL > 0 || cellStyle.BorderRadiusTR > 0 ||
+					cellStyle.BorderRadiusBR > 0 || cellStyle.BorderRadiusBL > 0 {
+					layoutCell.SetBorderRadiusPerCorner(
+						cellStyle.BorderRadiusTL, cellStyle.BorderRadiusTR,
+						cellStyle.BorderRadiusBR, cellStyle.BorderRadiusBL)
+				} else if cellStyle.BorderRadius > 0 {
+					layoutCell.SetBorderRadius(cellStyle.BorderRadius)
+				}
 			}
 		} else {
 			// Non-row children — treat as a single-cell row.
@@ -366,6 +374,16 @@ func (c *converter) convertTableRowKind(n *html.Node, tbl *layout.Table, parentS
 		} else {
 			// No cell border and no table border — clear the default borders.
 			cell.SetBorders(layout.CellBorders{})
+		}
+
+		// Cell border-radius (CSS Backgrounds Level 3 §5.3).
+		if cellStyle.BorderRadiusTL > 0 || cellStyle.BorderRadiusTR > 0 ||
+			cellStyle.BorderRadiusBR > 0 || cellStyle.BorderRadiusBL > 0 {
+			cell.SetBorderRadiusPerCorner(
+				cellStyle.BorderRadiusTL, cellStyle.BorderRadiusTR,
+				cellStyle.BorderRadiusBR, cellStyle.BorderRadiusBL)
+		} else if cellStyle.BorderRadius > 0 {
+			cell.SetBorderRadius(cellStyle.BorderRadius)
 		}
 
 		if cs := getAttr(child, "colspan"); cs != "" {
