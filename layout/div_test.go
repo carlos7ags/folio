@@ -68,6 +68,46 @@ func TestDivWithBordersAndBackground(t *testing.T) {
 	}
 }
 
+func TestDivPerCornerBorderRadius(t *testing.T) {
+	// Per-corner radius: only top corners rounded (e.g., card header).
+	d := NewDiv().
+		SetBorderRadiusPerCorner(8, 8, 0, 0).
+		SetBorder(SolidBorder(1, ColorBlack)).
+		SetBackground(RGB(0.9, 0.9, 0.95)).
+		SetPadding(10).
+		Add(NewParagraph("Rounded top corners only", font.Helvetica, 12))
+
+	// Verify layout succeeds.
+	plan := d.PlanLayout(LayoutArea{Width: 400, Height: 500})
+	if plan.Status == LayoutNothing {
+		t.Fatal("expected layout output")
+	}
+
+	// Verify rendering doesn't panic (exercises drawRoundedBorders with per-corner).
+	r := NewRenderer(612, 792, Margins{Top: 72, Right: 72, Bottom: 72, Left: 72})
+	r.Add(d)
+	pages := r.Render()
+	if len(pages) == 0 {
+		t.Fatal("expected at least 1 page")
+	}
+}
+
+func TestDivUniformBorderRadius(t *testing.T) {
+	d := NewDiv().
+		SetBorderRadius(10).
+		SetBorder(SolidBorder(2, RGB(0.3, 0.3, 0.9))).
+		SetBackground(RGB(0.95, 0.95, 1)).
+		SetPadding(12).
+		Add(NewParagraph("Uniform radius", font.Helvetica, 12))
+
+	r := NewRenderer(612, 792, Margins{Top: 72, Right: 72, Bottom: 72, Left: 72})
+	r.Add(d)
+	pages := r.Render()
+	if len(pages) == 0 {
+		t.Fatal("expected at least 1 page")
+	}
+}
+
 func TestDivRendersContent(t *testing.T) {
 	r := NewRenderer(612, 792, Margins{Top: 72, Right: 72, Bottom: 72, Left: 72})
 	d := NewDiv().

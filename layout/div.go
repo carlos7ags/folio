@@ -679,7 +679,7 @@ func (d *Div) PlanLayout(area LayoutArea) LayoutPlan {
 			}
 
 			if hasR {
-				drawRoundedBorders(ctx.Stream, capturedDiv.borders, absX, bottomY, capturedOuterW, capturedTotalH, r[0])
+				drawRoundedBorders(ctx.Stream, capturedDiv.borders, absX, bottomY, capturedOuterW, capturedTotalH, r)
 			} else {
 				drawCellBorders(ctx.Stream, capturedDiv.borders, absX, bottomY, capturedOuterW, capturedTotalH)
 			}
