@@ -402,7 +402,11 @@ func runMeasurer(run TextRun) font.TextMeasurer {
 	if run.Embedded != nil {
 		return run.Embedded
 	}
-	return run.Font
+	if run.Font != nil {
+		return run.Font
+	}
+	// Fallback: use Helvetica if no font is set (defensive).
+	return font.Helvetica
 }
 
 // computeBaseline returns the distance from the top of the line box to the
