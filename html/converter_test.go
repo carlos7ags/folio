@@ -2756,6 +2756,60 @@ func TestTableCellBorderRadius(t *testing.T) {
 	}
 }
 
+func TestTableCellBorderRadiusValues(t *testing.T) {
+	// Verify border-radius values propagate to Cell via the layout API.
+	tbl := layout.NewTable()
+	tbl.SetColumnWidths([]float64{200, 200})
+	row := tbl.AddRow()
+	c1 := row.AddCell("A", font.Helvetica, 12)
+	c1.SetBorderRadiusPerCorner(8, 0, 0, 0)
+	c1.SetBackground(layout.RGB(0.3, 0.3, 0.9))
+	c1.SetBorders(layout.AllBorders(layout.SolidBorder(1, layout.ColorBlack)))
+	c2 := row.AddCell("B", font.Helvetica, 12)
+	c2.SetBorderRadiusPerCorner(0, 8, 0, 0)
+	c2.SetBackground(layout.RGB(0.3, 0.3, 0.9))
+	c2.SetBorders(layout.AllBorders(layout.SolidBorder(1, layout.ColorBlack)))
+
+	plan := tbl.PlanLayout(layout.LayoutArea{Width: 400, Height: 500})
+	if plan.Status == layout.LayoutNothing {
+		t.Fatal("expected layout output")
+	}
+
+	// Also verify uniform radius.
+	tbl2 := layout.NewTable()
+	tbl2.SetColumnWidths([]float64{200})
+	row2 := tbl2.AddRow()
+	c := row2.AddCell("Rounded", font.Helvetica, 12)
+	c.SetBorderRadius(10)
+	c.SetBackground(layout.RGB(0.9, 0.9, 0.9))
+	c.SetBorders(layout.AllBorders(layout.SolidBorder(1, layout.ColorBlack)))
+
+	plan2 := tbl2.PlanLayout(layout.LayoutArea{Width: 400, Height: 500})
+	if plan2.Status == layout.LayoutNothing {
+		t.Fatal("expected layout output for rounded cell")
+	}
+}
+
+func TestTableCellBorderRadiusCollapse(t *testing.T) {
+	// In border-collapse mode, border-radius should be ignored.
+	htmlStr := `<style>
+		table { border-collapse: collapse; }
+		th { border-radius: 8px; border: 1px solid black; padding: 8px; }
+	</style>
+	<table><tr><th>A</th><th>B</th></tr></table>`
+	elems, err := Convert(htmlStr, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Should render without error — radius silently cleared in collapse mode.
+	for _, e := range elems {
+		plan := e.PlanLayout(layout.LayoutArea{Width: 500, Height: 500})
+		if plan.Status == layout.LayoutNothing {
+			t.Error("unexpected LayoutNothing")
+		}
+	}
+}
+
 func TestTableStripedRows(t *testing.T) {
 	html := `<html><head><style>
 		tr:nth-child(even) { background-color: #f2f2f2; }
