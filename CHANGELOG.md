@@ -5,6 +5,71 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.0] - 2026-04-03
+
+**Breaking changes** — see [MIGRATING.md](MIGRATING.md) for upgrade steps.
+
+### Breaking
+
+- Renamed constructors to `New*`/`Load*`/`Parse*` across `reader`, `barcode`, `layout`, `sign`, `forms`
+- `sign.LoadPKCS12` renamed to `sign.ParsePKCS12` (same signature, name-only change)
+- `Document.Page(index)` returns `(*Page, error)` instead of panicking
+- Unexported internal symbols in `reader` and `svg`
+- Baseline positioning uses CSS half-leading with actual font metrics (visual change — text shifts up ~4pt for 12pt Helvetica)
+- `vertical-align` accepts length/percentage values (previously ignored)
+
+### Added
+
+- Element-based headers/footers: `SetHeaderElement`, `SetFooterElement`, `SetHeaderText`, `SetFooterText`
+- `AddHTMLTemplate` / `AddHTMLTemplateFuncs` for Go template → PDF
+- `ValidatePdfA` for early PDF/A validation
+- Per-run text highlight (`WithBackgroundColor`, `<mark>` in HTML)
+- Inline elements in paragraphs (`<img>`, `<svg>`, `display:inline-block`)
+- `<sub>` and `<sup>` rendering with baseline shift and correct spacing
+- `baseline-shift` CSS property (keywords and lengths/percentages)
+- `vertical-align` extended with length/percentage values per CSS 2.1
+- Empty lines from consecutive `\n\n` in paragraphs
+- `RunInline` for inline layout elements within paragraphs
+- CSS: `text-align-last`, `::marker`, `cmyk()`, `object-fit`, `@supports`, `min()`/`max()`/`clamp()`, `:is()`/`:where()`, repeating gradients, `column-width`/`column-rule`, `string-set`/`string()`, `page-break-inside: avoid`, escape sequences in selectors, multiple `box-shadow`
+- WebP and GIF image formats
+
+### Fixed
+
+- `<sub>`/`<sup>` baseline shift — previously only reduced font size (#86)
+- Adjacent styled runs no longer insert spurious spaces; inline whitespace collapsing per CSS Text Level 3 §4.1.1 (#86)
+- Punctuation after `</sup>`/`</sub>` keeps correct styling (#86)
+- Punctuation at font boundaries keeps its own font (#30)
+- Consecutive `\n\n` produce visible empty lines (#91)
+- Blank lines preserved across page splits (#95)
+- Paragraph baseline uses CSS half-leading `(lineH + ascent - descent) / 2` (#90)
+- `cloneWithWords` preserves all Word styling + line breaks on page-split paragraphs
+- Style changes at line break boundaries preserved during page splits
+- Overflow handling includes following siblings in Div layout (#13)
+- Table layout handles zero/negative height without panicking
+- Inline-block SVG/IMG dispatch to correct converters (#71)
+- Inline element alignment: line-relative child positions (#71)
+- `buildParagraphFromRuns` always uses `NewStyledParagraph` (was dropping `BaselineShift`/`BackgroundColor`)
+- RGB color components clamped to 0–1
+- Case-insensitive attribute selector matching
+- Alpha premultiplication fix for PNG
+- Font descriptor flags from actual metadata
+- Kern format 0 nPairs validated
+- Encrypted PDFs detected with clear error
+- Signatures preserved on multi-sign PDFs
+- Highlight/underline/strikethrough use actual font metrics (#73)
+- Predictor column count bounded to prevent allocation DoS
+
+### Contributors
+
+- **Ben Davidson** ([@bendavidsonku](https://github.com/bendavidsonku)) — inline elements in paragraphs, per-run text highlight background (#71, #72)
+- **Jason Kulatunga** ([@AnalogJ](https://github.com/AnalogJ)) — table zero-height fix, overflow sibling handling (#13)
+
+### Changed
+
+- `golang.org/x/image` v0.37.0 → v0.38.0
+- Internal: `html/converter.go` split into focused modules
+- Internal: `ARCHITECTURE.md` with design principles, layering rules, naming conventions
+
 ## [0.5.2] - 2026-03-26
 
 ### Added
@@ -27,6 +92,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Fuzz test regex** — anchored `-fuzz='^FuzzParse$'` to avoid matching `FuzzParsePDF`
 
 ## [0.5.0] - 2026-03-25
+
+### Contributors
+
+- **Marc Ole Bulling** — `<br>` nil pointer fix (#10)
+- **Moritz** ([@FrauElster](https://github.com/FrauElster)) — PDF/A-3b file attachments (#17)
+- **Piotr Pawlak** ([@piotrxp](https://github.com/piotrxp)) — SSRF prevention for remote resources (#39)
 
 ### Added
 - **C ABI expanded to 281 functions** (up from 115) — covers nearly all Go engine features
@@ -101,6 +172,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Split `html/converter.go`** into 11 focused files by responsibility (paragraph, table, block, flex, forms, image, list, heading, link, style, helpers) — no behavior changes (#34)
 
 ## [0.4.1] - 2026-03-22
+
+### Contributors
+
+- **Emrecan BATI** — Apache 2.0 license text cleanup
 
 ### Added
 - **Comprehensive GoDoc comments** across all 14 packages — every exported and unexported symbol now has an accurate doc comment following Go conventions
