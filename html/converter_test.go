@@ -2732,6 +2732,30 @@ func TestTableCSSStyledBorders(t *testing.T) {
 	}
 }
 
+func TestTableCellBorderRadius(t *testing.T) {
+	htmlStr := `<style>
+		th:first-child { border-radius: 8px 0 0 0; }
+		th:last-child { border-radius: 0 8px 0 0; }
+		th { background: #4f46e5; color: white; padding: 8px; }
+	</style>
+	<table><tr><th>Description</th><th>Amount</th></tr>
+	<tr><td>Item</td><td>$10</td></tr></table>`
+	elems, err := Convert(htmlStr, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(elems) == 0 {
+		t.Fatal("expected elements")
+	}
+	// Verify it renders without error (border-radius applied to cells).
+	for _, e := range elems {
+		plan := e.PlanLayout(layout.LayoutArea{Width: 500, Height: 1000})
+		if plan.Status == layout.LayoutNothing {
+			t.Error("unexpected LayoutNothing")
+		}
+	}
+}
+
 func TestTableStripedRows(t *testing.T) {
 	html := `<html><head><style>
 		tr:nth-child(even) { background-color: #f2f2f2; }
