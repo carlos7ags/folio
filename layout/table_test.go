@@ -753,3 +753,153 @@ func TestTableCellSpacingSetMethod(t *testing.T) {
 		t.Errorf("expected spacing 5/8, got %.1f/%.1f", tbl.cellSpacingH, tbl.cellSpacingV)
 	}
 }
+
+func TestTableFooterRowRepeats(t *testing.T) {
+	// Footer rows should appear on every page.
+	tbl := NewTable()
+	tbl.SetColumnWidths([]float64{200, 200})
+
+	header := tbl.AddHeaderRow()
+	header.AddCell("Header A", font.HelveticaBold, 10)
+	header.AddCell("Header B", font.HelveticaBold, 10)
+
+	footer := tbl.AddFooterRow()
+	footer.AddCell("Footer A", font.Helvetica, 9)
+	footer.AddCell("Footer B", font.Helvetica, 9)
+
+	for i := range 30 {
+		row := tbl.AddRow()
+		row.AddCell("Data", font.Helvetica, 10)
+		row.AddCell("Row "+string(rune('0'+i%10)), font.Helvetica, 10)
+	}
+
+	// Very short page to force multi-page.
+	r := NewRenderer(612, 200, Margins{Top: 20, Bottom: 20, Left: 20, Right: 20})
+	r.Add(tbl)
+	pages := r.Render()
+
+	if len(pages) < 2 {
+		t.Fatalf("expected ≥2 pages, got %d", len(pages))
+	}
+	// Both pages should have content (header + footer + some rows).
+	for i, p := range pages {
+		if len(p.Stream.Bytes()) == 0 {
+			t.Errorf("page %d has empty stream", i)
+		}
+	}
+}
+
+func TestTableCellPaddingSidesLayout(t *testing.T) {
+	// Asymmetric padding should produce different content positioning
+	// than uniform padding.
+	tbl := NewTable()
+	tbl.SetColumnWidths([]float64{300})
+
+	row := tbl.AddRow()
+	cell := row.AddCell("Padded", font.Helvetica, 12)
+	cell.SetPaddingSides(Padding{Top: 20, Right: 5, Bottom: 5, Left: 40})
+
+	plan := tbl.PlanLayout(LayoutArea{Width: 400, Height: 500})
+	if plan.Status == LayoutNothing {
+		t.Fatal("expected layout output")
+	}
+	// Top padding 20 + content ~14 + bottom 5 = ~39pt row height.
+	// Uniform padding 4 would give ~22pt.
+	if plan.Consumed < 35 {
+		t.Errorf("asymmetric padding should produce taller row: consumed=%f", plan.Consumed)
+	}
+}
+
+func TestTableBorderRadiusRendered(t *testing.T) {
+	// Cell with uniform border + radius → stream should contain curve operators.
+	tbl := NewTable()
+	tbl.SetColumnWidths([]float64{200})
+	row := tbl.AddRow()
+	cell := row.AddCell("Rounded", font.Helvetica, 12)
+	cell.SetBorderRadius(10)
+	cell.SetBackground(RGB(0.9, 0.9, 0.9))
+	cell.SetBorders(AllBorders(SolidBorder(1, ColorBlack)))
+
+	r := NewRenderer(612, 792, Margins{Top: 72, Right: 72, Bottom: 72, Left: 72})
+	r.Add(tbl)
+	pages := r.Render()
+	if len(pages) == 0 {
+		t.Fatal("expected at least 1 page")
+	}
+
+	b := pages[0].Stream.Bytes()
+	curves := countOps(b, "c")
+	if curves < 4 {
+		t.Errorf("cell with radius should have ≥4 curve operators, got %d", curves)
+	}
+}
+
+func TestTableMixedBorderRadiusRendered(t *testing.T) {
+	// Cell with only bottom + left borders and bottom-left radius.
+	// The rounded corner should still render as curves.
+	tbl := NewTable()
+	tbl.SetColumnWidths([]float64{200})
+	row := tbl.AddRow()
+	cell := row.AddCell("Mixed", font.Helvetica, 12)
+	cell.SetBorderRadiusPerCorner(0, 0, 0, 10) // only BL
+	cell.SetBorders(CellBorders{
+		Bottom: SolidBorder(1, ColorBlack),
+		Left:   SolidBorder(1, ColorBlack),
+	})
+
+	r := NewRenderer(612, 792, Margins{Top: 72, Right: 72, Bottom: 72, Left: 72})
+	r.Add(tbl)
+	pages := r.Render()
+	if len(pages) == 0 {
+		t.Fatal("expected at least 1 page")
+	}
+
+	b := pages[0].Stream.Bytes()
+	// Bottom border should have a BL corner arc (1 curve op).
+	// Left border should also have a BL corner arc (1 curve op).
+	curves := countOps(b, "c")
+	if curves < 2 {
+		t.Errorf("mixed-border cell with BL radius should have ≥2 curve operators, got %d", curves)
+	}
+}
+
+func TestTableCollapseRemovesDuplicateBorders(t *testing.T) {
+	// In collapse mode, interior cell borders are removed.
+	// Verify by rendering: collapse stream should have fewer stroke ops.
+	makeTable := func(collapse bool) []byte {
+		tbl := NewTable()
+		tbl.SetColumnWidths([]float64{100, 100})
+		if collapse {
+			tbl.SetBorderCollapse(true)
+		}
+		row := tbl.AddRow()
+		row.AddCell("A", font.Helvetica, 10).SetBorders(AllBorders(SolidBorder(1, ColorBlack)))
+		row.AddCell("B", font.Helvetica, 10).SetBorders(AllBorders(SolidBorder(1, ColorBlack)))
+		row2 := tbl.AddRow()
+		row2.AddCell("C", font.Helvetica, 10).SetBorders(AllBorders(SolidBorder(1, ColorBlack)))
+		row2.AddCell("D", font.Helvetica, 10).SetBorders(AllBorders(SolidBorder(1, ColorBlack)))
+
+		r := NewRenderer(612, 792, Margins{Top: 72, Right: 72, Bottom: 72, Left: 72})
+		r.Add(tbl)
+		pages := r.Render()
+		return pages[0].Stream.Bytes()
+	}
+
+	sepStrokes := countOps(makeTable(false), "S")
+	colStrokes := countOps(makeTable(true), "S")
+	// Collapse removes interior right and bottom borders, so fewer strokes.
+	if colStrokes >= sepStrokes {
+		t.Errorf("collapse should have fewer strokes: separate=%d, collapse=%d", sepStrokes, colStrokes)
+	}
+}
+
+func TestTableBorderCollapseGetter(t *testing.T) {
+	tbl := NewTable()
+	if tbl.BorderCollapse() {
+		t.Error("default should be separate (false)")
+	}
+	tbl.SetBorderCollapse(true)
+	if !tbl.BorderCollapse() {
+		t.Error("expected true after SetBorderCollapse(true)")
+	}
+}
