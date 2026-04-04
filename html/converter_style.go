@@ -105,10 +105,10 @@ func (c *converter) applyTagDefaults(n *html.Node, style *computedStyle) {
 		style.Color = layout.RGB(0, 0, 0.933) // default link blue
 		style.TextDecoration |= layout.DecorationUnderline
 	case atom.Table:
-		style.MarginTop = 12
-		style.MarginBottom = 12
-		// CSS initial value for border-collapse is "separate" (CSS 2.1 §17.6).
-		// Previously defaulted to "collapse" which prevented cell border-radius.
+		// Browser UA defaults: no margins, separate borders, 2px spacing.
+		// CSS 2.1 §17.6: border-collapse initial value is "separate".
+		style.BorderSpacingH = 1.5 // 2px * 0.75
+		style.BorderSpacingV = 1.5
 	case atom.Ul, atom.Ol:
 		style.MarginTop = 12
 		style.MarginBottom = 12
