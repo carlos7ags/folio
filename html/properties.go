@@ -394,7 +394,8 @@ func parseLength(value string) *cssLength {
 // parsePlainLength parses a simple CSS length (no calc).
 func parsePlainLength(value string) *cssLength {
 	value = strings.TrimSpace(value)
-	for _, unit := range []string{"px", "pt", "em", "rem", "mm", "cm", "in", "%"} {
+	// Check rem before em to avoid "1rem" matching "em" suffix first.
+	for _, unit := range []string{"px", "pt", "rem", "em", "mm", "cm", "in", "%"} {
 		if strings.HasSuffix(value, unit) {
 			numStr := strings.TrimSpace(value[:len(value)-len(unit)])
 			num, err := strconv.ParseFloat(numStr, 64)
