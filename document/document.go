@@ -4,6 +4,7 @@
 package document
 
 import (
+	"bytes"
 	"fmt"
 	"io"
 	"os"
@@ -514,6 +515,22 @@ func (d *Document) Save(path string) error {
 		return err
 	}
 	return f.Close()
+}
+
+// ToBytes serializes the complete PDF document and returns the raw bytes.
+// This is a convenience wrapper around [Document.WriteTo] for use cases
+// like HTTP responses, base64 encoding, or in-memory processing.
+//
+//	pdf, err := doc.ToBytes()
+//	// serve as HTTP response:
+//	w.Header().Set("Content-Type", "application/pdf")
+//	w.Write(pdf)
+func (d *Document) ToBytes() ([]byte, error) {
+	var buf bytes.Buffer
+	if _, err := d.WriteTo(&buf); err != nil {
+		return nil, err
+	}
+	return buf.Bytes(), nil
 }
 
 // WriteTo serializes the complete PDF document to w.
