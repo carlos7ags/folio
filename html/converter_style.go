@@ -107,7 +107,8 @@ func (c *converter) applyTagDefaults(n *html.Node, style *computedStyle) {
 	case atom.Table:
 		style.MarginTop = 12
 		style.MarginBottom = 12
-		style.BorderCollapse = "collapse"
+		// CSS initial value for border-collapse is "separate" (CSS 2.1 §17.6).
+		// Previously defaulted to "collapse" which prevented cell border-radius.
 	case atom.Ul, atom.Ol:
 		style.MarginTop = 12
 		style.MarginBottom = 12

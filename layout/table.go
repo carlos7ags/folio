@@ -1007,10 +1007,8 @@ func collapseBorders(grid []gridRow) {
 
 	for rowIdx, gr := range grid {
 		for cellIdx, gc := range gr.cells {
-			// Border-collapse clears interior borders, making them mixed.
-			// Per CSS Backgrounds Level 3, border-radius is ignored in
-			// collapse mode — drawCellBordersRounded falls back to straight
-			// segments when borders differ. Clear radius to skip the check.
+			// Per CSS Backgrounds Level 3 §5.3, border-radius has no effect
+			// when border-collapse: collapse is active.
 			gc.cell.borderRadius = [4]float64{}
 
 			// Remove right border unless this is the last cell in the row.

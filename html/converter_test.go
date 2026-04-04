@@ -2067,7 +2067,7 @@ func findTable(elems []layout.Element) *layout.Table {
 }
 
 func TestConvertTableBorderCollapseDefault(t *testing.T) {
-	// Tables should default to border-collapse: collapse without explicit CSS.
+	// Per CSS 2.1 §17.6, the initial value for border-collapse is "separate".
 	html := `<table border="1">
 <tr><td>A</td><td>B</td></tr>
 <tr><td>C</td><td>D</td></tr>
@@ -2080,8 +2080,8 @@ func TestConvertTableBorderCollapseDefault(t *testing.T) {
 	if tbl == nil {
 		t.Fatal("expected a Table element")
 	}
-	if !tbl.BorderCollapse() {
-		t.Error("table should default to border-collapse: collapse")
+	if tbl.BorderCollapse() {
+		t.Error("table should default to border-collapse: separate (CSS 2.1 §17.6)")
 	}
 }
 
@@ -3006,10 +3006,40 @@ func TestTableCSSStyledBorders(t *testing.T) {
 	}
 }
 
-func TestTableCellBorderRadius(t *testing.T) {
+func TestTableCellBorderRadiusSeparate(t *testing.T) {
+	// Default table mode is now "separate" (CSS 2.1 §17.6).
+	// border-radius on cells should render.
+	htmlStr := `<table>
+		<tr>
+			<th style="background:#4f46e5; color:white; padding:8px; border-top-left-radius:8px">Desc</th>
+			<th style="background:#4f46e5; color:white; padding:8px; border-top-right-radius:8px">Amt</th>
+		</tr>
+		<tr><td style="padding:8px">A</td><td style="padding:8px">$10</td></tr>
+	</table>`
+	elems, err := Convert(htmlStr, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(elems) == 0 {
+		t.Fatal("expected elements")
+	}
+	// Render through full pipeline — rounded corners should appear.
+	r := layout.NewRenderer(612, 792, layout.Margins{Top: 72, Right: 72, Bottom: 72, Left: 72})
+	for _, e := range elems {
+		r.Add(e)
+	}
+	pages := r.Render()
+	if len(pages) == 0 {
+		t.Fatal("expected at least 1 page")
+	}
+}
+
+func TestTableCellBorderRadiusExplicitSeparate(t *testing.T) {
+	// Explicitly set border-collapse: separate — radius should work.
 	htmlStr := `<style>
-		th:first-child { border-radius: 8px 0 0 0; }
-		th:last-child { border-radius: 0 8px 0 0; }
+		table { border-collapse: separate; }
+		th:first-child { border-top-left-radius: 8px; }
+		th:last-child { border-top-right-radius: 8px; }
 		th { background: #4f46e5; color: white; padding: 8px; }
 	</style>
 	<table><tr><th>Description</th><th>Amount</th></tr>
@@ -3021,7 +3051,6 @@ func TestTableCellBorderRadius(t *testing.T) {
 	if len(elems) == 0 {
 		t.Fatal("expected elements")
 	}
-	// Verify it renders without error (border-radius applied to cells).
 	for _, e := range elems {
 		plan := e.PlanLayout(layout.LayoutArea{Width: 500, Height: 1000})
 		if plan.Status == layout.LayoutNothing {
@@ -3030,8 +3059,51 @@ func TestTableCellBorderRadius(t *testing.T) {
 	}
 }
 
-func TestTableCellBorderRadiusValues(t *testing.T) {
-	// Verify border-radius values propagate to Cell via the layout API.
+func TestTableCellBorderRadiusCollapse(t *testing.T) {
+	// Explicit border-collapse: collapse — radius should be ignored per
+	// CSS Backgrounds Level 3 §5.3.
+	htmlStr := `<style>
+		table { border-collapse: collapse; }
+		th { border-radius: 8px; border: 1px solid black; padding: 8px; }
+	</style>
+	<table><tr><th>A</th><th>B</th></tr></table>`
+	elems, err := Convert(htmlStr, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range elems {
+		plan := e.PlanLayout(layout.LayoutArea{Width: 500, Height: 500})
+		if plan.Status == layout.LayoutNothing {
+			t.Error("unexpected LayoutNothing")
+		}
+	}
+}
+
+func TestTableCellBorderRadiusCollapseStillCollapses(t *testing.T) {
+	// Regression: explicit collapse mode should still collapse borders
+	// (remove interior right/bottom borders).
+	htmlStr := `<style>
+		table { border-collapse: collapse; }
+		td { border: 2px solid black; padding: 8px; }
+	</style>
+	<table><tr><td>A</td><td>B</td></tr><tr><td>C</td><td>D</td></tr></table>`
+	elems, err := Convert(htmlStr, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Render — should not panic or produce visual artifacts.
+	r := layout.NewRenderer(612, 792, layout.Margins{Top: 72, Right: 72, Bottom: 72, Left: 72})
+	for _, e := range elems {
+		r.Add(e)
+	}
+	pages := r.Render()
+	if len(pages) == 0 {
+		t.Fatal("expected at least 1 page")
+	}
+}
+
+func TestTableCellBorderRadiusAPI(t *testing.T) {
+	// Verify layout API: SetBorderRadiusPerCorner on cells renders correctly.
 	tbl := layout.NewTable()
 	tbl.SetColumnWidths([]float64{200, 200})
 	row := tbl.AddRow()
@@ -3049,38 +3121,12 @@ func TestTableCellBorderRadiusValues(t *testing.T) {
 		t.Fatal("expected layout output")
 	}
 
-	// Also verify uniform radius.
-	tbl2 := layout.NewTable()
-	tbl2.SetColumnWidths([]float64{200})
-	row2 := tbl2.AddRow()
-	c := row2.AddCell("Rounded", font.Helvetica, 12)
-	c.SetBorderRadius(10)
-	c.SetBackground(layout.RGB(0.9, 0.9, 0.9))
-	c.SetBorders(layout.AllBorders(layout.SolidBorder(1, layout.ColorBlack)))
-
-	plan2 := tbl2.PlanLayout(layout.LayoutArea{Width: 400, Height: 500})
-	if plan2.Status == layout.LayoutNothing {
-		t.Fatal("expected layout output for rounded cell")
-	}
-}
-
-func TestTableCellBorderRadiusCollapse(t *testing.T) {
-	// In border-collapse mode, border-radius should be ignored.
-	htmlStr := `<style>
-		table { border-collapse: collapse; }
-		th { border-radius: 8px; border: 1px solid black; padding: 8px; }
-	</style>
-	<table><tr><th>A</th><th>B</th></tr></table>`
-	elems, err := Convert(htmlStr, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	// Should render without error — radius silently cleared in collapse mode.
-	for _, e := range elems {
-		plan := e.PlanLayout(layout.LayoutArea{Width: 500, Height: 500})
-		if plan.Status == layout.LayoutNothing {
-			t.Error("unexpected LayoutNothing")
-		}
+	// Render through full pipeline.
+	r := layout.NewRenderer(612, 792, layout.Margins{Top: 72, Right: 72, Bottom: 72, Left: 72})
+	r.Add(tbl)
+	pages := r.Render()
+	if len(pages) == 0 {
+		t.Fatal("expected at least 1 page")
 	}
 }
 
