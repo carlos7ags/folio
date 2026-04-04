@@ -873,7 +873,7 @@ func isSupportedCSSProperty(prop string) bool {
 		"border-width", "border-style", "border-color", "border-radius",
 		"border-top-left-radius", "border-top-right-radius",
 		"border-bottom-right-radius", "border-bottom-left-radius",
-		"width", "height", "min-width", "max-width", "min-height", "max-height",
+		"width", "height", "aspect-ratio", "min-width", "max-width", "min-height", "max-height",
 		"opacity", "overflow", "visibility",
 		"position", "top", "right", "bottom", "left", "z-index",
 		"float", "clear",

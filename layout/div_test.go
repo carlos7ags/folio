@@ -108,6 +108,247 @@ func TestDivUniformBorderRadius(t *testing.T) {
 	}
 }
 
+func TestDivAspectRatio(t *testing.T) {
+	// 2:1 ratio on a 400pt wide area → height should be 200pt.
+	d := NewDiv().
+		SetAspectRatio(2). // width / height = 2
+		SetBackground(RGB(0.9, 0.9, 0.95)).
+		Add(NewParagraph("Wide box", font.Helvetica, 12))
+
+	plan := d.PlanLayout(LayoutArea{Width: 400, Height: 1000})
+	if plan.Status == LayoutNothing {
+		t.Fatal("expected layout output")
+	}
+	// Consumed height should be 200pt (400 / 2).
+	if plan.Consumed < 195 || plan.Consumed > 205 {
+		t.Errorf("expected ~200pt consumed for 2:1 ratio on 400pt width, got %f", plan.Consumed)
+	}
+}
+
+func TestDivAspectRatio16by9(t *testing.T) {
+	d := NewDiv().
+		SetAspectRatio(16.0 / 9.0).
+		SetBackground(RGB(0, 0, 0))
+
+	plan := d.PlanLayout(LayoutArea{Width: 320, Height: 1000})
+	// 320 / (16/9) = 180
+	if plan.Consumed < 175 || plan.Consumed > 185 {
+		t.Errorf("expected ~180pt for 16:9 on 320pt, got %f", plan.Consumed)
+	}
+}
+
+func TestDivAspectRatioExplicitHeightWins(t *testing.T) {
+	// Explicit height should override aspect-ratio.
+	d := NewDiv().
+		SetAspectRatio(2).
+		SetHeightUnit(Pt(100)).
+		SetBackground(RGB(0.5, 0.5, 0.5))
+
+	plan := d.PlanLayout(LayoutArea{Width: 400, Height: 1000})
+	// Explicit 100pt should win over 200pt from aspect-ratio.
+	if plan.Consumed < 95 || plan.Consumed > 105 {
+		t.Errorf("explicit height should win: expected ~100pt, got %f", plan.Consumed)
+	}
+}
+
+func TestDivAspectRatioWithMinHeight(t *testing.T) {
+	// min-height should override aspect-ratio when larger.
+	d := NewDiv().
+		SetAspectRatio(4). // width/height=4 → 400/4 = 100pt
+		SetMinHeightUnit(Pt(200)).
+		SetBackground(RGB(0.9, 0.9, 0.9))
+
+	plan := d.PlanLayout(LayoutArea{Width: 400, Height: 1000})
+	// min-height 200 > aspect-ratio 100 → 200pt wins.
+	if plan.Consumed < 195 || plan.Consumed > 205 {
+		t.Errorf("min-height should override aspect-ratio: expected ~200pt, got %f", plan.Consumed)
+	}
+}
+
+func TestDivAspectRatioWithMaxHeight(t *testing.T) {
+	// max-height should cap aspect-ratio derived height.
+	d := NewDiv().
+		SetAspectRatio(0.5). // 400/0.5 = 800pt (very tall)
+		SetMaxHeightUnit(Pt(300)).
+		SetBackground(RGB(0.9, 0.9, 0.9))
+
+	plan := d.PlanLayout(LayoutArea{Width: 400, Height: 1000})
+	// max-height 300 < aspect-ratio 800 → 300pt wins.
+	if plan.Consumed < 295 || plan.Consumed > 305 {
+		t.Errorf("max-height should cap aspect-ratio: expected ~300pt, got %f", plan.Consumed)
+	}
+}
+
+func TestDivAspectRatioWithPadding(t *testing.T) {
+	// Padding should be inside the aspect-ratio computed height.
+	d := NewDiv().
+		SetAspectRatio(2). // 400/2 = 200pt total height
+		SetPadding(20).
+		SetBackground(RGB(0.9, 0.9, 0.9))
+
+	plan := d.PlanLayout(LayoutArea{Width: 400, Height: 1000})
+	// Height forced to 200pt by aspect-ratio (overrides content+padding).
+	if plan.Consumed < 195 || plan.Consumed > 205 {
+		t.Errorf("expected ~200pt with aspect-ratio ignoring padding, got %f", plan.Consumed)
+	}
+}
+
+func TestDivAspectRatioZeroIsNoop(t *testing.T) {
+	// Zero ratio means not set — height should be content-based.
+	d := NewDiv().
+		SetAspectRatio(0).
+		SetPadding(10).
+		Add(NewParagraph("Short text", font.Helvetica, 12))
+
+	plan := d.PlanLayout(LayoutArea{Width: 400, Height: 1000})
+	// Should be content height (~14pt line + 20pt padding), not 0.
+	if plan.Consumed < 20 {
+		t.Errorf("zero aspect-ratio should not affect height: got %f", plan.Consumed)
+	}
+}
+
+func TestDivAspectRatioNoWidthFillsAvailable(t *testing.T) {
+	// No explicit width — Div fills available area width.
+	d := NewDiv().
+		SetAspectRatio(2).
+		SetBackground(RGB(0.5, 0.5, 0.5))
+
+	plan := d.PlanLayout(LayoutArea{Width: 300, Height: 1000})
+	// 300 / 2 = 150pt.
+	if plan.Consumed < 145 || plan.Consumed > 155 {
+		t.Errorf("expected ~150pt for ratio 2 on 300pt available, got %f", plan.Consumed)
+	}
+}
+
+func TestDivAspectRatioContentOverflow(t *testing.T) {
+	// Children taller than derived height — content overflows but height is fixed.
+	d := NewDiv().
+		SetAspectRatio(10). // 400/10 = 40pt
+		SetBackground(RGB(0.9, 0.9, 0.9))
+	for range 5 {
+		d.Add(NewParagraph("Line of text", font.Helvetica, 12))
+	}
+
+	plan := d.PlanLayout(LayoutArea{Width: 400, Height: 1000})
+	// Height forced to 40pt by aspect-ratio, even though content is taller.
+	if plan.Consumed < 35 || plan.Consumed > 45 {
+		t.Errorf("aspect-ratio should force height: expected ~40pt, got %f", plan.Consumed)
+	}
+}
+
+// --- Regression tests for Div PlanLayout height/width interactions ---
+
+func TestDivExplicitWidthAndHeight(t *testing.T) {
+	d := NewDiv().
+		SetWidthUnit(Pt(200)).
+		SetHeightUnit(Pt(100)).
+		SetBackground(RGB(0.9, 0.9, 0.9))
+	// Add content taller than 100pt.
+	for range 10 {
+		d.Add(NewParagraph("Line", font.Helvetica, 12))
+	}
+
+	plan := d.PlanLayout(LayoutArea{Width: 400, Height: 1000})
+	// Explicit height should win regardless of content.
+	if plan.Consumed < 95 || plan.Consumed > 105 {
+		t.Errorf("explicit height should be ~100pt, got %f", plan.Consumed)
+	}
+}
+
+func TestDivOverflowHiddenClipsHeight(t *testing.T) {
+	d := NewDiv().
+		SetHeightUnit(Pt(50)).
+		SetOverflow("hidden").
+		SetBackground(RGB(0.8, 0.8, 0.8))
+	for range 10 {
+		d.Add(NewParagraph("Tall content", font.Helvetica, 12))
+	}
+
+	plan := d.PlanLayout(LayoutArea{Width: 400, Height: 1000})
+	if plan.Consumed < 45 || plan.Consumed > 55 {
+		t.Errorf("overflow:hidden with height should be ~50pt, got %f", plan.Consumed)
+	}
+}
+
+func TestDivMinWidthAndMinHeight(t *testing.T) {
+	d := NewDiv().
+		SetMinWidthUnit(Pt(300)).
+		SetMinHeightUnit(Pt(200)).
+		SetBackground(RGB(0.9, 0.9, 0.9)).
+		Add(NewParagraph("Small", font.Helvetica, 12))
+
+	plan := d.PlanLayout(LayoutArea{Width: 400, Height: 1000})
+	if plan.Consumed < 195 {
+		t.Errorf("min-height should enforce >= 200pt, got %f", plan.Consumed)
+	}
+}
+
+func TestDivMaxWidthAndMaxHeight(t *testing.T) {
+	d := NewDiv().
+		SetMaxWidthUnit(Pt(150)).
+		SetMaxHeightUnit(Pt(80)).
+		SetBackground(RGB(0.9, 0.9, 0.9))
+	for range 10 {
+		d.Add(NewParagraph("Content exceeding max", font.Helvetica, 12))
+	}
+
+	plan := d.PlanLayout(LayoutArea{Width: 400, Height: 1000})
+	if plan.Consumed > 85 {
+		t.Errorf("max-height should cap at ~80pt, got %f", plan.Consumed)
+	}
+}
+
+func TestDivBackgroundOnlyNoBorders(t *testing.T) {
+	d := NewDiv().
+		SetBackground(RGB(0.95, 0.95, 1)).
+		SetPadding(10).
+		Add(NewParagraph("Background only", font.Helvetica, 12))
+
+	// Should render without panic (exercises Draw closure with bg but no borders).
+	r := NewRenderer(612, 792, Margins{Top: 72, Right: 72, Bottom: 72, Left: 72})
+	r.Add(d)
+	pages := r.Render()
+	if len(pages) == 0 {
+		t.Fatal("expected at least 1 page")
+	}
+}
+
+func TestDivPercentageWidth(t *testing.T) {
+	d := NewDiv().
+		SetWidthUnit(Pct(50)).
+		SetBackground(RGB(0.9, 0.9, 0.9)).
+		Add(NewParagraph("Half width", font.Helvetica, 12))
+
+	plan := d.PlanLayout(LayoutArea{Width: 400, Height: 1000})
+	if plan.Status == LayoutNothing {
+		t.Fatal("expected layout output")
+	}
+	// Block should be ~200pt wide (50% of 400).
+	if len(plan.Blocks) > 0 {
+		// The container block width is captured; just verify it rendered.
+		if plan.Consumed <= 0 {
+			t.Error("expected positive consumed height")
+		}
+	}
+}
+
+func TestDivHCenter(t *testing.T) {
+	d := NewDiv().
+		SetWidthUnit(Pt(200)).
+		SetHCenter(true).
+		SetBackground(RGB(0.9, 0.9, 0.9)).
+		Add(NewParagraph("Centered", font.Helvetica, 12))
+
+	plan := d.PlanLayout(LayoutArea{Width: 400, Height: 1000})
+	if plan.Status == LayoutNothing {
+		t.Fatal("expected layout output")
+	}
+	// Block X should be ~100pt (centered in 400pt with 200pt width).
+	if len(plan.Blocks) > 0 && plan.Blocks[0].X < 90 {
+		t.Errorf("expected X offset ~100pt for centered div, got %f", plan.Blocks[0].X)
+	}
+}
+
 func TestDivRendersContent(t *testing.T) {
 	r := NewRenderer(612, 792, Margins{Top: 72, Right: 72, Bottom: 72, Left: 72})
 	d := NewDiv().

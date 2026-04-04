@@ -64,6 +64,7 @@ type computedStyle struct {
 	Height          *cssLength
 	MaxWidth        *cssLength
 	MinWidth        *cssLength
+	AspectRatio     float64 // width/height ratio (0 = not set); e.g. 16/9 = 1.778
 	BackgroundColor *layout.Color
 
 	// Background image

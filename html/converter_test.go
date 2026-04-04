@@ -1561,6 +1561,209 @@ func TestPageBreakInsideAvoidRenderer(t *testing.T) {
 	}
 }
 
+// --- aspect-ratio ---
+
+func TestAspectRatio(t *testing.T) {
+	htmlStr := `<div style="aspect-ratio: 16 / 9; width: 320px; background: #000"></div>`
+	elems, err := Convert(htmlStr, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(elems) == 0 {
+		t.Fatal("expected elements")
+	}
+	plan := elems[0].PlanLayout(layout.LayoutArea{Width: 500, Height: 1000})
+	// 320px = 240pt, 240 / (16/9) = 135pt
+	if plan.Consumed < 130 || plan.Consumed > 140 {
+		t.Errorf("expected ~135pt for 16:9 on 320px, got %f", plan.Consumed)
+	}
+}
+
+func TestAspectRatioSingleNumber(t *testing.T) {
+	htmlStr := `<div style="aspect-ratio: 2; width: 200px; background: #eee"></div>`
+	elems, err := Convert(htmlStr, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(elems) == 0 {
+		t.Fatal("expected elements")
+	}
+	plan := elems[0].PlanLayout(layout.LayoutArea{Width: 500, Height: 1000})
+	// 200px = 150pt, 150 / 2 = 75pt
+	if plan.Consumed < 70 || plan.Consumed > 80 {
+		t.Errorf("expected ~75pt for ratio 2 on 200px, got %f", plan.Consumed)
+	}
+}
+
+func TestAspectRatioAuto(t *testing.T) {
+	// "auto" and "none" should produce no aspect constraint.
+	for _, val := range []string{"auto", "none", ""} {
+		htmlStr := `<div style="aspect-ratio: ` + val + `; width: 200px; padding: 5px; background: #eee"><p>Hi</p></div>`
+		elems, err := Convert(htmlStr, nil)
+		if err != nil {
+			t.Fatalf("aspect-ratio: %q: %v", val, err)
+		}
+		if len(elems) == 0 {
+			continue // no visual wrapper for empty/no-constraint
+		}
+		plan := elems[0].PlanLayout(layout.LayoutArea{Width: 500, Height: 1000})
+		// Should be content-based height, not width/ratio.
+		if plan.Consumed > 100 {
+			t.Errorf("aspect-ratio: %q should be content-based, got %f", val, plan.Consumed)
+		}
+	}
+}
+
+func TestAspectRatioAutoCompound(t *testing.T) {
+	// "auto 16 / 9" compound form — the ratio part should apply.
+	htmlStr := `<div style="aspect-ratio: auto 16 / 9; width: 320px; background: #000"></div>`
+	elems, err := Convert(htmlStr, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(elems) == 0 {
+		t.Fatal("expected elements")
+	}
+	plan := elems[0].PlanLayout(layout.LayoutArea{Width: 500, Height: 1000})
+	// 320px = 240pt, 240 / (16/9) = 135pt
+	if plan.Consumed < 130 || plan.Consumed > 140 {
+		t.Errorf("expected ~135pt for auto 16/9, got %f", plan.Consumed)
+	}
+}
+
+func TestAspectRatioNegativeIgnored(t *testing.T) {
+	// Negative ratio should be ignored (treated as auto).
+	htmlStr := `<div style="aspect-ratio: -2 / 1; width: 200px; padding: 5px; background: #eee"><p>Hi</p></div>`
+	elems, err := Convert(htmlStr, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(elems) == 0 {
+		t.Fatal("expected elements")
+	}
+	plan := elems[0].PlanLayout(layout.LayoutArea{Width: 500, Height: 1000})
+	// Negative ratio → no constraint, content-based height.
+	if plan.Consumed > 100 {
+		t.Errorf("negative aspect-ratio should be ignored, got %f", plan.Consumed)
+	}
+}
+
+func TestParseAspectRatioValues(t *testing.T) {
+	tests := []struct {
+		input string
+		want  float64
+	}{
+		{"16 / 9", 16.0 / 9.0},
+		{"16/9", 16.0 / 9.0},
+		{"4 / 3", 4.0 / 3.0},
+		{"1", 1},
+		{"2", 2},
+		{"1.778", 1.778},
+		{"auto", 0},
+		{"none", 0},
+		{"", 0},
+		{"auto 16 / 9", 16.0 / 9.0},
+		{"-2 / 1", 0}, // negative rejected
+		{"2 / -1", 0}, // negative rejected
+		{"0 / 1", 0},  // zero rejected
+		{"1 / 0", 0},  // zero divisor rejected
+		{"garbage", 0},
+	}
+	for _, tt := range tests {
+		got := parseAspectRatio(tt.input)
+		diff := got - tt.want
+		if diff > 0.01 || diff < -0.01 {
+			t.Errorf("parseAspectRatio(%q) = %f, want %f", tt.input, got, tt.want)
+		}
+	}
+}
+
+// --- Div wrapper regression tests ---
+
+func TestDivWrapperSkippedForPlainDiv(t *testing.T) {
+	// A plain <div> with no box-model properties should NOT produce a
+	// layout.Div wrapper — children should be returned directly.
+	htmlStr := `<div><p>First</p><p>Second</p></div>`
+	elems, err := Convert(htmlStr, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Should produce 2 Paragraphs, not 1 Div containing them.
+	for _, e := range elems {
+		if _, ok := e.(*layout.Div); ok {
+			t.Error("plain <div> without box-model should not create a layout.Div wrapper")
+		}
+	}
+}
+
+func TestDivWrapperCreatedForPadding(t *testing.T) {
+	htmlStr := `<div style="padding: 10px"><p>Padded</p></div>`
+	elems, err := Convert(htmlStr, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, e := range elems {
+		if _, ok := e.(*layout.Div); ok {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("div with padding should create a Div wrapper")
+	}
+}
+
+func TestDivWrapperCreatedForWidth(t *testing.T) {
+	htmlStr := `<div style="width: 200px"><p>Fixed width</p></div>`
+	elems, err := Convert(htmlStr, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, e := range elems {
+		if _, ok := e.(*layout.Div); ok {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("div with width should create a Div wrapper")
+	}
+}
+
+func TestDivWrapperCreatedForBackground(t *testing.T) {
+	htmlStr := `<div style="background-color: #eee"><p>With bg</p></div>`
+	elems, err := Convert(htmlStr, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, e := range elems {
+		if _, ok := e.(*layout.Div); ok {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("div with background should create a Div wrapper")
+	}
+}
+
+func TestDivWrapperCreatedForAspectRatio(t *testing.T) {
+	htmlStr := `<div style="aspect-ratio: 2; background: #eee"><p>Ratio</p></div>`
+	elems, err := Convert(htmlStr, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, e := range elems {
+		if _, ok := e.(*layout.Div); ok {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("div with aspect-ratio should create a Div wrapper")
+	}
+}
+
 // --- !important ---
 
 func TestCSSImportant(t *testing.T) {

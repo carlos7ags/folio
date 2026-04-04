@@ -60,6 +60,7 @@ type Div struct {
 	minHeightUnit *UnitValue // lazy-resolved min-height
 	maxHeightUnit *UnitValue // lazy-resolved max-height
 	heightUnit    *UnitValue // lazy-resolved explicit height (forces exact height)
+	aspectRatio   float64    // width/height ratio (0 = not set; CSS aspect-ratio)
 	hCenter       bool       // true = horizontally center within parent (margin: auto)
 	hRight        bool       // true = right-align within parent (margin-left: auto)
 	borderRadius  [4]float64 // corner radii [TL, TR, BR, BL] (points, 0 = sharp)
@@ -257,6 +258,14 @@ func (d *Div) SetMinHeightUnit(u UnitValue) *Div {
 // Forces the Div to this exact height (used for CSS height property).
 func (d *Div) SetHeightUnit(u UnitValue) *Div {
 	d.heightUnit = &u
+	return d
+}
+
+// SetAspectRatio sets the width/height ratio for the Div (CSS aspect-ratio).
+// When set and no explicit height is provided, the height is computed from
+// the width: height = width / ratio. A value of 0 means no constraint.
+func (d *Div) SetAspectRatio(ratio float64) *Div {
+	d.aspectRatio = ratio
 	return d
 }
 
@@ -582,6 +591,9 @@ func (d *Div) PlanLayout(area LayoutArea) LayoutPlan {
 	// Apply explicit height if set (CSS height property).
 	if d.heightUnit != nil {
 		totalH = d.heightUnit.Resolve(area.Height)
+	} else if d.aspectRatio > 0 {
+		// CSS aspect-ratio: derive height from width when no explicit height.
+		totalH = effectiveWidth / d.aspectRatio
 	}
 
 	// Apply min-height / max-height constraints (prefer UnitValue).

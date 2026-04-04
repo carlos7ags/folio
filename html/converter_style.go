@@ -387,6 +387,8 @@ func (c *converter) applyProperty(prop, val string, style *computedStyle) {
 		style.MinWidth = parseLength(val)
 	case "height":
 		style.Height = parseLength(val)
+	case "aspect-ratio":
+		style.AspectRatio = parseAspectRatio(val)
 	case "border":
 		w, s, clr := parseBorderFull(val, style.FontSize)
 		style.BorderTopWidth = w

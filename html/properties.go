@@ -260,6 +260,38 @@ func parseCMYKComponent(s string) float64 {
 	return v
 }
 
+// parseAspectRatio parses a CSS aspect-ratio value.
+// Accepts: "16 / 9", "16/9", "1.778", "auto" (returns 0).
+func parseAspectRatio(val string) float64 {
+	val = strings.TrimSpace(val)
+	if val == "" || val == "auto" || val == "none" {
+		return 0
+	}
+	// Handle compound "auto <ratio>" form (CSS Sizing 4 §5.1.1):
+	// use the ratio part, ignore auto keyword.
+	val = strings.TrimPrefix(val, "auto ")
+	val = strings.TrimSpace(val)
+	if val == "" || val == "auto" {
+		return 0
+	}
+	// Try "W / H" form.
+	if slashIdx := strings.IndexByte(val, '/'); slashIdx >= 0 {
+		wStr := strings.TrimSpace(val[:slashIdx])
+		hStr := strings.TrimSpace(val[slashIdx+1:])
+		w, errW := strconv.ParseFloat(wStr, 64)
+		h, errH := strconv.ParseFloat(hStr, 64)
+		if errW == nil && errH == nil && w > 0 && h > 0 {
+			return w / h
+		}
+		return 0
+	}
+	// Try single number.
+	if v, err := strconv.ParseFloat(val, 64); err == nil && v > 0 {
+		return v
+	}
+	return 0
+}
+
 // parseColumnRule parses a CSS column-rule shorthand: "<width> <style> <color>".
 func parseColumnRule(val string, fontSize float64) (float64, string, layout.Color) {
 	parts := strings.Fields(strings.TrimSpace(strings.ToLower(val)))

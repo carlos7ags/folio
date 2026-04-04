@@ -113,7 +113,7 @@ func (c *converter) convertBlock(n *html.Node, style computedStyle) []layout.Ele
 
 	// If no box-model properties, skip the Div wrapper.
 	hasWidthConstraints := style.Width != nil || style.MaxWidth != nil || style.MinWidth != nil
-	hasHeightConstraints := style.Height != nil || style.MinHeight != nil || style.MaxHeight != nil
+	hasHeightConstraints := style.Height != nil || style.MinHeight != nil || style.MaxHeight != nil || style.AspectRatio > 0
 	hasVisualEffects := style.BorderRadius > 0 || style.BorderRadiusTL > 0 || style.BorderRadiusTR > 0 || style.BorderRadiusBR > 0 || style.BorderRadiusBL > 0 || (style.Opacity > 0 && style.Opacity < 1) || style.Overflow == "hidden"
 	hasBoxShadow := len(style.BoxShadows) > 0
 	hasOutline := style.OutlineWidth > 0
@@ -237,6 +237,9 @@ func applyDivStyles(div *layout.Div, style computedStyle, containerWidth float64
 	}
 	if style.MaxHeight != nil {
 		div.SetMaxHeightUnit(cssLengthToUnitValue(style.MaxHeight, containerWidth, style.FontSize))
+	}
+	if style.AspectRatio > 0 {
+		div.SetAspectRatio(style.AspectRatio)
 	}
 	if style.BorderRadiusTL > 0 || style.BorderRadiusTR > 0 || style.BorderRadiusBR > 0 || style.BorderRadiusBL > 0 {
 		div.SetBorderRadiusPerCorner(style.BorderRadiusTL, style.BorderRadiusTR, style.BorderRadiusBR, style.BorderRadiusBL)
