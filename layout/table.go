@@ -1050,8 +1050,10 @@ func drawBackgroundRounded(ctx DrawContext, bg Color, x, y, w, h float64, r [4]f
 
 // drawCellBordersRounded draws cell borders with rounded corners.
 // When all four borders are identical, draws a single rounded rect stroke.
-// Otherwise falls back to straight border segments.
+// When borders differ, each side is drawn individually with corner arcs
+// at endpoints where the radius is non-zero.
 func drawCellBordersRounded(stream *content.Stream, borders CellBorders, x, y, w, h float64, r [4]float64) {
+	// Fast path: all borders identical → single rounded rect stroke.
 	if borders.Top.Width > 0 && borders.Top == borders.Right &&
 		borders.Top == borders.Bottom && borders.Top == borders.Left {
 		stream.SaveState()
@@ -1062,9 +1064,100 @@ func drawCellBordersRounded(stream *content.Stream, borders CellBorders, x, y, w
 		stream.RestoreState()
 		return
 	}
-	// Mixed borders: fall back to straight segments (rounded mixed borders
-	// would require per-corner arc drawing for each side independently).
-	drawCellBorders(stream, borders, x, y, w, h)
+
+	// Mixed borders: draw each side with its adjacent corner arcs.
+	// r = [TL, TR, BR, BL], coordinates: (x,y) = bottom-left.
+	const k = 0.5522847498 // Bézier approximation for circular arcs
+
+	maxR := min(w, h) / 2
+	rTL := min(r[0], maxR)
+	rTR := min(r[1], maxR)
+	rBR := min(r[2], maxR)
+	rBL := min(r[3], maxR)
+
+	// Bottom border: BL corner arc → bottom line → BR corner arc
+	if borders.Bottom.Width > 0 {
+		stream.SaveState()
+		setStrokeColor(stream, borders.Bottom.Color)
+		stream.SetLineWidth(borders.Bottom.Width)
+		if rBL > 0 {
+			kr := rBL * k
+			stream.MoveTo(x, y+rBL)
+			stream.CurveTo(x, y+rBL-kr, x+rBL-kr, y, x+rBL, y)
+		} else {
+			stream.MoveTo(x, y)
+		}
+		stream.LineTo(x+w-rBR, y)
+		if rBR > 0 {
+			kr := rBR * k
+			stream.CurveTo(x+w-rBR+kr, y, x+w, y+rBR-kr, x+w, y+rBR)
+		}
+		stream.Stroke()
+		stream.RestoreState()
+	}
+
+	// Right border: BR corner arc → right line → TR corner arc
+	if borders.Right.Width > 0 {
+		stream.SaveState()
+		setStrokeColor(stream, borders.Right.Color)
+		stream.SetLineWidth(borders.Right.Width)
+		if rBR > 0 {
+			kr := rBR * k
+			stream.MoveTo(x+w-rBR, y)
+			stream.CurveTo(x+w-rBR+kr, y, x+w, y+rBR-kr, x+w, y+rBR)
+		} else {
+			stream.MoveTo(x+w, y)
+		}
+		stream.LineTo(x+w, y+h-rTR)
+		if rTR > 0 {
+			kr := rTR * k
+			stream.CurveTo(x+w, y+h-rTR+kr, x+w-rTR+kr, y+h, x+w-rTR, y+h)
+		}
+		stream.Stroke()
+		stream.RestoreState()
+	}
+
+	// Top border: TR corner arc → top line → TL corner arc
+	if borders.Top.Width > 0 {
+		stream.SaveState()
+		setStrokeColor(stream, borders.Top.Color)
+		stream.SetLineWidth(borders.Top.Width)
+		if rTR > 0 {
+			kr := rTR * k
+			stream.MoveTo(x+w, y+h-rTR)
+			stream.CurveTo(x+w, y+h-rTR+kr, x+w-rTR+kr, y+h, x+w-rTR, y+h)
+		} else {
+			stream.MoveTo(x+w, y+h)
+		}
+		stream.LineTo(x+rTL, y+h)
+		if rTL > 0 {
+			kr := rTL * k
+			stream.CurveTo(x+rTL-kr, y+h, x, y+h-rTL+kr, x, y+h-rTL)
+		}
+		stream.Stroke()
+		stream.RestoreState()
+	}
+
+	// Left border: TL corner arc → left line → BL corner arc
+	if borders.Left.Width > 0 {
+		stream.SaveState()
+		setStrokeColor(stream, borders.Left.Color)
+		stream.SetLineWidth(borders.Left.Width)
+		if rTL > 0 {
+			kr := rTL * k
+			stream.MoveTo(x+rTL, y+h)
+			stream.CurveTo(x+rTL-kr, y+h, x, y+h-rTL+kr, x, y+h-rTL)
+		} else {
+			stream.MoveTo(x, y+h)
+		}
+		stream.LineTo(x, y+rBL)
+		if rBL > 0 {
+			kr := rBL * k
+			stream.CurveTo(x, y+rBL-kr, x+rBL-kr, y, x+rBL, y)
+		}
+		stream.Stroke()
+		stream.RestoreState()
+	}
 }
 
 // drawStyledBorder draws a single border line with the appropriate style.
