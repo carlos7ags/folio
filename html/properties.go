@@ -55,24 +55,35 @@ func parseColorAlpha(value string) (layout.Color, float64, bool) {
 	}
 
 	// rgb(r, g, b) / rgba(r, g, b, a)
+	// Also supports CSS Color Level 4 space-separated form:
+	//   rgb(255 0 0) / rgb(255 0 0 / 0.5)
 	if strings.HasPrefix(value, "rgb") {
 		inner, ok := extractFuncArgs(value, "rgba(")
 		if !ok {
 			inner, ok = extractFuncArgs(value, "rgb(")
 		}
 		if ok {
-			parts := strings.Split(inner, ",")
-			if len(parts) >= 3 {
-				r := parseColorComponent(strings.TrimSpace(parts[0]))
-				g := parseColorComponent(strings.TrimSpace(parts[1]))
-				b := parseColorComponent(strings.TrimSpace(parts[2]))
-				a := 1.0
-				if len(parts) >= 4 {
-					if v, err := strconv.ParseFloat(strings.TrimSpace(parts[3]), 64); err == nil {
-						a = v
+			// Try comma-separated first (legacy form).
+			if strings.ContainsRune(inner, ',') {
+				parts := strings.Split(inner, ",")
+				if len(parts) >= 3 {
+					r := parseColorComponent(strings.TrimSpace(parts[0]))
+					g := parseColorComponent(strings.TrimSpace(parts[1]))
+					b := parseColorComponent(strings.TrimSpace(parts[2]))
+					a := 1.0
+					if len(parts) >= 4 {
+						if v, err := strconv.ParseFloat(strings.TrimSpace(parts[3]), 64); err == nil {
+							a = v
+						}
 					}
+					return layout.RGB(r, g, b), a, true
 				}
-				return layout.RGB(r, g, b), a, true
+			} else {
+				// Space-separated form: rgb(R G B) or rgb(R G B / A)
+				r, g, b, a, ok := parseSpaceColorArgs(inner)
+				if ok {
+					return layout.RGB(r, g, b), a, true
+				}
 			}
 		}
 		return layout.Color{}, 0, false
@@ -99,31 +110,77 @@ func parseColorAlpha(value string) (layout.Color, float64, bool) {
 	}
 
 	// hsl(h, s%, l%) / hsla(h, s%, l%, a)
+	// Also supports CSS Color Level 4 space-separated form:
+	//   hsl(120 100% 50%) / hsl(120 100% 50% / 0.5)
 	if strings.HasPrefix(value, "hsl") {
 		inner, ok := extractFuncArgs(value, "hsla(")
 		if !ok {
 			inner, ok = extractFuncArgs(value, "hsl(")
 		}
 		if ok {
-			parts := strings.Split(inner, ",")
-			if len(parts) >= 3 {
-				h := parseHue(strings.TrimSpace(parts[0]))
-				s := parsePercent(strings.TrimSpace(parts[1]))
-				l := parsePercent(strings.TrimSpace(parts[2]))
-				a := 1.0
-				if len(parts) >= 4 {
-					if v, err := strconv.ParseFloat(strings.TrimSpace(parts[3]), 64); err == nil {
-						a = v
+			if strings.ContainsRune(inner, ',') {
+				parts := strings.Split(inner, ",")
+				if len(parts) >= 3 {
+					h := parseHue(strings.TrimSpace(parts[0]))
+					s := parsePercent(strings.TrimSpace(parts[1]))
+					l := parsePercent(strings.TrimSpace(parts[2]))
+					a := 1.0
+					if len(parts) >= 4 {
+						if v, err := strconv.ParseFloat(strings.TrimSpace(parts[3]), 64); err == nil {
+							a = v
+						}
 					}
+					r, g, b := hslToRGB(h, s, l)
+					return layout.RGB(r, g, b), a, true
 				}
-				r, g, b := hslToRGB(h, s, l)
-				return layout.RGB(r, g, b), a, true
+			} else {
+				// Space-separated: hsl(H S L) or hsl(H S L / A)
+				alpha, parts := splitSlashAlpha(inner)
+				if len(parts) >= 3 {
+					h := parseHue(parts[0])
+					s := parsePercent(parts[1])
+					l := parsePercent(parts[2])
+					r, g, b := hslToRGB(h, s, l)
+					return layout.RGB(r, g, b), alpha, true
+				}
 			}
 		}
 		return layout.Color{}, 0, false
 	}
 
 	return layout.Color{}, 0, false
+}
+
+// splitSlashAlpha splits "R G B / A" into (alpha, [R, G, B]).
+// If no slash, alpha defaults to 1.0. The returned parts are trimmed strings.
+func splitSlashAlpha(inner string) (float64, []string) {
+	alpha := 1.0
+	colorPart := inner
+	if slashIdx := strings.IndexByte(inner, '/'); slashIdx >= 0 {
+		colorPart = strings.TrimSpace(inner[:slashIdx])
+		alphaStr := strings.TrimSpace(inner[slashIdx+1:])
+		// Alpha can be a number (0.5) or percentage (50%).
+		if strings.HasSuffix(alphaStr, "%") {
+			if v, err := strconv.ParseFloat(alphaStr[:len(alphaStr)-1], 64); err == nil {
+				alpha = v / 100
+			}
+		} else if v, err := strconv.ParseFloat(alphaStr, 64); err == nil {
+			alpha = v
+		}
+	}
+	parts := strings.Fields(colorPart)
+	return alpha, parts
+}
+
+// parseSpaceColorArgs parses space-separated RGB args with optional / alpha.
+// Handles: "255 0 0", "255 0 0 / 0.5", "100% 0% 50%", "100% 0% 50% / 0.8"
+func parseSpaceColorArgs(inner string) (r, g, b, a float64, ok bool) {
+	a, parts := splitSlashAlpha(inner)
+	if len(parts) < 3 {
+		return 0, 0, 0, 0, false
+	}
+	return parseColorComponent(parts[0]), parseColorComponent(parts[1]),
+		parseColorComponent(parts[2]), a, true
 }
 
 // extractFuncArgs extracts the content inside a CSS function like "rgb(...)" or "rgba(...)".

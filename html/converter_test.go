@@ -350,6 +350,77 @@ func TestParseColorAlphaValues(t *testing.T) {
 	}
 }
 
+func TestRGBSpaceSeparated(t *testing.T) {
+	tests := []struct {
+		input string
+		ok    bool
+		r, g  float64 // expected R, G (approximate)
+		alpha float64
+	}{
+		// Space-separated without alpha.
+		{"rgb(255 0 0)", true, 1, 0, 1},
+		{"rgb(0 128 255)", true, 0, 128.0 / 255, 1},
+		// Space-separated with / alpha.
+		{"rgb(255 0 0 / 0.5)", true, 1, 0, 0.5},
+		{"rgb(255 0 0 / 1)", true, 1, 0, 1},
+		{"rgb(255 0 0 / 0)", true, 1, 0, 0},
+		// Percentage form.
+		{"rgb(100% 0% 50%)", true, 1, 0, 1},
+		{"rgb(100% 0% 50% / 0.8)", true, 1, 0, 0.8},
+		// Percentage alpha.
+		{"rgb(255 0 0 / 50%)", true, 1, 0, 0.5},
+		// rgba() with space-separated form.
+		{"rgba(255 0 0 / 0.3)", true, 1, 0, 0.3},
+		// Legacy comma form still works.
+		{"rgb(255, 0, 0)", true, 1, 0, 1},
+		{"rgba(255, 0, 0, 0.5)", true, 1, 0, 0.5},
+	}
+	for _, tt := range tests {
+		c, alpha, ok := parseColorAlpha(tt.input)
+		if ok != tt.ok {
+			t.Errorf("parseColorAlpha(%q): ok=%v, want %v", tt.input, ok, tt.ok)
+			continue
+		}
+		if !ok {
+			continue
+		}
+		if diff := c.R - tt.r; diff > 0.01 || diff < -0.01 {
+			t.Errorf("parseColorAlpha(%q): R=%f, want %f", tt.input, c.R, tt.r)
+		}
+		if diff := c.G - tt.g; diff > 0.01 || diff < -0.01 {
+			t.Errorf("parseColorAlpha(%q): G=%f, want %f", tt.input, c.G, tt.g)
+		}
+		if diff := alpha - tt.alpha; diff > 0.01 || diff < -0.01 {
+			t.Errorf("parseColorAlpha(%q): alpha=%f, want %f", tt.input, alpha, tt.alpha)
+		}
+	}
+}
+
+func TestHSLSpaceSeparated(t *testing.T) {
+	// hsl(120 100% 50%) = pure green, hsl(120 100% 50% / 0.5) = green with alpha.
+	tests := []struct {
+		input string
+		ok    bool
+		alpha float64
+	}{
+		{"hsl(120 100% 50%)", true, 1},
+		{"hsl(120 100% 50% / 0.5)", true, 0.5},
+		{"hsl(120 100% 50% / 50%)", true, 0.5},
+		{"hsla(120 100% 50% / 0.3)", true, 0.3},
+		{"hsl(0, 100%, 50%)", true, 1},
+	}
+	for _, tt := range tests {
+		_, alpha, ok := parseColorAlpha(tt.input)
+		if ok != tt.ok {
+			t.Errorf("parseColorAlpha(%q): ok=%v, want %v", tt.input, ok, tt.ok)
+			continue
+		}
+		if diff := alpha - tt.alpha; diff > 0.01 || diff < -0.01 {
+			t.Errorf("parseColorAlpha(%q): alpha=%f, want %f", tt.input, alpha, tt.alpha)
+		}
+	}
+}
+
 func TestHSLColors(t *testing.T) {
 	tests := []struct {
 		input   string
