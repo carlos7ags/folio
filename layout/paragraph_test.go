@@ -1160,3 +1160,52 @@ func TestPlainPageSplitPreservesWords(t *testing.T) {
 		t.Error("expected words in overflow paragraph")
 	}
 }
+
+func TestParagraphFirstLineIndent(t *testing.T) {
+	text := "Word word word word word word word word word word word word word word word word word word word word."
+	pIndent := NewParagraph(text, font.Helvetica, 12)
+	pIndent.SetFirstLineIndent(80)
+	linesIndent := pIndent.Layout(150)
+
+	pNoIndent := NewParagraph(text, font.Helvetica, 12)
+	linesNoIndent := pNoIndent.Layout(150)
+
+	// Large indent (80pt on 150pt width) should cause more line wrapping.
+	if len(linesIndent) <= len(linesNoIndent) {
+		t.Errorf("indent should cause more wrapping: indented=%d lines, normal=%d lines", len(linesIndent), len(linesNoIndent))
+	}
+}
+
+func TestParagraphEllipsis(t *testing.T) {
+	p := NewParagraph("This is a very long text that should be truncated with an ellipsis", font.Helvetica, 12)
+	p.SetEllipsis(true)
+
+	lines := p.Layout(100)
+	if len(lines) == 0 {
+		t.Fatal("expected at least one line")
+	}
+	// Ellipsis paragraph should not produce more lines than non-ellipsis.
+	pFull := NewParagraph("This is a very long text that should be truncated with an ellipsis", font.Helvetica, 12)
+	linesFull := pFull.Layout(100)
+	if len(lines) > len(linesFull) {
+		t.Errorf("ellipsis should not produce more lines: %d vs %d", len(lines), len(linesFull))
+	}
+}
+
+func TestParagraphWidowsOrphans(t *testing.T) {
+	// Long paragraph that overflows a short page.
+	text := ""
+	for range 20 {
+		text += "Word after word filling up the paragraph to make it overflow the page. "
+	}
+	p := NewParagraph(text, font.Helvetica, 12)
+	p.SetOrphans(2)
+	p.SetWidows(2)
+
+	r := NewRenderer(612, 120, Margins{Top: 20, Bottom: 20, Left: 20, Right: 20})
+	r.Add(p)
+	pages := r.Render()
+	if len(pages) < 2 {
+		t.Fatalf("expected ≥2 pages, got %d", len(pages))
+	}
+}

@@ -195,3 +195,134 @@ func TestGridPercentColumns(t *testing.T) {
 		t.Fatal("expected output")
 	}
 }
+
+func TestGridJustifyContentCenter(t *testing.T) {
+	g := NewGrid()
+	g.SetTemplateColumns([]GridTrack{
+		{Type: GridTrackPx, Value: 100},
+		{Type: GridTrackPx, Value: 100},
+	})
+	g.SetJustifyContent(JustifyCenter)
+	g.AddChild(NewParagraph("A", font.Helvetica, 12))
+	g.AddChild(NewParagraph("B", font.Helvetica, 12))
+
+	// Render through full pipeline to exercise justify-content.
+	r := NewRenderer(612, 792, Margins{Top: 72, Right: 72, Bottom: 72, Left: 72})
+	r.Add(g)
+	pages := r.Render()
+	if len(pages) == 0 {
+		t.Fatal("expected at least 1 page")
+	}
+	b := pages[0].Stream.Bytes()
+	if len(b) == 0 {
+		t.Error("expected content on page")
+	}
+}
+
+func TestGridAlignItemsCenter(t *testing.T) {
+	g := NewGrid()
+	g.SetTemplateColumns([]GridTrack{{Type: GridTrackFr, Value: 1}})
+	g.SetTemplateRows([]GridTrack{{Type: GridTrackPx, Value: 100}})
+	g.SetAlignItems(CrossAlignCenter)
+	g.AddChild(NewParagraph("Short", font.Helvetica, 12))
+
+	plan := g.PlanLayout(LayoutArea{Width: 400, Height: 500})
+	if plan.Status == LayoutNothing {
+		t.Fatal("expected output")
+	}
+	if plan.Consumed < 95 {
+		t.Errorf("explicit 100pt row should consume ~100pt, got %f", plan.Consumed)
+	}
+}
+
+func TestGridPageOverflow(t *testing.T) {
+	g := NewGrid()
+	g.SetTemplateColumns([]GridTrack{{Type: GridTrackFr, Value: 1}})
+	for range 30 {
+		g.AddChild(NewParagraph("Grid row content.", font.Helvetica, 12))
+	}
+
+	r := NewRenderer(612, 200, Margins{Top: 20, Bottom: 20, Left: 20, Right: 20})
+	r.Add(g)
+	pages := r.Render()
+	if len(pages) < 2 {
+		t.Fatalf("expected ≥2 pages for overflowing grid, got %d", len(pages))
+	}
+}
+
+func TestGridMinMaxWidth(t *testing.T) {
+	g := NewGrid()
+	g.SetTemplateColumns([]GridTrack{
+		{Type: GridTrackPx, Value: 100},
+		{Type: GridTrackPx, Value: 150},
+	})
+	g.AddChild(NewParagraph("A", font.Helvetica, 12))
+	g.AddChild(NewParagraph("B", font.Helvetica, 12))
+
+	minW := g.MinWidth()
+	maxW := g.MaxWidth()
+	if minW < 200 {
+		t.Errorf("expected MinWidth ≥ 200, got %f", minW)
+	}
+	if maxW < minW {
+		t.Errorf("MaxWidth (%f) should be ≥ MinWidth (%f)", maxW, minW)
+	}
+}
+
+func TestGridTemplateRowsExplicit(t *testing.T) {
+	g := NewGrid()
+	g.SetTemplateColumns([]GridTrack{{Type: GridTrackFr, Value: 1}})
+	g.SetTemplateRows([]GridTrack{
+		{Type: GridTrackPx, Value: 50},
+		{Type: GridTrackPx, Value: 80},
+	})
+	g.AddChild(NewParagraph("Row1", font.Helvetica, 12))
+	g.AddChild(NewParagraph("Row2", font.Helvetica, 12))
+
+	plan := g.PlanLayout(LayoutArea{Width: 400, Height: 500})
+	if plan.Status == LayoutNothing {
+		t.Fatal("expected output")
+	}
+	if plan.Consumed < 125 || plan.Consumed > 135 {
+		t.Errorf("expected ~130pt for explicit rows 50+80, got %f", plan.Consumed)
+	}
+}
+
+func TestGridRowGapAddsHeight(t *testing.T) {
+	gNoGap := NewGrid()
+	gNoGap.SetTemplateColumns([]GridTrack{{Type: GridTrackFr, Value: 1}})
+	gNoGap.AddChild(NewParagraph("A", font.Helvetica, 12))
+	gNoGap.AddChild(NewParagraph("B", font.Helvetica, 12))
+	planNoGap := gNoGap.PlanLayout(LayoutArea{Width: 400, Height: 500})
+
+	gWithGap := NewGrid()
+	gWithGap.SetTemplateColumns([]GridTrack{{Type: GridTrackFr, Value: 1}})
+	gWithGap.SetRowGap(20)
+	gWithGap.AddChild(NewParagraph("A", font.Helvetica, 12))
+	gWithGap.AddChild(NewParagraph("B", font.Helvetica, 12))
+	planWithGap := gWithGap.PlanLayout(LayoutArea{Width: 400, Height: 500})
+
+	diff := planWithGap.Consumed - planNoGap.Consumed
+	if diff < 15 || diff > 25 {
+		t.Errorf("expected ~20pt difference from row gap, got %f", diff)
+	}
+}
+
+func TestGridLayoutAPI(t *testing.T) {
+	g := NewGrid()
+	g.SetTemplateColumns([]GridTrack{{Type: GridTrackFr, Value: 1}, {Type: GridTrackFr, Value: 1}})
+	g.AddChild(NewParagraph("A", font.Helvetica, 12))
+	g.AddChild(NewParagraph("B", font.Helvetica, 12))
+
+	lines := g.Layout(400)
+	if len(lines) == 0 {
+		t.Fatal("expected lines from Grid.Layout")
+	}
+	totalH := 0.0
+	for _, l := range lines {
+		totalH += l.Height
+	}
+	if totalH <= 0 {
+		t.Error("expected positive total height")
+	}
+}
