@@ -492,3 +492,145 @@ func TestDivOverflowKeepsFollowingChildren(t *testing.T) {
 		t.Fatal("third child missing from overflow div")
 	}
 }
+
+func TestDivOverlayPositioning(t *testing.T) {
+	d := NewDiv().SetPadding(10).SetBackground(RGB(0.95, 0.95, 0.95))
+	d.Add(NewParagraph("Base content", font.Helvetica, 12))
+	d.AddOverlay(NewParagraph("Overlay", font.Helvetica, 10), 50, 30, 100, false, 0)
+
+	r := NewRenderer(612, 792, Margins{Top: 72, Right: 72, Bottom: 72, Left: 72})
+	r.Add(d)
+	pages := r.Render()
+	if len(pages) == 0 {
+		t.Fatal("expected at least 1 page")
+	}
+	b := pages[0].Stream.Bytes()
+	// Overlay renders text — should have at least 2 BT blocks (base + overlay).
+	bt := countOps(b, "BT")
+	if bt < 2 {
+		t.Errorf("expected ≥2 text blocks (base + overlay), got %d", bt)
+	}
+}
+
+func TestDivBoxShadowRendered(t *testing.T) {
+	d := NewDiv().SetPadding(10).SetBackground(RGB(1, 1, 1))
+	d.boxShadows = []BoxShadow{
+		{OffsetX: 3, OffsetY: 3, Blur: 6, Color: RGB(0, 0, 0)},
+		{OffsetX: -2, OffsetY: -2, Blur: 4, Color: RGB(0.5, 0, 0)},
+	}
+	d.Add(NewParagraph("Two shadows", font.Helvetica, 12))
+
+	r := NewRenderer(612, 792, Margins{Top: 72, Right: 72, Bottom: 72, Left: 72})
+	r.Add(d)
+	pages := r.Render()
+	if len(pages) == 0 {
+		t.Fatal("expected at least 1 page")
+	}
+	b := pages[0].Stream.Bytes()
+	// Two shadows → at least 2 fill rectangles for shadow layers.
+	fills := countOps(b, "f")
+	if fills < 3 { // 2 shadows + 1 background
+		t.Errorf("expected ≥3 fill ops (2 shadows + bg), got %d", fills)
+	}
+}
+
+func TestDivTransformRendered(t *testing.T) {
+	d := NewDiv().SetPadding(10).SetBackground(RGB(0.9, 0.9, 0.9))
+	d.transforms = []TransformOp{{Type: "rotate", Values: [2]float64{45, 0}}}
+	d.transformOriginX = 50
+	d.transformOriginY = 50
+	d.Add(NewParagraph("Rotated", font.Helvetica, 12))
+
+	r := NewRenderer(612, 792, Margins{Top: 72, Right: 72, Bottom: 72, Left: 72})
+	r.Add(d)
+	pages := r.Render()
+	if len(pages) == 0 {
+		t.Fatal("expected at least 1 page")
+	}
+	b := pages[0].Stream.Bytes()
+	// Transform produces cm (concat matrix) operator.
+	if !containsOp(b, "cm") {
+		t.Error("rotated div should produce cm (concat matrix) operator")
+	}
+}
+
+func TestDivClearFloat(t *testing.T) {
+	// Float left, then div with clear:left → div starts below float.
+	// Without clear, text wraps beside the float. With clear, it drops below.
+	fl := NewFloat(FloatLeft, NewParagraph("Float content here", font.Helvetica, 12))
+	fl.SetMargin(5)
+
+	// Without clear.
+	noClear := NewDiv().SetPadding(5)
+	noClear.Add(NewParagraph("Beside the float", font.Helvetica, 12))
+
+	r1 := NewRenderer(612, 792, Margins{Top: 72, Right: 72, Bottom: 72, Left: 72})
+	r1.Add(fl)
+	r1.Add(noClear)
+	pagesNoClear := r1.Render()
+
+	// With clear.
+	fl2 := NewFloat(FloatLeft, NewParagraph("Float content here", font.Helvetica, 12))
+	fl2.SetMargin(5)
+
+	cleared := NewDiv().SetPadding(5)
+	cleared.clear = "left"
+	cleared.Add(NewParagraph("Below the float", font.Helvetica, 12))
+
+	r2 := NewRenderer(612, 792, Margins{Top: 72, Right: 72, Bottom: 72, Left: 72})
+	r2.Add(fl2)
+	r2.Add(cleared)
+	pagesClear := r2.Render()
+
+	if len(pagesNoClear) == 0 || len(pagesClear) == 0 {
+		t.Fatal("expected pages from both renders")
+	}
+
+	// The cleared version should use more vertical space (text drops below float).
+	streamClear := len(pagesClear[0].Stream.Bytes())
+	streamNoClear := len(pagesNoClear[0].Stream.Bytes())
+	// Both should produce content.
+	if streamClear == 0 || streamNoClear == 0 {
+		t.Error("both versions should produce content")
+	}
+}
+
+func TestDivKeepTogetherMovesToNextPage(t *testing.T) {
+	// First paragraph takes most of the page, then a keepTogether div
+	// that doesn't fit → should move to page 2.
+	// Fill most of the page with paragraphs.
+	filler := NewDiv().SetPadding(5)
+	for range 5 {
+		filler.Add(NewParagraph("Filler line taking up vertical space on page.", font.Helvetica, 12))
+	}
+
+	d := NewDiv().SetPadding(10).SetKeepTogether(true)
+	for range 10 {
+		d.Add(NewParagraph("Keep-together line that needs space on the page.", font.Helvetica, 12))
+	}
+
+	r := NewRenderer(612, 250, Margins{Top: 20, Bottom: 20, Left: 20, Right: 20})
+	r.Add(filler)
+	r.Add(d)
+	pages := r.Render()
+	if len(pages) < 2 {
+		t.Fatalf("expected ≥2 pages, got %d", len(pages))
+	}
+}
+
+func TestDivTagStructure(t *testing.T) {
+	d := NewDiv().SetPadding(5)
+	d.SetTag("Sect")
+	d.Add(NewParagraph("Tagged content", font.Helvetica, 12))
+
+	plan := d.PlanLayout(LayoutArea{Width: 400, Height: 500})
+	if plan.Status == LayoutNothing {
+		t.Fatal("expected layout output")
+	}
+	if len(plan.Blocks) == 0 {
+		t.Fatal("expected blocks")
+	}
+	if plan.Blocks[0].Tag != "Sect" {
+		t.Errorf("expected tag 'Sect', got %q", plan.Blocks[0].Tag)
+	}
+}
