@@ -19,7 +19,7 @@ forms, digital signatures, barcodes, page import, and PDF/A compliance.
 go get github.com/carlos7ags/folio
 ```
 
-Requires Go 1.21+. One external dependency: `golang.org/x/image`.
+Requires Go 1.25+. Two external dependencies: `golang.org/x/image` and `golang.org/x/net`.
 
 ---
 
