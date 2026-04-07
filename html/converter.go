@@ -376,32 +376,37 @@ func (c *converter) walkChildren(n *html.Node, parentStyle computedStyle) []layo
 	for child := n.FirstChild; child != nil; child = child.NextSibling {
 		childElems := c.convertNode(child, parentStyle)
 		for _, e := range childElems {
-			// Collapse margins: reduce this element's SpaceBefore if the
-			// previous element's SpaceAfter overlaps.
-			if prevMarginBottom > 0 {
-				if sb, ok := e.(interface{ GetSpaceBefore() float64 }); ok {
-					before := sb.GetSpaceBefore()
-					if before > 0 {
-						// Collapse: use max(prevBottom, thisBefore) instead of sum.
-						collapsed := math.Max(prevMarginBottom, before)
-						reduction := prevMarginBottom + before - collapsed
-						if reduction > 0 {
-							if setter, ok2 := e.(interface{ SetSpaceBefore(float64) }); ok2 {
-								setter.SetSpaceBefore(before - reduction)
-							}
-						}
-					}
-				}
-			}
-			// Track this element's SpaceAfter for next iteration.
-			prevMarginBottom = 0
-			if sa, ok := e.(interface{ GetSpaceAfter() float64 }); ok {
-				prevMarginBottom = sa.GetSpaceAfter()
-			}
+			prevMarginBottom = collapseMargins(prevMarginBottom, e)
 			elems = append(elems, e)
 		}
 	}
 	return elems
+}
+
+// collapseMargins implements adjacent-sibling margin collapsing for
+// block-level layout elements. Given the previous element's SpaceAfter,
+// it reduces the next element's SpaceBefore so the gap between them is
+// max(prevAfter, nextBefore) instead of their sum, then returns the
+// SpaceAfter of e for use as prevAfter in the next iteration.
+func collapseMargins(prevAfter float64, e layout.Element) float64 {
+	if prevAfter > 0 {
+		if sb, ok := e.(interface{ GetSpaceBefore() float64 }); ok {
+			before := sb.GetSpaceBefore()
+			if before > 0 {
+				collapsed := math.Max(prevAfter, before)
+				reduction := prevAfter + before - collapsed
+				if reduction > 0 {
+					if setter, ok2 := e.(interface{ SetSpaceBefore(float64) }); ok2 {
+						setter.SetSpaceBefore(before - reduction)
+					}
+				}
+			}
+		}
+	}
+	if sa, ok := e.(interface{ GetSpaceAfter() float64 }); ok {
+		return sa.GetSpaceAfter()
+	}
+	return 0
 }
 
 // convertNode converts a single HTML node into zero or more layout elements.

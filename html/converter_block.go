@@ -85,17 +85,7 @@ func (c *converter) narrowContainerWidth(style computedStyle) func() {
 // convertBlock wraps children in a Div container.
 func (c *converter) convertBlock(n *html.Node, style computedStyle) []layout.Element {
 	restore := c.narrowContainerWidth(style)
-	children := c.walkChildren(n, style)
-	restore()
 
-	// Allow empty divs that have visual properties (height, background, border).
-	hasVisualBox := style.Height != nil || style.BackgroundColor != nil ||
-		style.hasBorder() || style.hasPadding()
-	if len(children) == 0 && !hasVisualBox {
-		return nil
-	}
-
-	// If column-count > 1, distribute children across columns.
 	// Auto-calculate column count from column-width if column-count is not set.
 	if style.ColumnCount <= 1 && style.ColumnWidth > 0 && c.containerWidth > 0 {
 		gap := style.ColumnGap
@@ -107,8 +97,49 @@ func (c *converter) convertBlock(n *html.Node, style computedStyle) []layout.Ele
 			style.ColumnCount = 1
 		}
 	}
-	if style.ColumnCount > 1 && len(children) > 0 {
-		return c.buildColumns(children, style)
+
+	// Multi-column container: walk children with segmentation at
+	// column-span: all boundaries. A column-spanning child breaks the
+	// column flow; content before and after is balanced in independent
+	// column segments.
+	//
+	// TODO: a multicol container does not currently carry its own visual
+	// box (background, border, padding) — segments are returned directly
+	// as siblings, so any box-decoration on the container element is
+	// dropped. To fix, wrap the segments in a Div with applyDivStyles.
+	// Pre-existing limitation, not introduced by column-span support.
+	if style.ColumnCount > 1 {
+		segments := c.buildMulticolSegments(n, style)
+		restore()
+		if len(segments) > 0 {
+			return segments
+		}
+		// All children rendered to nothing. We must NOT walk children
+		// again here: buildMulticolSegments has already invoked
+		// convertNode on every child, and any side effects (counter
+		// increments, absolute positioning, font registration, etc.)
+		// have already fired. Re-walking would double-apply them.
+		hasVisualBox := style.Height != nil || style.BackgroundColor != nil ||
+			style.hasBorder() || style.hasPadding()
+		if !hasVisualBox {
+			return nil
+		}
+		div := layout.NewDiv()
+		applyDivStyles(div, style, c.containerWidth)
+		if bgImg := c.resolveBackgroundImage(style); bgImg != nil {
+			div.SetBackgroundImage(bgImg)
+		}
+		return []layout.Element{div}
+	}
+
+	children := c.walkChildren(n, style)
+	restore()
+
+	// Allow empty divs that have visual properties (height, background, border).
+	hasVisualBox := style.Height != nil || style.BackgroundColor != nil ||
+		style.hasBorder() || style.hasPadding()
+	if len(children) == 0 && !hasVisualBox {
+		return nil
 	}
 
 	// If no box-model properties, skip the Div wrapper.
@@ -291,8 +322,75 @@ func applyDivStyles(div *layout.Div, style computedStyle, containerWidth float64
 	}
 }
 
-// buildColumns creates a layout.Columns element from children and style.
-func (c *converter) buildColumns(children []layout.Element, style computedStyle) []layout.Element {
+// buildMulticolSegments walks the direct children of a multi-column parent,
+// segmenting the flow at children with column-span: all. Each contiguous run
+// of non-spanning children becomes its own layout.Columns element; spanning
+// children are emitted between them as full-width siblings. The result is a
+// sequence of layout elements that stack vertically in the parent.
+//
+// Per the CSS Multi-column Layout spec, column-span: all only takes effect
+// on direct children of a multicol container, so we inspect only the
+// immediate child list (n.FirstChild..NextSibling). A column-span: all
+// declaration on a deeper descendant is ignored.
+//
+// Invariant: this function relies on computeElementStyle being side-effect
+// free. The peek below recomputes the child's style purely to detect
+// column-span before convertNode runs the conversion (which itself
+// recomputes the style as part of normal element handling). If
+// computeElementStyle ever acquires side effects (counter increments, font
+// registration, etc.) the peek would double-apply them and corrupt state.
+func (c *converter) buildMulticolSegments(n *html.Node, style computedStyle) []layout.Element {
+	var result []layout.Element
+	var segment []layout.Element
+	var prevMarginBottom float64
+
+	flushSegment := func() {
+		if len(segment) == 0 {
+			return
+		}
+		result = append(result, c.buildColumnsSegment(segment, style))
+		segment = nil
+		prevMarginBottom = 0
+	}
+
+	for child := n.FirstChild; child != nil; child = child.NextSibling {
+		// Only element nodes can carry column-span: all. Text nodes
+		// (whitespace, content) become regular segment content.
+		isSpanAll := false
+		if child.Type == html.ElementNode {
+			// Pure peek — see invariant note above.
+			childStyle := c.computeElementStyle(child, style)
+			isSpanAll = childStyle.ColumnSpan == "all"
+		}
+
+		childElems := c.convertNode(child, style)
+		if len(childElems) == 0 {
+			// Child rendered to nothing (display:none, comment,
+			// empty text node, absolute-positioned, etc.). Skip
+			// without disturbing segments — even if isSpanAll is
+			// true, an invisible spanning child must not flush.
+			continue
+		}
+
+		if isSpanAll {
+			flushSegment()
+			result = append(result, childElems...)
+			continue
+		}
+
+		for _, e := range childElems {
+			prevMarginBottom = collapseMargins(prevMarginBottom, e)
+			segment = append(segment, e)
+		}
+	}
+	flushSegment()
+	return result
+}
+
+// buildColumnsSegment creates a single layout.Columns element from a slice
+// of children, applying gap and column-rule from the parent multicol style.
+// Children are distributed round-robin across columns.
+func (c *converter) buildColumnsSegment(children []layout.Element, style computedStyle) layout.Element {
 	cols := layout.NewColumns(style.ColumnCount)
 	if style.ColumnGap > 0 {
 		cols.SetGap(style.ColumnGap)
@@ -304,13 +402,10 @@ func (c *converter) buildColumns(children []layout.Element, style computedStyle)
 			Style: style.ColumnRuleStyle,
 		})
 	}
-
-	// Distribute children round-robin across columns.
 	for i, child := range children {
 		cols.Add(i%style.ColumnCount, child)
 	}
-
-	return []layout.Element{cols}
+	return cols
 }
 
 // buildCellBorders creates layout.CellBorders from a computed style.

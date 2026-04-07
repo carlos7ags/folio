@@ -4363,6 +4363,280 @@ func TestColumnsShorthand(t *testing.T) {
 	}
 }
 
+func TestCSSColumnSpanAll(t *testing.T) {
+	// A multi-column container with a column-span: all child should split
+	// into three siblings: a Columns segment for the content before the
+	// spanning child, the spanning child itself as a full-width element,
+	// and a second Columns segment for the content after.
+	htmlStr := `<div style="column-count: 2; column-gap: 20px;">` +
+		`<p>Before paragraph one.</p>` +
+		`<p>Before paragraph two.</p>` +
+		`<h3 style="column-span: all">Spanning heading</h3>` +
+		`<p>After paragraph one.</p>` +
+		`<p>After paragraph two.</p>` +
+		`</div>`
+	elems, err := Convert(htmlStr, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(elems) != 3 {
+		t.Fatalf("expected 3 segmented elements (columns, span, columns), got %d", len(elems))
+	}
+	if _, ok := elems[0].(*layout.Columns); !ok {
+		t.Errorf("expected elems[0] to be *layout.Columns, got %T", elems[0])
+	}
+	if _, ok := elems[2].(*layout.Columns); !ok {
+		t.Errorf("expected elems[2] to be *layout.Columns, got %T", elems[2])
+	}
+	// The middle element must NOT be a Columns — wrapping the spanning
+	// element in a single-item Columns would mean the column-span is
+	// silently being ignored.
+	if _, ok := elems[1].(*layout.Columns); ok {
+		t.Errorf("expected elems[1] to be a full-width spanning element, got *layout.Columns")
+	}
+	// And it must not be nil — a regression that drops the spanning
+	// child entirely should not slip through.
+	if elems[1] == nil {
+		t.Errorf("expected elems[1] to be a non-nil spanning element")
+	}
+	// Sanity: everything lays out.
+	for i, e := range elems {
+		plan := e.PlanLayout(layout.LayoutArea{Width: 600, Height: 2000})
+		if plan.Status != layout.LayoutFull {
+			t.Errorf("elems[%d]: expected LayoutFull, got %v", i, plan.Status)
+		}
+	}
+}
+
+func TestCSSColumnSpanAllLeading(t *testing.T) {
+	// Spanning element as the first child: there should be no leading
+	// Columns segment; the result is the span followed by one Columns.
+	htmlStr := `<div style="column-count: 2">` +
+		`<h3 style="column-span: all">Heading</h3>` +
+		`<p>One.</p><p>Two.</p>` +
+		`</div>`
+	elems, err := Convert(htmlStr, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(elems) != 2 {
+		t.Fatalf("expected 2 elements, got %d", len(elems))
+	}
+	// First element must NOT be a Columns — a regression that wraps
+	// the spanning heading in a single-item Columns would still produce
+	// 2 elements but be incorrect.
+	if _, ok := elems[0].(*layout.Columns); ok {
+		t.Errorf("expected elems[0] to be a full-width spanning element, got *layout.Columns")
+	}
+	if _, ok := elems[1].(*layout.Columns); !ok {
+		t.Errorf("expected trailing Columns segment, got %T", elems[1])
+	}
+}
+
+func TestCSSColumnSpanAllConsecutive(t *testing.T) {
+	// Two consecutive column-span: all children should produce two
+	// adjacent spanning elements with no empty Columns segment between
+	// them. This exercises flushSegment being called when the segment
+	// is already empty.
+	htmlStr := `<div style="column-count: 2">` +
+		`<p>Before.</p>` +
+		`<h3 style="column-span: all">First span</h3>` +
+		`<h3 style="column-span: all">Second span</h3>` +
+		`<p>After.</p>` +
+		`</div>`
+	elems, err := Convert(htmlStr, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Expected sequence: Columns, span1, span2, Columns. No empty
+	// Columns between the two spans.
+	if len(elems) != 4 {
+		t.Fatalf("expected 4 elements (cols, span, span, cols), got %d", len(elems))
+	}
+	if _, ok := elems[0].(*layout.Columns); !ok {
+		t.Errorf("expected elems[0] Columns, got %T", elems[0])
+	}
+	if _, ok := elems[1].(*layout.Columns); ok {
+		t.Errorf("elems[1] should be a spanning element, got *layout.Columns")
+	}
+	if _, ok := elems[2].(*layout.Columns); ok {
+		t.Errorf("elems[2] should be a spanning element, got *layout.Columns")
+	}
+	if _, ok := elems[3].(*layout.Columns); !ok {
+		t.Errorf("expected elems[3] Columns, got %T", elems[3])
+	}
+}
+
+func TestCSSColumnSpanAllConsecutiveAtBoundary(t *testing.T) {
+	// Two consecutive column-span: all children at the very top of the
+	// container, with no leading content. There should be no leading
+	// empty Columns.
+	htmlStr := `<div style="column-count: 2">` +
+		`<h3 style="column-span: all">First</h3>` +
+		`<h3 style="column-span: all">Second</h3>` +
+		`<p>Trailing.</p>` +
+		`</div>`
+	elems, err := Convert(htmlStr, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(elems) != 3 {
+		t.Fatalf("expected 3 elements (span, span, cols), got %d", len(elems))
+	}
+	if _, ok := elems[0].(*layout.Columns); ok {
+		t.Errorf("elems[0] should be a spanning element, got *layout.Columns")
+	}
+	if _, ok := elems[1].(*layout.Columns); ok {
+		t.Errorf("elems[1] should be a spanning element, got *layout.Columns")
+	}
+	if _, ok := elems[2].(*layout.Columns); !ok {
+		t.Errorf("expected elems[2] Columns, got %T", elems[2])
+	}
+}
+
+func TestCSSColumnSpanAllAutoColumnCount(t *testing.T) {
+	// column-span: all should also work when the column count is
+	// derived from column-width rather than declared explicitly.
+	htmlStr := `<div style="column-width: 80px">` +
+		`<p>One.</p><p>Two.</p>` +
+		`<h3 style="column-span: all">Span</h3>` +
+		`<p>Three.</p>` +
+		`</div>`
+	elems, err := Convert(htmlStr, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(elems) != 3 {
+		t.Fatalf("expected 3 elements, got %d", len(elems))
+	}
+	if _, ok := elems[1].(*layout.Columns); ok {
+		t.Errorf("elems[1] should be the spanning element, got *layout.Columns")
+	}
+}
+
+func TestCSSColumnSpanAllOnNonDirectDescendant(t *testing.T) {
+	// Per spec, column-span: all only takes effect on direct children
+	// of the multicol container. A column-span declaration on a deeper
+	// descendant should be ignored — the wrapper section becomes a
+	// regular member of a single Columns segment.
+	htmlStr := `<div style="column-count: 2">` +
+		`<section>` +
+		`<h3 style="column-span: all">Buried heading</h3>` +
+		`<p>Body.</p>` +
+		`</section>` +
+		`</div>`
+	elems, err := Convert(htmlStr, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The whole flow should be a single Columns — no segmentation,
+	// because the spanning child is not a direct child of the multicol
+	// container.
+	if len(elems) != 1 {
+		t.Fatalf("expected 1 element (single Columns), got %d", len(elems))
+	}
+	if _, ok := elems[0].(*layout.Columns); !ok {
+		t.Errorf("expected single *layout.Columns, got %T", elems[0])
+	}
+}
+
+func TestCSSColumnSpanAllDisplayNone(t *testing.T) {
+	// A column-span: all child that is also display: none renders to
+	// nothing and must NOT cause a spurious segment flush. The result
+	// should be a single Columns containing the surrounding paragraphs.
+	htmlStr := `<div style="column-count: 2">` +
+		`<p>One.</p>` +
+		`<h3 style="column-span: all; display: none">Hidden span</h3>` +
+		`<p>Two.</p>` +
+		`</div>`
+	elems, err := Convert(htmlStr, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(elems) != 1 {
+		t.Fatalf("expected 1 element (single Columns), got %d", len(elems))
+	}
+	if _, ok := elems[0].(*layout.Columns); !ok {
+		t.Errorf("expected *layout.Columns, got %T", elems[0])
+	}
+}
+
+func TestCSSColumnSpanAllWithColumnRule(t *testing.T) {
+	// Smoke test: column-rule on a multicol container with a spanning
+	// child should not error. Each segment carries the rule; the
+	// spanning element does not.
+	htmlStr := `<div style="column-count: 2; column-rule: 1px solid gray">` +
+		`<p>Before.</p>` +
+		`<h3 style="column-span: all">Span</h3>` +
+		`<p>After.</p>` +
+		`</div>`
+	elems, err := Convert(htmlStr, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(elems) != 3 {
+		t.Fatalf("expected 3 elements, got %d", len(elems))
+	}
+	for i, e := range elems {
+		plan := e.PlanLayout(layout.LayoutArea{Width: 600, Height: 2000})
+		if plan.Status != layout.LayoutFull {
+			t.Errorf("elems[%d]: expected LayoutFull, got %v", i, plan.Status)
+		}
+	}
+}
+
+func TestCSSColumnSpanEmptyMulticolDoesNotDoubleWalk(t *testing.T) {
+	// Regression for the empty fall-through bug: when a multi-column
+	// container's children all render to nothing in normal flow, the
+	// converter must not re-walk them via walkChildren after
+	// buildMulticolSegments has already run convertNode on each one.
+	// Re-walking would double-fire side effects on c.absolutes,
+	// counters, fonts, etc.
+	//
+	// Here the only child is position:absolute, which appends to
+	// c.absolutes once and returns nil from convertElement. A re-walk
+	// would push the same element a second time.
+	htmlStr := `<div style="column-count: 2; border: 1px solid">` +
+		`<div style="position: absolute; top: 10px; left: 10px; width: 50px">abs</div>` +
+		`</div>`
+	result, err := ConvertFull(htmlStr, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Absolutes) != 1 {
+		t.Errorf("expected exactly 1 absolute element, got %d (a re-walk would produce 2)", len(result.Absolutes))
+	}
+	// The container has a border, so a single empty Div should be
+	// returned in the normal flow.
+	if len(result.Elements) != 1 {
+		t.Errorf("expected 1 flow element (the bordered empty Div), got %d", len(result.Elements))
+	}
+}
+
+func TestCSSColumnSpanAllTrailing(t *testing.T) {
+	// Spanning element as the last child: there should be no trailing
+	// Columns segment.
+	htmlStr := `<div style="column-count: 2">` +
+		`<p>One.</p><p>Two.</p>` +
+		`<h3 style="column-span: all">Heading</h3>` +
+		`</div>`
+	elems, err := Convert(htmlStr, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(elems) != 2 {
+		t.Fatalf("expected 2 elements, got %d", len(elems))
+	}
+	if _, ok := elems[0].(*layout.Columns); !ok {
+		t.Errorf("expected leading Columns segment, got %T", elems[0])
+	}
+	// Trailing element must NOT be a Columns — symmetric to the
+	// leading case.
+	if _, ok := elems[1].(*layout.Columns); ok {
+		t.Errorf("expected elems[1] to be a full-width spanning element, got *layout.Columns")
+	}
+}
+
 func TestTextDecorationColorAndStyle(t *testing.T) {
 	htmlStr := `<p style="text-decoration: underline; text-decoration-color: red; text-decoration-style: dashed">Decorated text</p>`
 	elems, err := Convert(htmlStr, nil)
