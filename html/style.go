@@ -175,6 +175,7 @@ type computedStyle struct {
 	ColumnRuleWidth float64
 	ColumnRuleStyle string // "solid", "dashed", "dotted"
 	ColumnRuleColor layout.Color
+	ColumnSpan      string // "none" (default), "all"
 
 	// Text decoration extensions
 	TextDecorationColor *layout.Color

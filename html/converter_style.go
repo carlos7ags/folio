@@ -807,6 +807,13 @@ func (c *converter) applyProperty(prop, val string, style *computedStyle) {
 		if c, ok := parseColor(val); ok {
 			style.ColumnRuleColor = c
 		}
+	case "column-span":
+		switch strings.TrimSpace(strings.ToLower(val)) {
+		case "all":
+			style.ColumnSpan = "all"
+		case "none":
+			style.ColumnSpan = "none"
+		}
 
 	// CSS transforms
 	case "transform":
