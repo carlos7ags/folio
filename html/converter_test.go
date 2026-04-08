@@ -5307,6 +5307,245 @@ func TestCSSGridAutoRows(t *testing.T) {
 	}
 }
 
+func TestCSSGridExplicitHeightIsHonored(t *testing.T) {
+	// Regression for issue #129: a grid container with height: 120px
+	// must be forced to that height, not grow with content. 120px = 90pt.
+	htmlStr := `<div style="display: grid; grid-template-columns: 1fr 1fr; height: 120px">` +
+		`<div>A</div><div>B</div>` +
+		`</div>`
+	elems, err := Convert(htmlStr, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan := elems[0].PlanLayout(layout.LayoutArea{Width: 400, Height: 800})
+	if len(plan.Blocks) == 0 {
+		t.Fatal("no blocks")
+	}
+	h := plan.Blocks[0].Height
+	if h < 88 || h > 92 {
+		t.Errorf("grid height = %.2f, want ~90 (120px honored)", h)
+	}
+}
+
+func TestCSSGridJustifyItemsCenter(t *testing.T) {
+	// Regression for issue #129: justify-items: center on a grid
+	// container should shrink items horizontally to their content
+	// width and center them within the cell. The child divs use
+	// border + padding so they are real Divs (not unwrapped to plain
+	// paragraphs), which means they would otherwise fill the cell
+	// width at layout time.
+	htmlStr := `<div style="display: grid; grid-template-columns: 1fr 1fr; justify-items: center">` +
+		`<div style="border: 1px solid #000; padding: 2px 6px">A</div>` +
+		`<div style="border: 1px solid #000; padding: 2px 6px">B</div>` +
+		`</div>`
+	elems, err := Convert(htmlStr, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan := elems[0].PlanLayout(layout.LayoutArea{Width: 400, Height: 800})
+	gridBlock := plan.Blocks[0]
+	if len(gridBlock.Children) < 2 {
+		t.Fatalf("expected 2 children, got %d", len(gridBlock.Children))
+	}
+	// Each cell is 200pt wide. Without the fix, bordered Divs fill
+	// the full 200pt. With the fix, they take their content width
+	// (well under 100pt) and are centered within the 200pt cell.
+	for i, child := range gridBlock.Children {
+		if child.Width > 100 {
+			t.Errorf("child %d: width = %.2f, want < 100 (shrunk to content)", i, child.Width)
+		}
+		cellLeftEdge := float64(i) * 200
+		inCellX := child.X - cellLeftEdge
+		if inCellX < 20 {
+			t.Errorf("child %d: X = %.2f, cell-relative X = %.2f, want > 20 (centered horizontally)", i, child.X, inCellX)
+		}
+	}
+}
+
+func TestCSSGridAlignItemsCenterWithHeight(t *testing.T) {
+	// Regression for issue #129: align-items: center with a definite
+	// container height should distribute rows to fill the container
+	// and vertically center items within their cells.
+	// Grid inner height = 90pt. 1 row stretched to 90pt. Text content
+	// ≈ 14.4pt (12pt font × 1.2 line height). Expected Y ≈ (90 −
+	// 14.4) / 2 = 37.8pt. Tight ±3pt band catches off-by-one
+	// regressions.
+	htmlStr := `<div style="display: grid; grid-template-columns: 1fr 1fr; height: 120px; align-items: center">` +
+		`<div>A</div><div>B</div>` +
+		`</div>`
+	elems, err := Convert(htmlStr, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan := elems[0].PlanLayout(layout.LayoutArea{Width: 400, Height: 800})
+	gridBlock := plan.Blocks[0]
+	if len(gridBlock.Children) < 2 {
+		t.Fatalf("expected 2 children, got %d", len(gridBlock.Children))
+	}
+	for i, child := range gridBlock.Children {
+		if child.Y < 35 || child.Y > 40 {
+			t.Errorf("child %d: Y = %.2f, want 35..40 (centered, ~37.8)", i, child.Y)
+		}
+	}
+}
+
+func TestCSSGridJustifyItemsEnd(t *testing.T) {
+	// justify-items: end should place items at the right edge of the
+	// cell, shrunk to their content width.
+	htmlStr := `<div style="display: grid; grid-template-columns: 1fr 1fr; justify-items: end">` +
+		`<div style="border: 1px solid #000; padding: 2px 6px">A</div>` +
+		`<div style="border: 1px solid #000; padding: 2px 6px">B</div>` +
+		`</div>`
+	elems, err := Convert(htmlStr, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan := elems[0].PlanLayout(layout.LayoutArea{Width: 400, Height: 800})
+	gridBlock := plan.Blocks[0]
+	// Each cell is 200pt wide. With justify-items: end, each item's
+	// right edge should touch the cell's right edge.
+	for i, child := range gridBlock.Children {
+		cellRight := float64(i+1) * 200
+		itemRight := child.X + child.Width
+		if itemRight < cellRight-2 || itemRight > cellRight+2 {
+			t.Errorf("child %d: right edge %.2f, want ~%.0f (end-aligned)", i, itemRight, cellRight)
+		}
+	}
+}
+
+func TestCSSGridJustifyItemsStart(t *testing.T) {
+	// justify-items: start should leave items at the left edge of
+	// the cell (no offset), still shrunk to content width.
+	htmlStr := `<div style="display: grid; grid-template-columns: 1fr 1fr; justify-items: start">` +
+		`<div style="border: 1px solid #000; padding: 2px 6px">A</div>` +
+		`<div style="border: 1px solid #000; padding: 2px 6px">B</div>` +
+		`</div>`
+	elems, err := Convert(htmlStr, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan := elems[0].PlanLayout(layout.LayoutArea{Width: 400, Height: 800})
+	gridBlock := plan.Blocks[0]
+	for i, child := range gridBlock.Children {
+		cellLeft := float64(i) * 200
+		if child.X < cellLeft-1 || child.X > cellLeft+1 {
+			t.Errorf("child %d: X = %.2f, want ~%.0f (start-aligned)", i, child.X, cellLeft)
+		}
+		// Still shrunk to content.
+		if child.Width > 100 {
+			t.Errorf("child %d: width = %.2f, want < 100", i, child.Width)
+		}
+	}
+}
+
+func TestCSSGridExplicitRowTrackDoesNotStretch(t *testing.T) {
+	// Regression for audit blocker 1: a row with an explicit px track
+	// must NOT be stretched by the implicit row-stretching pass.
+	// Grid template: 60px auto; height: 200px = 150pt.
+	// With correct behavior: row 0 stays at 60px = 45pt, row 1 gets
+	// the remaining ~105pt.
+	// With buggy behavior: both rows split the leftover evenly.
+	htmlStr := `<div style="display: grid; grid-template-columns: 1fr; grid-template-rows: 60px auto; height: 200px">` +
+		`<div>A</div>` +
+		`<div>B</div>` +
+		`</div>`
+	elems, err := Convert(htmlStr, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan := elems[0].PlanLayout(layout.LayoutArea{Width: 400, Height: 800})
+	gridBlock := plan.Blocks[0]
+	if len(gridBlock.Children) < 2 {
+		t.Fatalf("expected 2 children, got %d", len(gridBlock.Children))
+	}
+	// Row 0 Y = 0, row 1 Y = 45 (60px). If row 0 were incorrectly
+	// stretched, row 1's Y would be greater than 45.
+	row1Y := gridBlock.Children[1].Y
+	if row1Y < 44 || row1Y > 46 {
+		t.Errorf("row 1 Y = %.2f, want ~45 (row 0 must not stretch past 60px)", row1Y)
+	}
+}
+
+func TestCSSGridExplicitAlignContentFlexStartDoesNotStretch(t *testing.T) {
+	// Regression for audit blocker 2: `align-content: flex-start` is
+	// an explicit CSS value that packs rows to the top and leaves
+	// leftover space at the bottom. It must be distinguishable from
+	// the CSS initial "normal" (which stretches).
+	//
+	// With explicit flex-start on a 120px grid and small items, rows
+	// stay at natural height and items sit near the top.
+	htmlStr := `<div style="display: grid; grid-template-columns: 1fr 1fr; height: 120px; align-content: flex-start">` +
+		`<div>A</div><div>B</div>` +
+		`</div>`
+	elems, err := Convert(htmlStr, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan := elems[0].PlanLayout(layout.LayoutArea{Width: 400, Height: 800})
+	gridBlock := plan.Blocks[0]
+	for i, child := range gridBlock.Children {
+		// Natural height ~14.4pt, no stretching, no align-items.
+		// Y should be near 0, not near 37 (stretched center).
+		if child.Y > 2 {
+			t.Errorf("child %d: Y = %.2f, want near 0 (align-content: flex-start, no stretch)", i, child.Y)
+		}
+	}
+}
+
+func TestCSSGridEmptyWithExplicitHeight(t *testing.T) {
+	// Regression for audit nice-to-have #12: a grid with zero children
+	// and an explicit height must render at its declared height (not
+	// collapse to just padding).
+	htmlStr := `<div style="display: grid; grid-template-columns: 1fr 1fr; height: 120px; border: 1px solid #000"></div>`
+	elems, err := Convert(htmlStr, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan := elems[0].PlanLayout(layout.LayoutArea{Width: 400, Height: 800})
+	if len(plan.Blocks) == 0 {
+		t.Fatal("expected at least one block for empty grid")
+	}
+	h := plan.Blocks[0].Height
+	if h < 88 || h > 92 {
+		t.Errorf("empty grid height = %.2f, want ~90 (120px honored)", h)
+	}
+}
+
+func TestCSSGridJustifyAndAlignItemsCenterWithHeight(t *testing.T) {
+	// The full #126 Test 8 scenario: justify-items, align-items, and
+	// a definite container height combined. Bordered item Divs shrink
+	// to content and center horizontally and vertically.
+	htmlStr := `<div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; height: 120px; justify-items: center; align-items: center; padding: 8px">` +
+		`<div style="border: 1px solid #000; padding: 2px 6px">Alpha</div>` +
+		`<div style="border: 1px solid #000; padding: 2px 6px">Beta</div>` +
+		`<div style="border: 1px solid #000; padding: 2px 6px">Gamma</div>` +
+		`<div style="border: 1px solid #000; padding: 2px 6px">Delta</div>` +
+		`<div style="border: 1px solid #000; padding: 2px 6px">Epsilon</div>` +
+		`<div style="border: 1px solid #000; padding: 2px 6px">Zeta</div>` +
+		`</div>`
+	elems, err := Convert(htmlStr, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan := elems[0].PlanLayout(layout.LayoutArea{Width: 600, Height: 1000})
+	gridBlock := plan.Blocks[0]
+	if len(gridBlock.Children) != 6 {
+		t.Fatalf("expected 6 children, got %d", len(gridBlock.Children))
+	}
+	for i, child := range gridBlock.Children {
+		if child.Width > 100 {
+			t.Errorf("child %d: width = %.2f, want < 100 (shrunk to content)", i, child.Width)
+		}
+		// No child should be pinned to the top-left of its cell.
+		if child.X < 10 {
+			t.Errorf("child %d: X = %.2f, want > 10 (not pinned to left)", i, child.X)
+		}
+		if child.Y < 10 {
+			t.Errorf("child %d: Y = %.2f, want > 10 (not pinned to top)", i, child.Y)
+		}
+	}
+}
+
 // createTestJPEG creates a small test JPEG file and returns its path.
 func createTestJPEG(t *testing.T) string {
 	t.Helper()
