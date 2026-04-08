@@ -210,8 +210,8 @@ func (r *Renderer) renderWithPlans() []PageResult {
 
 		switch plan.Status {
 		case LayoutFull:
-			if atPageTop && len(plan.Blocks) > 0 {
-				plan.Blocks[0].Y = 0
+			if atPageTop {
+				stripLeadingOffset(&plan)
 			}
 			for i := range plan.Blocks {
 				plan.Blocks[i].Y += curY
@@ -235,8 +235,8 @@ func (r *Renderer) renderWithPlans() []PageResult {
 				continue
 			}
 
-			if atPageTop && len(plan.Blocks) > 0 {
-				plan.Blocks[0].Y = 0
+			if atPageTop {
+				stripLeadingOffset(&plan)
 			}
 			for i := range plan.Blocks {
 				plan.Blocks[i].Y += curY
@@ -297,6 +297,27 @@ func (r *Renderer) renderWithPlans() []PageResult {
 	r.renderAbsolutes(pages, maxWidth)
 
 	return pages
+}
+
+// stripLeadingOffset normalizes a plan that begins with leading vertical
+// whitespace (e.g. a heading's space-above, or a paragraph's space-before)
+// when the plan is being placed at the top of a fresh page. The first
+// block's Y is treated as the leading offset and subtracted from every
+// block, and from the plan's consumed height, so the element snaps flush
+// to the top margin without collapsing the spacing between its own
+// internal blocks (which would otherwise overlap or gap by the offset).
+func stripLeadingOffset(plan *LayoutPlan) {
+	if len(plan.Blocks) == 0 {
+		return
+	}
+	offset := plan.Blocks[0].Y
+	if offset <= 0 {
+		return
+	}
+	for i := range plan.Blocks {
+		plan.Blocks[i].Y -= offset
+	}
+	plan.Consumed -= offset
 }
 
 // drawBlock recursively draws a PlacedBlock and its children into the stream.

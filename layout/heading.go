@@ -190,10 +190,19 @@ func (h *Heading) PlanLayout(area LayoutArea) LayoutPlan {
 		}
 	}
 
-	// Apply heading spacing on the first block.
+	// Apply the half-em "space above" that distinguishes a heading from
+	// surrounding text. The shift must apply to every placed block, not
+	// just the first one — a heading that wraps to multiple lines
+	// produces one PlacedBlock per line, and shifting only Blocks[0]
+	// would push line 0 down into line 1's space, causing the wrapped
+	// lines to overprint each other in the rendered PDF. At a page top,
+	// render_plans normalizes the leading offset away uniformly so the
+	// heading still snaps flush to the top margin.
 	spacing := headingSize(h.level) * 0.5
-	if len(plan.Blocks) > 0 {
-		plan.Blocks[0].Y += spacing
+	if spacing > 0 && len(plan.Blocks) > 0 {
+		for i := range plan.Blocks {
+			plan.Blocks[i].Y += spacing
+		}
 		plan.Consumed += spacing
 	}
 
