@@ -20,16 +20,55 @@ func (c *converter) computeElementStyle(n *html.Node, parent computedStyle) comp
 	// Apply tag defaults.
 	c.applyTagDefaults(n, &style)
 
-	// Apply stylesheet rules.
+	// Collect all CSS declarations from the matched stylesheet rules and
+	// the element's inline style, in cascade order (lowest specificity
+	// first, inline last). We then apply them in two passes so that
+	// var() references resolve against the fully cascaded custom
+	// properties — matching CSS spec behavior where var() substitution
+	// happens at computed-value time, after the cascade has determined
+	// the final value of each --custom-property.
+	//
+	// Without the two-pass split, a stylesheet rule like
+	//   .row { align-items: var(--ai); }
+	// would resolve var(--ai) at apply-time using only the variables
+	// known so far. An inline `style="--ai: center"` declared on the
+	// same element wouldn't have been applied yet, so var(--ai) would
+	// resolve to nothing and align-items would fall through to its
+	// default — silently ignoring the inline override.
+	type pendingDecl struct {
+		property string
+		value    string
+	}
+	var decls []pendingDecl
 	if c.sheet != nil {
 		for _, decl := range c.sheet.matchingDeclarations(n) {
-			c.applyProperty(decl.property, decl.value, &style)
+			decls = append(decls, pendingDecl{decl.property, decl.value})
+		}
+	}
+	if attr := getAttr(n, "style"); attr != "" {
+		for _, decl := range splitDeclarations(attr) {
+			prop, val := splitDeclaration(decl)
+			if prop == "" || val == "" {
+				continue
+			}
+			decls = append(decls, pendingDecl{prop, val})
 		}
 	}
 
-	// Apply inline style attribute (highest specificity).
-	if attr := getAttr(n, "style"); attr != "" {
-		c.applyInlineStyle(attr, &style)
+	// Pass 1: custom property declarations only. Their values populate
+	// style.CustomProperties so subsequent var() lookups in pass 2 can
+	// see them, regardless of where in the cascade they were declared.
+	for _, d := range decls {
+		if strings.HasPrefix(d.property, "--") {
+			c.applyProperty(d.property, d.value, &style)
+		}
+	}
+	// Pass 2: regular declarations. var() references are now resolved
+	// against the fully-cascaded custom properties.
+	for _, d := range decls {
+		if !strings.HasPrefix(d.property, "--") {
+			c.applyProperty(d.property, d.value, &style)
+		}
 	}
 
 	return style
@@ -204,18 +243,28 @@ func resolveVars(value string, style *computedStyle) string {
 
 // applyProperty applies a single CSS property to a computed style.
 func (c *converter) applyProperty(prop, val string, style *computedStyle) {
-	// Resolve var() references before any processing.
-	if strings.Contains(val, "var(") {
-		val = resolveVars(val, style)
-	}
-
-	// Store custom properties (CSS variables).
+	// Custom properties (CSS variables) are stored as raw token
+	// values. Their var() references are resolved lazily when read
+	// by a non-custom property in pass 2 of computeElementStyle.
+	// Storing raw values lets forward references like
+	//   --b: var(--a);
+	//   --a: blue;
+	// resolve correctly: resolveVars is iterative and transitively
+	// expands nested var() in the stored values. Eager resolution
+	// here would freeze --b to the empty fallback because --a wasn't
+	// declared yet at apply time.
 	if strings.HasPrefix(prop, "--") {
 		if style.CustomProperties == nil {
 			style.CustomProperties = make(map[string]string)
 		}
 		style.CustomProperties[prop] = val
 		return
+	}
+
+	// Resolve var() references on non-custom properties against the
+	// fully-cascaded CustomProperties map.
+	if strings.Contains(val, "var(") {
+		val = resolveVars(val, style)
 	}
 
 	switch prop {
@@ -454,6 +503,10 @@ func (c *converter) applyProperty(prop, val string, style *computedStyle) {
 		}
 	case "flex-basis":
 		style.FlexBasis = parseLength(val)
+	case "order":
+		if v, err := strconv.Atoi(strings.TrimSpace(val)); err == nil {
+			style.Order = v
+		}
 	case "gap", "grid-gap":
 		parts := strings.Fields(strings.TrimSpace(val))
 		if len(parts) == 1 {
