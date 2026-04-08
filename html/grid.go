@@ -87,7 +87,13 @@ func (c *converter) convertGrid(n *html.Node, style computedStyle) []layout.Elem
 		grid.SetJustifyContent(layout.JustifyFlexStart)
 	}
 
-	// Alignment: align-content.
+	// Alignment: align-content. Only call SetAlignContent when the CSS
+	// value is explicitly provided — leaving it unset lets the grid
+	// treat the value as the CSS initial "normal", which behaves as
+	// stretch for grid (handled by the implicit row-stretching pass).
+	// Mapping explicit "flex-start" here preserves the spec distinction
+	// between "normal" and "flex-start" — the former stretches rows,
+	// the latter packs them to the top.
 	switch style.AlignContent {
 	case "flex-end", "end":
 		grid.SetAlignContent(layout.JustifyFlexEnd)
@@ -99,7 +105,7 @@ func (c *converter) convertGrid(n *html.Node, style computedStyle) []layout.Elem
 		grid.SetAlignContent(layout.JustifySpaceAround)
 	case "space-evenly":
 		grid.SetAlignContent(layout.JustifySpaceEvenly)
-	default:
+	case "flex-start", "start":
 		grid.SetAlignContent(layout.JustifyFlexStart)
 	}
 
@@ -123,6 +129,12 @@ func (c *converter) convertGrid(n *html.Node, style computedStyle) []layout.Elem
 	}
 	if style.MarginBottom > 0 {
 		grid.SetSpaceAfter(style.MarginBottom)
+	}
+	// Explicit container height. Without this, a grid container with
+	// height: Npx on CSS would grow with its content and never leave
+	// room for align-items / align-content to distribute items.
+	if style.Height != nil {
+		grid.ForceHeight(cssLengthToUnitValue(style.Height, c.containerWidth, style.FontSize))
 	}
 
 	// Add children and their placements.

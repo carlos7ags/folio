@@ -36,24 +36,25 @@ type GridPlacement struct {
 // Grid is a container that lays out children using CSS Grid semantics.
 // It implements Element, Measurable, and HeightSettable.
 type Grid struct {
-	children       []Element
-	templateCols   []GridTrack
-	templateRows   []GridTrack
-	autoRows       []GridTrack // implicit row sizing from grid-auto-rows
-	templateAreas  [][]string  // named grid areas, e.g. [["header","header"],["sidebar","content"]]
-	rowGap         float64
-	colGap         float64
-	placements     []GridPlacement // per-child placement; index matches children
-	padding        Padding
-	borders        CellBorders
-	background     *Color
-	spaceBefore    float64
-	spaceAfter     float64
-	heightUnit     *UnitValue     // forced height (HeightSettable)
-	justifyItems   AlignItems     // horizontal alignment of items within cells
-	alignItems     AlignItems     // vertical alignment of items within cells
-	justifyContent JustifyContent // distribute columns within container
-	alignContent   JustifyContent // distribute rows within container
+	children        []Element
+	templateCols    []GridTrack
+	templateRows    []GridTrack
+	autoRows        []GridTrack // implicit row sizing from grid-auto-rows
+	templateAreas   [][]string  // named grid areas, e.g. [["header","header"],["sidebar","content"]]
+	rowGap          float64
+	colGap          float64
+	placements      []GridPlacement // per-child placement; index matches children
+	padding         Padding
+	borders         CellBorders
+	background      *Color
+	spaceBefore     float64
+	spaceAfter      float64
+	heightUnit      *UnitValue     // forced height (HeightSettable)
+	justifyItems    AlignItems     // horizontal alignment of items within cells
+	alignItems      AlignItems     // vertical alignment of items within cells
+	justifyContent  JustifyContent // distribute columns within container
+	alignContent    JustifyContent // distribute rows within container
+	alignContentSet bool           // true if align-content was explicitly set (distinguishes initial "normal" from explicit "flex-start")
 }
 
 // NewGrid creates an empty grid container.
@@ -155,7 +156,11 @@ func (g *Grid) SetAlignItems(a AlignItems) *Grid { g.alignItems = a; return g }
 func (g *Grid) SetJustifyContent(j JustifyContent) *Grid { g.justifyContent = j; return g }
 
 // SetAlignContent sets distribution of rows within the container.
-func (g *Grid) SetAlignContent(j JustifyContent) *Grid { g.alignContent = j; return g }
+func (g *Grid) SetAlignContent(j JustifyContent) *Grid {
+	g.alignContent = j
+	g.alignContentSet = true
+	return g
+}
 
 // cssGridCell records a child's resolved position within the grid.
 type cssGridCell struct {
@@ -228,8 +233,15 @@ func (g *Grid) MaxWidth() float64 {
 // PlanLayout implements Element.
 func (g *Grid) PlanLayout(area LayoutArea) LayoutPlan {
 	if len(g.children) == 0 {
-		consumed := g.spaceBefore + g.padding.Top + g.padding.Bottom + g.spaceAfter
-		return LayoutPlan{Status: LayoutFull, Consumed: consumed}
+		// Honor an explicit height even on an empty grid so that a
+		// bordered empty container renders at its declared size.
+		totalH := g.padding.Top + g.padding.Bottom
+		if g.heightUnit != nil {
+			totalH = g.heightUnit.Resolve(area.Height)
+		}
+		consumed := g.spaceBefore + totalH + g.spaceAfter
+		containerBlock := g.makeContainerBlock(nil, totalH, area.Width)
+		return LayoutPlan{Status: LayoutFull, Consumed: consumed, Blocks: []PlacedBlock{containerBlock}}
 	}
 
 	innerWidth := area.Width - g.padding.Left - g.padding.Right
@@ -275,9 +287,9 @@ func (g *Grid) PlanLayout(area LayoutArea) LayoutPlan {
 	cellPlans := make([]LayoutPlan, len(cells))
 
 	for i, cell := range cells {
-		// Compute available width for this cell (sum of spanned columns + gaps).
 		cellWidth := g.cellWidth(cell, colWidths)
-		plan := g.children[cell.childIdx].PlanLayout(LayoutArea{Width: cellWidth, Height: 1e9})
+		layoutWidth := g.cellLayoutWidth(cell, cellWidth)
+		plan := g.children[cell.childIdx].PlanLayout(LayoutArea{Width: layoutWidth, Height: 1e9})
 		cellPlans[i] = plan
 		// Distribute consumed height across spanned rows (use max per row).
 		// For single-row spans, just update that row.
@@ -347,6 +359,60 @@ func (g *Grid) PlanLayout(area LayoutArea) LayoutPlan {
 				h := t.Value / 100 * area.Height
 				if h > rowHeights[i] {
 					rowHeights[i] = h
+				}
+			}
+		}
+	}
+
+	// Implicit row stretching: when the container has a definite height
+	// and align-content was not explicitly set, distribute any leftover
+	// vertical space across auto-sized rows so the container fills its
+	// declared height. This matches the CSS initial value
+	// align-content: normal, which behaves as stretch for grid.
+	//
+	// Only rows backed by auto tracks participate. Rows with explicit
+	// px or percent sizes in grid-template-rows or grid-auto-rows keep
+	// their declared size, per CSS Grid Level 1. If an explicit
+	// align-content is set (flex-start, center, etc.), skip implicit
+	// stretching entirely — applyAlignContent above will handle it if
+	// the value calls for distribution.
+	if g.heightUnit != nil && !g.alignContentSet && numRows > 0 {
+		stretchable := make([]bool, numRows)
+		stretchableCount := 0
+		for i := range stretchable {
+			isFixed := false
+			if i < len(g.templateRows) {
+				t := g.templateRows[i]
+				if t.Type == GridTrackPx || t.Type == GridTrackPercent {
+					isFixed = true
+				}
+			} else if len(g.autoRows) > 0 {
+				autoIdx := (i - len(g.templateRows)) % len(g.autoRows)
+				t := g.autoRows[autoIdx]
+				if t.Type == GridTrackPx || t.Type == GridTrackPercent {
+					isFixed = true
+				}
+			}
+			if !isFixed {
+				stretchable[i] = true
+				stretchableCount++
+			}
+		}
+		if stretchableCount > 0 {
+			currentTotal := 0.0
+			for _, h := range rowHeights {
+				currentTotal += h
+			}
+			if numRows > 1 {
+				currentTotal += g.rowGap * float64(numRows-1)
+			}
+			extra := innerHeight - currentTotal
+			if extra > 0.01 {
+				per := extra / float64(stretchableCount)
+				for i := range rowHeights {
+					if stretchable[i] {
+						rowHeights[i] += per
+					}
 				}
 			}
 		}
@@ -941,6 +1007,29 @@ func (g *Grid) cellWidth(cell cssGridCell, colWidths []float64) float64 {
 		w += g.colGap * float64(gaps)
 	}
 	return w
+}
+
+// cellLayoutWidth returns the width a cell's child should be laid out
+// with. With the default justify-items: stretch, items fill the cell.
+// When justify-items is start, end, or center, items take their
+// intrinsic max-content width (if the child implements Measurable and
+// reports a positive, in-cell width) so the horizontal alignment offset
+// has room to act. Children without a Measurable implementation, or
+// whose intrinsic width equals or exceeds the cell, continue to fill
+// the cell.
+func (g *Grid) cellLayoutWidth(cell cssGridCell, cellWidth float64) float64 {
+	if g.justifyItems == CrossAlignStretch {
+		return cellWidth
+	}
+	m, ok := g.children[cell.childIdx].(Measurable)
+	if !ok {
+		return cellWidth
+	}
+	intrinsic := m.MaxWidth()
+	if intrinsic <= 0 || intrinsic >= cellWidth {
+		return cellWidth
+	}
+	return intrinsic
 }
 
 // makeContainerBlock creates the wrapper PlacedBlock with background and borders.
