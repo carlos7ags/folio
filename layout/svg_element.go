@@ -4,9 +4,11 @@
 package layout
 
 import (
+	"encoding/base64"
 	"strings"
 
 	"github.com/carlos7ags/folio/font"
+	folioimage "github.com/carlos7ags/folio/image"
 	"github.com/carlos7ags/folio/svg"
 )
 
@@ -136,6 +138,21 @@ func (se *SVGElement) PlanLayout(area LayoutArea) LayoutPlan {
 						f := resolveSVGFont(family, weight, style)
 						return f.MeasureString(text, size)
 					},
+					RegisterImage: func(href string) (string, float64, float64) {
+						img := decodeSVGImageHref(href)
+						if img == nil {
+							return "", 0, 0
+						}
+						name := registerImage(ctx.Page, img)
+						return name, float64(img.Width()), float64(img.Height())
+					},
+					RegisterGradient: func(node *svg.Node, bbox svg.BBox) string {
+						img := rasterizeSVGGradient(node, bbox)
+						if img == nil {
+							return ""
+						}
+						return registerImage(ctx.Page, img)
+					},
 				}
 				capturedSVG.DrawWithOptions(ctx.Stream, absX, absTopY-capturedH, capturedW, capturedH, opts)
 			},
@@ -171,6 +188,76 @@ func (se *SVGElement) MaxWidth() float64 {
 		return w
 	}
 	return 1
+}
+
+// decodeSVGImageHref decodes an SVG <image> href into a registered folio
+// image. Only data: URIs are supported here — HTTP URLs and relative file
+// paths are intentionally left to higher-level code that has the necessary
+// context (base path, fetch policy). Returns nil on any failure so the
+// caller can silently skip the element, matching how other SVG paint paths
+// fail-soft on malformed input.
+func decodeSVGImageHref(href string) *folioimage.Image {
+	if !strings.HasPrefix(href, "data:") {
+		return nil
+	}
+	rest := strings.TrimPrefix(href, "data:")
+	commaIdx := strings.IndexByte(rest, ',')
+	if commaIdx < 0 {
+		return nil
+	}
+	meta := rest[:commaIdx]
+	encoded := rest[commaIdx+1:]
+
+	var data []byte
+	if strings.Contains(meta, ";base64") {
+		// Strip whitespace that sometimes appears in wrapped data URIs.
+		encoded = strings.Map(func(r rune) rune {
+			if r == ' ' || r == '\n' || r == '\r' || r == '\t' {
+				return -1
+			}
+			return r
+		}, encoded)
+		dec, err := base64.StdEncoding.DecodeString(encoded)
+		if err != nil {
+			return nil
+		}
+		data = dec
+	} else {
+		data = []byte(encoded)
+	}
+
+	// Dispatch by media type with content-sniff fallback.
+	switch {
+	case strings.Contains(meta, "image/jpeg"), strings.Contains(meta, "image/jpg"):
+		if img, err := folioimage.NewJPEG(data); err == nil {
+			return img
+		}
+	case strings.Contains(meta, "image/png"):
+		if img, err := folioimage.NewPNG(data); err == nil {
+			return img
+		}
+	case strings.Contains(meta, "image/webp"):
+		if img, err := folioimage.NewWebP(data); err == nil {
+			return img
+		}
+	case strings.Contains(meta, "image/gif"):
+		if img, err := folioimage.NewGIF(data); err == nil {
+			return img
+		}
+	default:
+		// Sniff by magic bytes.
+		if len(data) >= 4 && string(data[:4]) == "\x89PNG" {
+			if img, err := folioimage.NewPNG(data); err == nil {
+				return img
+			}
+		}
+		if len(data) >= 2 && data[0] == 0xFF && data[1] == 0xD8 {
+			if img, err := folioimage.NewJPEG(data); err == nil {
+				return img
+			}
+		}
+	}
+	return nil
 }
 
 // resolveSVGFont maps SVG font-family, font-weight, and font-style to a

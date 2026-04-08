@@ -26,6 +26,25 @@ type RenderOptions struct {
 	// and size. Used for text-anchor alignment. If nil, text-anchor is ignored.
 	MeasureText func(family, weight, style string, size float64, text string) float64
 
+	// RegisterImage is called when rendering an <image> element. The callback
+	// receives the raw href attribute value (commonly a data: URI) and must
+	// return the PDF XObject resource name (e.g. "Im3") and the image's
+	// intrinsic pixel dimensions. An empty name causes the element to be
+	// skipped. If nil, <image> elements are skipped. Keeping decoding out of
+	// the svg package avoids coupling it to the folio/image package.
+	RegisterImage func(href string) (name string, intrinsicW, intrinsicH float64)
+
+	// RegisterGradient is called when a shape's fill or stroke references a
+	// linearGradient or radialGradient. The callback receives the gradient
+	// node (use node.LinearGradient() or node.RadialGradient() to access its
+	// parsed form) and the bounding box of the shape being painted in the
+	// current SVG local coordinate space. It should rasterize the gradient,
+	// register it as a PDF image XObject, and return the resource name.
+	// Returning an empty string causes the renderer to fall back to the
+	// gradient's first stop color (legacy behavior). If nil, gradient
+	// references are always collapsed to their first stop color.
+	RegisterGradient func(gradient *Node, bbox BBox) string
+
 	// Defs holds reusable elements indexed by id (from <defs> blocks).
 	// This is set internally during rendering and should not be set by callers.
 	defs map[string]*Node
@@ -141,10 +160,17 @@ func renderNode(stream *content.Stream, node *Node, parentStyle Style, opts Rend
 		stream.ConcatMatrix(m.A, m.B, m.C, m.D, m.E, m.F)
 	}
 
-	// Resolve gradient references to solid colors for shape rendering.
-	if style.FillRef != "" && style.Fill == nil && opts.defs != nil {
-		if c := resolveGradientColor(opts.defs, style.FillRef); c != nil {
-			style.Fill = c
+	// Resolve gradient references to solid colors when no gradient handler
+	// is available. When RegisterGradient is set, the FillRef is left in
+	// place so the shape renderer can dispatch to the gradient path.
+	// Stroke gradients are always collapsed for v1 — only fill gradients
+	// are rasterized, since SVG stroke gradients require additional work
+	// (stroking with a pattern) that is not yet implemented.
+	if opts.RegisterGradient == nil {
+		if style.FillRef != "" && style.Fill == nil && opts.defs != nil {
+			if c := resolveGradientColor(opts.defs, style.FillRef); c != nil {
+				style.Fill = c
+			}
 		}
 	}
 	if style.StrokeRef != "" && style.Stroke == nil && opts.defs != nil {
@@ -165,19 +191,21 @@ func renderNode(stream *content.Stream, node *Node, parentStyle Style, opts Rend
 	case "use":
 		renderUse(stream, node, style, opts)
 	case "rect":
-		renderRect(stream, node, style)
+		renderRect(stream, node, style, opts)
 	case "circle":
-		renderCircle(stream, node, style)
+		renderCircle(stream, node, style, opts)
 	case "ellipse":
-		renderEllipse(stream, node, style)
+		renderEllipse(stream, node, style, opts)
 	case "line":
 		renderLine(stream, node, style)
 	case "polyline":
-		renderPolyline(stream, node, style, false)
+		renderPolyline(stream, node, style, false, opts)
 	case "polygon":
-		renderPolyline(stream, node, style, true)
+		renderPolyline(stream, node, style, true, opts)
 	case "path":
-		renderPath(stream, node, style)
+		renderPath(stream, node, style, opts)
+	case "image":
+		renderImage(stream, node, opts)
 	case "text":
 		renderText(stream, node, style, opts)
 	default:
@@ -198,7 +226,7 @@ func renderNode(stream *content.Stream, node *Node, parentStyle Style, opts Rend
 // ---------------------------------------------------------------------------
 
 // renderRect renders an SVG <rect> element.
-func renderRect(stream *content.Stream, node *Node, style Style) {
+func renderRect(stream *content.Stream, node *Node, style Style, opts RenderOptions) {
 	x := attrFloat(node, "x", 0)
 	y := attrFloat(node, "y", 0)
 	w := attrFloat(node, "width", 0)
@@ -227,15 +255,15 @@ func renderRect(stream *content.Stream, node *Node, style Style) {
 
 	applyStrokeStyle(stream, style)
 
-	if rx == 0 && ry == 0 {
-		// Sharp corners — use the PDF re operator directly.
-		stream.Rectangle(x, y, w, h)
-	} else {
-		// Rounded corners — build the path manually with Bezier curves.
-		buildRoundedRect(stream, x, y, w, h, rx, ry)
+	buildPath := func() {
+		if rx == 0 && ry == 0 {
+			stream.Rectangle(x, y, w, h)
+		} else {
+			buildRoundedRect(stream, x, y, w, h, rx, ry)
+		}
 	}
-
-	paintPath(stream, style)
+	buildPath()
+	paintPathOrGradient(stream, style, opts, BBox{X: x, Y: y, W: w, H: h}, buildPath)
 }
 
 // buildRoundedRect appends a rounded rectangle subpath in SVG coordinate space.
@@ -268,7 +296,7 @@ func buildRoundedRect(stream *content.Stream, x, y, w, h, rx, ry float64) {
 }
 
 // renderCircle renders an SVG <circle> element.
-func renderCircle(stream *content.Stream, node *Node, style Style) {
+func renderCircle(stream *content.Stream, node *Node, style Style, opts RenderOptions) {
 	cx := attrFloat(node, "cx", 0)
 	cy := attrFloat(node, "cy", 0)
 	r := attrFloat(node, "r", 0)
@@ -277,12 +305,13 @@ func renderCircle(stream *content.Stream, node *Node, style Style) {
 	}
 
 	applyStrokeStyle(stream, style)
-	stream.Circle(cx, cy, r)
-	paintPath(stream, style)
+	buildPath := func() { stream.Circle(cx, cy, r) }
+	buildPath()
+	paintPathOrGradient(stream, style, opts, BBox{X: cx - r, Y: cy - r, W: 2 * r, H: 2 * r}, buildPath)
 }
 
 // renderEllipse renders an SVG <ellipse> element.
-func renderEllipse(stream *content.Stream, node *Node, style Style) {
+func renderEllipse(stream *content.Stream, node *Node, style Style, opts RenderOptions) {
 	cx := attrFloat(node, "cx", 0)
 	cy := attrFloat(node, "cy", 0)
 	rx := attrFloat(node, "rx", 0)
@@ -292,8 +321,9 @@ func renderEllipse(stream *content.Stream, node *Node, style Style) {
 	}
 
 	applyStrokeStyle(stream, style)
-	stream.Ellipse(cx, cy, rx, ry)
-	paintPath(stream, style)
+	buildPath := func() { stream.Ellipse(cx, cy, rx, ry) }
+	buildPath()
+	paintPathOrGradient(stream, style, opts, BBox{X: cx - rx, Y: cy - ry, W: 2 * rx, H: 2 * ry}, buildPath)
 }
 
 // renderLine renders an SVG <line> element.
@@ -318,7 +348,7 @@ func renderLine(stream *content.Stream, node *Node, style Style) {
 
 // renderPolyline renders an SVG <polyline> or <polygon> element.
 // If closed is true, the path is closed (polygon behavior).
-func renderPolyline(stream *content.Stream, node *Node, style Style, closed bool) {
+func renderPolyline(stream *content.Stream, node *Node, style Style, closed bool, opts RenderOptions) {
 	points := parsePoints(node.Attrs["points"])
 	if len(points) < 4 { // Need at least 2 points (4 values).
 		return
@@ -326,16 +356,19 @@ func renderPolyline(stream *content.Stream, node *Node, style Style, closed bool
 
 	applyStrokeStyle(stream, style)
 
-	stream.MoveTo(points[0], points[1])
-	for i := 2; i+1 < len(points); i += 2 {
-		stream.LineTo(points[i], points[i+1])
+	buildPath := func() {
+		stream.MoveTo(points[0], points[1])
+		for i := 2; i+1 < len(points); i += 2 {
+			stream.LineTo(points[i], points[i+1])
+		}
+		if closed {
+			stream.ClosePath()
+		}
 	}
-	if closed {
-		stream.ClosePath()
-	}
+	buildPath()
 
 	if closed {
-		paintPath(stream, style)
+		paintPathOrGradient(stream, style, opts, pointsBBox(points), buildPath)
 	} else {
 		// Polyline: open path — stroke only.
 		if style.Stroke != nil {
@@ -348,7 +381,7 @@ func renderPolyline(stream *content.Stream, node *Node, style Style, closed bool
 }
 
 // renderPath renders an SVG <path> element.
-func renderPath(stream *content.Stream, node *Node, style Style) {
+func renderPath(stream *content.Stream, node *Node, style Style, opts RenderOptions) {
 	d := node.Attrs["d"]
 	if d == "" {
 		return
@@ -360,8 +393,9 @@ func renderPath(stream *content.Stream, node *Node, style Style) {
 	}
 
 	applyStrokeStyle(stream, style)
-	emitPathCommands(stream, cmds)
-	paintPath(stream, style)
+	buildPath := func() { emitPathCommands(stream, cmds) }
+	buildPath()
+	paintPathOrGradient(stream, style, opts, pathBBox(cmds), buildPath)
 }
 
 // emitPathCommands converts parsed SVG path commands into PDF content stream
@@ -668,6 +702,75 @@ func renderUse(stream *content.Stream, node *Node, style Style, opts RenderOptio
 }
 
 // ---------------------------------------------------------------------------
+// <image> element support
+// ---------------------------------------------------------------------------
+
+// renderImage renders an SVG <image> element by delegating the decoding and
+// page-registration work to opts.RegisterImage. The svg package itself stays
+// free of image-format dependencies: the caller provides the bytes→XObject
+// mapping and receives the raw href string.
+//
+// The outer SVG renderer flips the y-axis so we are drawing in a top-down
+// coordinate system. PDF image XObjects are drawn with their unit square
+// origin at the bottom-left in the current CTM. To place the image with its
+// visual top-left at SVG (x, y) and its bottom-right at (x+w, y+h), while
+// counter-flipping so the raster is not mirrored vertically, we concat the
+// matrix [w 0 0 -h x y+h]. Verification:
+//
+//	(0,0)   -> (x,   y+h)    lower-left of target rect in flipped space
+//	(1,0)   -> (x+w, y+h)    lower-right
+//	(0,1)   -> (x,   y)      upper-left
+//	(1,1)   -> (x+w, y)      upper-right
+//
+// The negative y-scale inverts the image content so that, combined with the
+// outer SVG y-flip, the raster appears upright in the page's visual space.
+func renderImage(stream *content.Stream, node *Node, opts RenderOptions) {
+	if opts.RegisterImage == nil {
+		return
+	}
+
+	// Resolve href. The parser strips namespaces (localName), so both
+	// href and xlink:href arrive as "href" in the attrs map. We still
+	// check xlink:href as a safety net for parsers that might change.
+	href := node.Attrs["href"]
+	if href == "" {
+		href = node.Attrs["xlink:href"]
+	}
+	if href == "" {
+		return
+	}
+
+	name, intrinsicW, intrinsicH := opts.RegisterImage(href)
+	if name == "" {
+		return
+	}
+
+	x := attrFloat(node, "x", 0)
+	y := attrFloat(node, "y", 0)
+	w := attrFloat(node, "width", 0)
+	h := attrFloat(node, "height", 0)
+
+	// If width/height are missing, fall back to the intrinsic pixel
+	// dimensions reported by the callback. SVG spec says <image>
+	// without width/height has zero size (no intrinsic from raster), but
+	// we treat the raster dimensions as a sensible default.
+	if w <= 0 {
+		w = intrinsicW
+	}
+	if h <= 0 {
+		h = intrinsicH
+	}
+	if w <= 0 || h <= 0 {
+		return
+	}
+
+	stream.SaveState()
+	stream.ConcatMatrix(w, 0, 0, -h, x, y+h)
+	stream.Do(name)
+	stream.RestoreState()
+}
+
+// ---------------------------------------------------------------------------
 // Gradient support
 // ---------------------------------------------------------------------------
 
@@ -749,6 +852,173 @@ func applyStrokeStyle(stream *content.Stream, style Style) {
 	if len(style.StrokeDashArray) > 0 {
 		stream.SetDashPattern(style.StrokeDashArray, style.StrokeDashOffset)
 	}
+}
+
+// paintPathOrGradient paints the current path, dispatching to a gradient
+// image XObject when the style carries a FillRef that resolves to a
+// linearGradient or radialGradient in the document's <defs>. Falls back to
+// paintPath (solid-color fill/stroke) for everything else.
+//
+// When a gradient is used, the current path is consumed as a clipping
+// region and the pathBuilder closure is invoked a second time to rebuild
+// the path for stroking. This is cheaper than stashing the path in a
+// form XObject and keeps the renderer's state management simple.
+func paintPathOrGradient(stream *content.Stream, style Style, opts RenderOptions, bbox BBox, buildPath func()) {
+	// Only the fill side is rasterized for v1. Stroke gradients still
+	// collapse to their first stop (handled at style-resolution time).
+	if style.FillRef == "" || style.Fill != nil || opts.RegisterGradient == nil || opts.defs == nil {
+		paintPath(stream, style)
+		return
+	}
+	gradientNode, ok := opts.defs[style.FillRef]
+	if !ok || gradientNode == nil ||
+		(gradientNode.Tag != "linearGradient" && gradientNode.Tag != "radialGradient") {
+		paintPath(stream, style)
+		return
+	}
+	name := opts.RegisterGradient(gradientNode, bbox)
+	if name == "" {
+		// Callback declined — fall back to the first-stop color so the
+		// shape is still visible.
+		if c := resolveGradientColor(opts.defs, style.FillRef); c != nil {
+			style.Fill = c
+		}
+		paintPath(stream, style)
+		return
+	}
+
+	// Gradient fill: clip to path, draw gradient image over bbox, then
+	// rebuild the path and stroke if needed.
+	stream.SaveState()
+	if style.FillRule == "evenodd" {
+		stream.ClipEvenOdd()
+	} else {
+		stream.ClipNonZero()
+	}
+	stream.EndPath() // "n": end path without painting; clipping is now active.
+
+	// Map the image unit square onto bbox in the current (y-flipped) SVG
+	// local space. Same transform as renderImage.
+	stream.ConcatMatrix(bbox.W, 0, 0, -bbox.H, bbox.X, bbox.Y+bbox.H)
+	stream.Do(name)
+	stream.RestoreState()
+
+	// Re-emit the path for the stroke pass. Without this the path was
+	// consumed by the clip operation above.
+	if style.Stroke != nil && style.StrokeWidth > 0 {
+		buildPath()
+		stream.SetStrokeColorRGB(style.Stroke.R, style.Stroke.G, style.Stroke.B)
+		stream.Stroke()
+	}
+}
+
+// pointsBBox returns the axis-aligned bounding box of a flat point list
+// [x0, y0, x1, y1, ...]. Used for polygon/polyline gradient fills.
+func pointsBBox(points []float64) BBox {
+	if len(points) < 2 {
+		return BBox{}
+	}
+	minX, maxX := points[0], points[0]
+	minY, maxY := points[1], points[1]
+	for i := 2; i+1 < len(points); i += 2 {
+		x, y := points[i], points[i+1]
+		if x < minX {
+			minX = x
+		}
+		if x > maxX {
+			maxX = x
+		}
+		if y < minY {
+			minY = y
+		}
+		if y > maxY {
+			maxY = y
+		}
+	}
+	return BBox{X: minX, Y: minY, W: maxX - minX, H: maxY - minY}
+}
+
+// pathBBox returns a conservative axis-aligned bounding box of an SVG path
+// by taking the min/max of each command's endpoint and control-point
+// arguments. Bezier handles may extend slightly beyond the curve, so the
+// result is a loose upper bound — good enough for sizing gradient fills.
+func pathBBox(cmds []PathCommand) BBox {
+	minX, maxX := 0.0, 0.0
+	minY, maxY := 0.0, 0.0
+	seen := false
+	consume := func(x, y float64) {
+		if !seen {
+			minX, maxX = x, x
+			minY, maxY = y, y
+			seen = true
+			return
+		}
+		if x < minX {
+			minX = x
+		}
+		if x > maxX {
+			maxX = x
+		}
+		if y < minY {
+			minY = y
+		}
+		if y > maxY {
+			maxY = y
+		}
+	}
+	for _, cmd := range cmds {
+		// Each command's args are a flat list of coordinates; pairs are
+		// (x, y). H and V are single-value commands whose arg is an
+		// absolute x or y respectively (they do not include the "other"
+		// axis, so we cannot widen the bbox correctly from the command
+		// alone — this is a known limitation of the loose bbox).
+		if cmd.Type == 'Z' {
+			continue
+		}
+		if cmd.Type == 'H' {
+			if len(cmd.Args) > 0 {
+				// Pair the x with the current y tracker (maxY which we
+				// don't track precisely here). Best effort: widen X only.
+				if !seen {
+					minX, maxX = cmd.Args[0], cmd.Args[0]
+					minY, maxY = 0, 0
+					seen = true
+				} else {
+					if cmd.Args[0] < minX {
+						minX = cmd.Args[0]
+					}
+					if cmd.Args[0] > maxX {
+						maxX = cmd.Args[0]
+					}
+				}
+			}
+			continue
+		}
+		if cmd.Type == 'V' {
+			if len(cmd.Args) > 0 {
+				if !seen {
+					minX, maxX = 0, 0
+					minY, maxY = cmd.Args[0], cmd.Args[0]
+					seen = true
+				} else {
+					if cmd.Args[0] < minY {
+						minY = cmd.Args[0]
+					}
+					if cmd.Args[0] > maxY {
+						maxY = cmd.Args[0]
+					}
+				}
+			}
+			continue
+		}
+		for i := 0; i+1 < len(cmd.Args); i += 2 {
+			consume(cmd.Args[i], cmd.Args[i+1])
+		}
+	}
+	if !seen {
+		return BBox{}
+	}
+	return BBox{X: minX, Y: minY, W: maxX - minX, H: maxY - minY}
 }
 
 // paintPath decides how to paint the current path based on the resolved style.

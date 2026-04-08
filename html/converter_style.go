@@ -179,6 +179,14 @@ func (c *converter) applyTagDefaults(n *html.Node, style *computedStyle) {
 		style.Display = "inline"
 	case atom.Label:
 		style.Display = "inline"
+	case atom.Img, atom.Svg:
+		// Replaced elements default to inline-level in browsers. Without
+		// this override they inherit Display="block" from a parent <p>
+		// (see inherit()), and collectRuns skips block-display children
+		// — silently dropping inline <img>/<svg> from paragraph flow.
+		// The top-level converter dispatch for Img/Svg runs before any
+		// Display check, so the block-level path is unaffected.
+		style.Display = "inline"
 	}
 }
 
