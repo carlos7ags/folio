@@ -6546,3 +6546,162 @@ func TestColumnsShorthandCountAndWidth(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+// TestInlineStrongInDivWrappedAsAnonymousBlock is a regression test for
+// a bug where mixing text with inline <strong>/<em>/<span>/<a> inside a
+// <div> (or any block container that's not <p>) produced one Paragraph
+// per sibling node — a text node, then an inline element, then another
+// text node became three stacked paragraphs instead of one wrapped
+// paragraph with the emphasis inline. This broke roughly every
+// letter-style template that weaved dynamic data into prose: the
+// punctuation after the inline element (the "." in "...offer to
+// <strong>X</strong>. Following...") was orphaned at the start of the
+// third "line" because it was its own paragraph.
+//
+// CSS 2.1 §9.2.1.1 specifies that when a block container has mixed
+// inline and block children, consecutive inline siblings are wrapped
+// into an anonymous block box. walkChildren now implements this.
+func TestInlineStrongInDivWrappedAsAnonymousBlock(t *testing.T) {
+	cases := []struct {
+		name string
+		src  string
+	}{
+		{
+			"strong inside div",
+			`<div>We're pleased to extend this offer to <strong>Globex Corporation</strong>. Following our discussions...</div>`,
+		},
+		{
+			"em inside div",
+			`<div>The value is <em>flexible</em> and can be adjusted later.</div>`,
+		},
+		{
+			"span inside div",
+			`<div>Part one <span>middle</span> part three.</div>`,
+		},
+		{
+			"a inside div",
+			`<div>Visit <a href="https://example.com">our site</a> for details.</div>`,
+		},
+		{
+			"no wrapping element (implicit body)",
+			`Plain text <strong>bold</strong> more plain text.`,
+		},
+		{
+			"multiple inline elements mixed",
+			`<div>First <strong>bold</strong> then <em>italic</em> then plain.</div>`,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			elems, err := Convert(tc.src, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(elems) != 1 {
+				t.Errorf("expected 1 top-level element (one anonymous "+
+					"block paragraph), got %d — inline siblings of a "+
+					"block container must be wrapped together, not "+
+					"split into separate paragraphs",
+					len(elems))
+				for i, e := range elems {
+					t.Logf("  [%d] %T", i, e)
+				}
+			}
+		})
+	}
+}
+
+// TestBlockChildrenStillStaySeparate guards against the anonymous-block
+// fix from over-reaching: actual block siblings inside a div must remain
+// separate elements, not be collapsed into a single paragraph.
+func TestBlockChildrenStillStaySeparate(t *testing.T) {
+	src := `<div><p>First para</p><p>Second para</p><p>Third para</p></div>`
+	elems, err := Convert(src, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(elems) != 3 {
+		t.Errorf("expected 3 paragraphs, got %d", len(elems))
+	}
+}
+
+// TestMixedBlockAndInlineChildrenInDiv exercises the combined case: a
+// div containing inline text, a block element, then more inline text
+// must produce three elements — an anonymous paragraph, the block, and
+// another anonymous paragraph. The inline runs on either side of the
+// block must not be merged across the block boundary.
+func TestMixedBlockAndInlineChildrenInDiv(t *testing.T) {
+	src := `<div>Before text <strong>bold</strong>.<p>Middle block paragraph</p>After text <em>emphasized</em>.</div>`
+	elems, err := Convert(src, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(elems) != 3 {
+		t.Fatalf("expected 3 elements (anon-before + p + anon-after), got %d", len(elems))
+	}
+}
+
+// TestTablePercentageCellWidthInsideConstrainedFlex is a regression
+// test for a bug where <td style="width:50%"> inside a narrow flex
+// column overflowed the column horizontally. The converter was
+// resolving the percentage against the outer containerWidth at convert
+// time (e.g. 50% of 612pt = 306pt), producing a width hint much larger
+// than the table's actual layout width. The content rendered far off
+// the right edge of the page.
+//
+// The fix stores percentage widths as lazy UnitValues
+// (Cell.SetWidthHintUnit) which resolve against the table's actual
+// maxWidth at layout time.
+func TestTablePercentageCellWidthInsideConstrainedFlex(t *testing.T) {
+	src := `<div style="display:flex;">
+  <div style="flex:1;">MAIN</div>
+  <div style="flex:0 0 280px;padding-left:32px;">
+    <table style="width:100%;border-collapse:collapse;">
+      <tr>
+        <td style="width:50%;">Engagement type</td>
+        <td>Existing Business</td>
+      </tr>
+    </table>
+  </div>
+</div>`
+	elems, err := Convert(src, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := layout.NewRenderer(612, 792, layout.Margins{Top: 36, Right: 36, Bottom: 36, Left: 36})
+	for _, e := range elems {
+		r.Add(e)
+	}
+	pages := r.Render()
+	if len(pages) != 1 {
+		t.Fatalf("expected 1 page, got %d", len(pages))
+	}
+	// Extract all text X coordinates from the content stream.
+	// Page right margin is at X = 612 - 36 = 576pt. Nothing should
+	// render past that. Pre-fix, the right cell started at X=688,
+	// 112pt past the margin.
+	stream := string(pages[0].Stream.Bytes())
+	maxX := 0.0
+	i := 0
+	for i < len(stream) {
+		if i+3 <= len(stream) && stream[i:i+3] == " Td" {
+			j := i - 1
+			for j >= 0 && stream[j] != '\n' {
+				j--
+			}
+			line := stream[j+1 : i]
+			var x, y float64
+			_, _ = fmt.Sscanf(line, "%f %f", &x, &y)
+			if x > maxX {
+				maxX = x
+			}
+		}
+		i++
+	}
+	if maxX > 576.01 {
+		t.Errorf("content rendered past right margin: maxX=%.1f, "+
+			"right margin=576 — <td style=\"width:50%%\"> must resolve "+
+			"against the table's actual width, not the outer container",
+			maxX)
+	}
+}

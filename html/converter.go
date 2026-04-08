@@ -370,17 +370,112 @@ func (c *converter) resolveFontForText(style computedStyle, text string) (*font.
 // It applies CSS margin collapsing between adjacent block-level elements:
 // when one element's margin-bottom is followed by the next element's margin-top,
 // the margins collapse to the larger of the two instead of summing.
+//
+// It also implements CSS 2.1 §9.2.1.1 anonymous block boxes: when a block
+// container has mixed inline and block children, any run of consecutive
+// inline content (text nodes and inline elements like <strong>, <em>,
+// <span>, <a>) is wrapped into a single anonymous paragraph rather than
+// being split into one paragraph per sibling node. Without this grouping,
+// "We're pleased to offer <strong>Acme</strong>. Please..." would render
+// as three paragraphs on three lines with the period orphaned at the start
+// of line 3, instead of one wrapped paragraph with "Acme" bold inline.
 func (c *converter) walkChildren(n *html.Node, parentStyle computedStyle) []layout.Element {
 	var elems []layout.Element
 	var prevMarginBottom float64
-	for child := n.FirstChild; child != nil; child = child.NextSibling {
-		childElems := c.convertNode(child, parentStyle)
-		for _, e := range childElems {
-			prevMarginBottom = collapseMargins(prevMarginBottom, e)
-			elems = append(elems, e)
+	var inlineBuf []*html.Node
+
+	appendBlock := func(e layout.Element) {
+		prevMarginBottom = collapseMargins(prevMarginBottom, e)
+		elems = append(elems, e)
+	}
+
+	flushInline := func() {
+		if len(inlineBuf) == 0 {
+			return
+		}
+		var runs []layout.TextRun
+		for _, node := range inlineBuf {
+			runs = append(runs, c.collectRunsFromNode(node, parentStyle)...)
+		}
+		inlineBuf = inlineBuf[:0]
+		if len(runs) == 0 {
+			return
+		}
+		for _, group := range splitRunsAtBr(runs) {
+			if len(group) == 0 {
+				continue
+			}
+			p := c.buildParagraphFromRuns(group, parentStyle)
+			appendBlock(p)
 		}
 	}
+
+	for child := n.FirstChild; child != nil; child = child.NextSibling {
+		if c.isInlineFlowChild(child, parentStyle) {
+			inlineBuf = append(inlineBuf, child)
+			continue
+		}
+		flushInline()
+		for _, e := range c.convertNode(child, parentStyle) {
+			appendBlock(e)
+		}
+	}
+	flushInline()
 	return elems
+}
+
+// isInlineFlowChild reports whether a child node, when encountered inside
+// a block container, should participate in inline flow (and therefore be
+// grouped with its inline siblings into an anonymous block box) rather
+// than be converted as a standalone block element.
+//
+// Text nodes are always inline. Whitespace-only text nodes between block
+// siblings are deliberately NOT inline — they would cause spurious
+// anonymous paragraphs containing nothing but a space between, say, two
+// <div>s. Known text-level inline HTML tags (<span>, <strong>, <em>,
+// <a>, etc.) are inline unless their computed style overrides display
+// to block, flex, grid, or none.
+//
+// Replaced inline elements (<img>, <svg>) and form controls (<input>,
+// <button>, <select>, <textarea>, <label>), and <br>, are intentionally
+// NOT in the list. <img>/<svg> need standalone block handling for the
+// top-level case (a bare <svg> as the whole document must become an
+// SVGElement, not a paragraph wrapping an SVGElement) and mixing them
+// inline with text is a pre-existing limitation — not worse than main.
+// Form controls need their own element-level conversion (convertInput /
+// convertButton / etc.) which collectRunsFromNode does not handle, so
+// grouping them as inline flow would silently drop them. <br> between
+// two blocks is historically emitted as a standalone spacer paragraph —
+// buffering it as inline produces no output because splitRunsAtBr
+// splits its lone "\n" into two empty groups. Mixing <br> inside a
+// real inline run (e.g. "line1<br>line2" inside a <div>) still works
+// correctly via the buffered text on either side.
+func (c *converter) isInlineFlowChild(child *html.Node, parentStyle computedStyle) bool {
+	switch child.Type {
+	case html.TextNode:
+		// Whitespace-only text between block siblings must not be
+		// promoted to an anonymous paragraph.
+		if strings.TrimSpace(child.Data) == "" {
+			return false
+		}
+		return true
+	case html.ElementNode:
+		switch child.DataAtom {
+		case atom.Span, atom.Em, atom.Strong, atom.B, atom.I, atom.U, atom.S,
+			atom.Del, atom.Mark, atom.Small, atom.Sub, atom.Sup, atom.Code,
+			atom.A:
+			// Honor CSS display overrides — a <span style="display:block">
+			// should still be treated as a block.
+			style := c.computeElementStyle(child, parentStyle)
+			if style.Display == "block" || style.Display == "flex" ||
+				style.Display == "grid" || style.Display == "none" {
+				return false
+			}
+			return true
+		}
+		return false
+	}
+	return false
 }
 
 // collapseMargins implements adjacent-sibling margin collapsing for

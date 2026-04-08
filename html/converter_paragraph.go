@@ -248,84 +248,93 @@ func (c *converter) convertInlineContainer(n *html.Node, style computedStyle) []
 func (c *converter) collectRuns(n *html.Node, style computedStyle) []layout.TextRun {
 	var runs []layout.TextRun
 	for child := n.FirstChild; child != nil; child = child.NextSibling {
-		switch child.Type {
-		case html.TextNode:
-			// Use inline-aware whitespace collapsing that preserves
-			// leading/trailing spaces per CSS Text Module Level 3 §4.1.1.
-			// Block-level contexts use processWhitespace which strips them.
-			var text string
-			if style.WhiteSpace == "pre" || style.WhiteSpace == "pre-wrap" || style.WhiteSpace == "pre-line" {
-				text = processWhitespace(child.Data, style.WhiteSpace)
-			} else {
-				text = collapseWhitespaceInline(child.Data)
-			}
-			if text == "" {
-				continue
-			}
-			text = applyTextTransform(text, style.TextTransform)
-			stdFont, embFont := c.resolveFontForText(style, text)
-			run := layout.TextRun{
-				Text:            text,
-				Font:            stdFont,
-				Embedded:        embFont,
-				FontSize:        style.FontSize,
-				Color:           style.Color,
-				Decoration:      style.TextDecoration,
-				DecorationColor: style.TextDecorationColor,
-				DecorationStyle: style.TextDecorationStyle,
-				LetterSpacing:   style.LetterSpacing,
-				WordSpacing:     style.WordSpacing,
-				BaselineShift:   baselineShiftFromStyle(style),
-				TextShadow:      textShadowFromStyle(style),
-				BackgroundColor: style.BackgroundColor,
-			}
-			runs = append(runs, run)
-		case html.ElementNode:
-			if child.DataAtom == atom.Br {
-				// Insert a newline marker that convertParagraph splits on.
-				runs = append(runs, layout.TextRun{Text: "\n"})
-				continue
-			}
-			childStyle := c.computeElementStyle(child, style)
-
-			// Images and SVGs are inline by default in HTML (replaced
-			// elements). Honor display overrides: "none" hides them,
-			// "block" skips them in inline flow (they would need to be
-			// handled as block-level elements outside the paragraph).
-			// All other display values (default "", "inline",
-			// "inline-block") are treated as inline.
-			if child.DataAtom == atom.Img || child.DataAtom == atom.Svg {
-				if childStyle.Display == "none" || childStyle.Display == "block" {
-					continue
-				}
-				if el := c.convertInlineElement(child, childStyle); el != nil {
-					runs = append(runs, layout.TextRun{InlineElement: el})
-				}
-				continue
-			}
-
-			// Elements with display:inline-block flow inline as atomic boxes.
-			if childStyle.Display == "inline-block" {
-				if el := c.convertInlineBlockElement(child, childStyle); el != nil {
-					runs = append(runs, layout.TextRun{InlineElement: el})
-				}
-				continue
-			}
-
-			childRuns := c.collectRuns(child, childStyle)
-			// Propagate href from <a> elements to all child runs.
-			if child.DataAtom == atom.A {
-				href := getAttr(child, "href")
-				if href != "" {
-					for i := range childRuns {
-						childRuns[i].LinkURI = href
-					}
-				}
-			}
-			runs = append(runs, childRuns...)
-		}
+		runs = append(runs, c.collectRunsFromNode(child, style)...)
 	}
 	return runs
+}
+
+// collectRunsFromNode converts a single sibling node (text or inline element)
+// into zero or more TextRuns, using parentStyle as the enclosing style. This
+// is the per-node body of collectRuns extracted so that walkChildren can
+// group consecutive inline siblings of a block container into a single
+// anonymous block box (CSS 2.1 §9.2.1.1) instead of producing one paragraph
+// per text/inline element and losing text shaping, alignment, and wrap.
+func (c *converter) collectRunsFromNode(child *html.Node, parentStyle computedStyle) []layout.TextRun {
+	switch child.Type {
+	case html.TextNode:
+		// Use inline-aware whitespace collapsing that preserves
+		// leading/trailing spaces per CSS Text Module Level 3 §4.1.1.
+		// Block-level contexts use processWhitespace which strips them.
+		var text string
+		if parentStyle.WhiteSpace == "pre" || parentStyle.WhiteSpace == "pre-wrap" || parentStyle.WhiteSpace == "pre-line" {
+			text = processWhitespace(child.Data, parentStyle.WhiteSpace)
+		} else {
+			text = collapseWhitespaceInline(child.Data)
+		}
+		if text == "" {
+			return nil
+		}
+		text = applyTextTransform(text, parentStyle.TextTransform)
+		stdFont, embFont := c.resolveFontForText(parentStyle, text)
+		return []layout.TextRun{{
+			Text:            text,
+			Font:            stdFont,
+			Embedded:        embFont,
+			FontSize:        parentStyle.FontSize,
+			Color:           parentStyle.Color,
+			Decoration:      parentStyle.TextDecoration,
+			DecorationColor: parentStyle.TextDecorationColor,
+			DecorationStyle: parentStyle.TextDecorationStyle,
+			LetterSpacing:   parentStyle.LetterSpacing,
+			WordSpacing:     parentStyle.WordSpacing,
+			BaselineShift:   baselineShiftFromStyle(parentStyle),
+			TextShadow:      textShadowFromStyle(parentStyle),
+			BackgroundColor: parentStyle.BackgroundColor,
+		}}
+	case html.ElementNode:
+		if child.DataAtom == atom.Br {
+			// Insert a newline marker that convertParagraph splits on.
+			return []layout.TextRun{{Text: "\n"}}
+		}
+		childStyle := c.computeElementStyle(child, parentStyle)
+
+		// Images and SVGs are inline by default in HTML (replaced
+		// elements). Honor display overrides: "none" hides them,
+		// "block" skips them in inline flow (they would need to be
+		// handled as block-level elements outside the paragraph).
+		// All other display values (default "", "inline",
+		// "inline-block") are treated as inline.
+		if child.DataAtom == atom.Img || child.DataAtom == atom.Svg {
+			if childStyle.Display == "none" || childStyle.Display == "block" {
+				return nil
+			}
+			if el := c.convertInlineElement(child, childStyle); el != nil {
+				return []layout.TextRun{{InlineElement: el}}
+			}
+			return nil
+		}
+
+		// Elements with display:inline-block flow inline as atomic boxes.
+		if childStyle.Display == "inline-block" {
+			if el := c.convertInlineBlockElement(child, childStyle); el != nil {
+				return []layout.TextRun{{InlineElement: el}}
+			}
+			return nil
+		}
+
+		childRuns := c.collectRuns(child, childStyle)
+		// Propagate href from <a> elements to all child runs.
+		if child.DataAtom == atom.A {
+			href := getAttr(child, "href")
+			if href != "" {
+				for i := range childRuns {
+					childRuns[i].LinkURI = href
+				}
+			}
+		}
+		return childRuns
+	}
+	return nil
 }
 
 // convertInlineElement converts an <img> or <svg> node into a single

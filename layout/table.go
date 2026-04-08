@@ -88,6 +88,7 @@ type Cell struct {
 	rowspan      int
 	bgColor      *Color     // background fill color (nil = transparent)
 	hintW        float64    // CSS width hint in points (0 = not set)
+	hintWUnit    *UnitValue // lazy width hint (overrides hintW when set; resolved at layout time)
 	borderRadius [4]float64 // corner radii [TL, TR, BR, BL] (points, 0 = sharp)
 }
 
@@ -95,6 +96,20 @@ type Cell struct {
 // Used by auto-sizing to influence column width allocation.
 func (c *Cell) SetWidthHint(pts float64) *Cell {
 	c.hintW = pts
+	c.hintWUnit = nil
+	return c
+}
+
+// SetWidthHintUnit sets a lazy width hint resolved at layout time against
+// the column track's available width. Use this instead of SetWidthHint for
+// percentage widths (e.g. <td style="width:50%">) so the hint resolves
+// against the table's actual maxWidth instead of whatever container width
+// was current at convert time. Without lazy resolution, a cell inside a
+// narrow flex column can resolve 50% against the outer page width and
+// overflow the column on render.
+func (c *Cell) SetWidthHintUnit(u UnitValue) *Cell {
+	c.hintWUnit = &u
+	c.hintW = 0
 	return c
 }
 
@@ -495,7 +510,7 @@ func (t *Table) computeAutoWidths(nCols int, maxWidth float64) []float64 {
 				continue
 			}
 
-			minW, maxW := cellIntrinsicWidths(cell)
+			minW, maxW := cellIntrinsicWidths(cell, maxWidth)
 			if minW > colMin[col] {
 				colMin[col] = minW
 			}
@@ -522,7 +537,7 @@ func (t *Table) computeAutoWidths(nCols int, maxWidth float64) []float64 {
 				span = nCols - col
 			}
 
-			cellMin, cellMax := cellIntrinsicWidths(cell)
+			cellMin, cellMax := cellIntrinsicWidths(cell, maxWidth)
 
 			// Sum current column sizes for the spanned range.
 			spanMin, spanMax := 0.0, 0.0
@@ -601,9 +616,27 @@ func (t *Table) computeAutoWidths(nCols int, maxWidth float64) []float64 {
 }
 
 // cellIntrinsicWidths returns the min and max content widths for a cell,
-// accounting for padding.
-func cellIntrinsicWidths(cell *Cell) (minW, maxW float64) {
+// accounting for padding. availWidth is the table's available width, used
+// to resolve lazy UnitValue hints (percentages) against the actual table
+// size rather than whatever container width was current when the cell
+// was constructed.
+func cellIntrinsicWidths(cell *Cell, availWidth float64) (minW, maxW float64) {
 	pad := cell.padLeft() + cell.padRight()
+
+	// Lazy UnitValue hint (e.g. percentage) resolves against the
+	// table's actual maxWidth. This is the path used by the HTML
+	// converter for `<td style="width:N%">`.
+	if cell.hintWUnit != nil {
+		resolved := cell.hintWUnit.Resolve(availWidth)
+		if resolved > 0 {
+			// Clip to available width so a badly-sized hint can't
+			// push total column width past the table's maxWidth.
+			if resolved > availWidth {
+				resolved = availWidth
+			}
+			return resolved, resolved
+		}
+	}
 
 	// CSS width hint on the cell overrides content measurement.
 	if cell.hintW > 0 {

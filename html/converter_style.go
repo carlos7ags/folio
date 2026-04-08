@@ -110,28 +110,44 @@ func (c *converter) applyTagDefaults(n *html.Node, style *computedStyle) {
 	case atom.P:
 		style.MarginTop = 12 // 1em at 16px → 16*0.75
 		style.MarginBottom = 12
+	case atom.Span:
+		// CSS 2.1 §9.2.2: <span> is inline by default. Without this,
+		// the inherited Display="block" leaks through and walkChildren
+		// treats <span> as a block sibling, producing one paragraph
+		// per element instead of grouping text and inline elements
+		// into a single anonymous block box.
+		style.Display = "inline"
 	case atom.Strong, atom.B:
 		style.FontWeight = "bold"
+		style.Display = "inline"
 	case atom.Em, atom.I:
 		style.FontStyle = "italic"
+		style.Display = "inline"
 	case atom.U:
 		style.TextDecoration |= layout.DecorationUnderline
+		style.Display = "inline"
 	case atom.S, atom.Del:
 		style.TextDecoration |= layout.DecorationStrikethrough
+		style.Display = "inline"
 	case atom.Mark:
 		// Browser default: yellow highlight background.
 		bg := layout.RGB(1, 1, 0)
 		style.BackgroundColor = &bg
+		style.Display = "inline"
 	case atom.Small:
 		style.FontSize = style.FontSize * 0.833
+		style.Display = "inline"
 	case atom.Sub:
 		style.FontSize = style.FontSize * 0.75
 		style.VerticalAlign = "sub"
+		style.Display = "inline"
 	case atom.Sup:
 		style.FontSize = style.FontSize * 0.75
 		style.VerticalAlign = "super"
+		style.Display = "inline"
 	case atom.Code:
 		style.FontFamily = "courier"
+		style.Display = "inline"
 	case atom.Pre:
 		style.FontFamily = "courier"
 		style.WhiteSpace = "pre"
@@ -143,6 +159,7 @@ func (c *converter) applyTagDefaults(n *html.Node, style *computedStyle) {
 	case atom.A:
 		style.Color = layout.RGB(0, 0, 0.933) // default link blue
 		style.TextDecoration |= layout.DecorationUnderline
+		style.Display = "inline"
 	case atom.Table:
 		// Browser UA defaults: no margins, separate borders, 2px spacing.
 		// CSS 2.1 §17.6: border-collapse initial value is "separate".
