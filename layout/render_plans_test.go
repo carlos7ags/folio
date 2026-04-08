@@ -309,6 +309,91 @@ func TestRenderTable(t *testing.T) {
 	}
 }
 
+// TestStripLeadingOffsetMultiBlock verifies that the page-top normalization
+// uniformly removes the leading vertical offset from every PlacedBlock in a
+// plan, not just from Blocks[0]. The previous implementation zeroed only the
+// first block, which left subsequent blocks shifted by the original offset
+// — producing either an overlap (heading multi-line bug) or an oversized
+// gap (paragraph spaceBefore at page top), depending on which element type
+// the plan came from.
+func TestStripLeadingOffsetMultiBlock(t *testing.T) {
+	plan := LayoutPlan{
+		Status:   LayoutFull,
+		Consumed: 100,
+		Blocks: []PlacedBlock{
+			{Y: 14, Height: 30}, // first line, shifted by space-above of 14
+			{Y: 44, Height: 30}, // second line, follows immediately
+			{Y: 74, Height: 30}, // third line
+		},
+	}
+	stripLeadingOffset(&plan)
+
+	wantYs := []float64{0, 30, 60}
+	for i, want := range wantYs {
+		if plan.Blocks[i].Y != want {
+			t.Errorf("block %d Y: want %.1f, got %.1f", i, want, plan.Blocks[i].Y)
+		}
+	}
+	if plan.Consumed != 86 {
+		t.Errorf("Consumed: want 86, got %.1f", plan.Consumed)
+	}
+}
+
+// TestStripLeadingOffsetNoOpZeroOffset ensures the helper is a no-op for
+// plans whose first block is already at Y=0. This is the common case for
+// any element without space-above (most paragraphs, lists, divs).
+func TestStripLeadingOffsetNoOpZeroOffset(t *testing.T) {
+	plan := LayoutPlan{
+		Status:   LayoutFull,
+		Consumed: 60,
+		Blocks: []PlacedBlock{
+			{Y: 0, Height: 30},
+			{Y: 30, Height: 30},
+		},
+	}
+	stripLeadingOffset(&plan)
+
+	if plan.Blocks[0].Y != 0 || plan.Blocks[1].Y != 30 {
+		t.Errorf("zero-offset plan should be untouched: %v", plan.Blocks)
+	}
+	if plan.Consumed != 60 {
+		t.Errorf("Consumed should be untouched, got %.1f", plan.Consumed)
+	}
+}
+
+// TestStripLeadingOffsetEmpty guards against a panic when an element returns
+// a plan with no blocks (e.g. an empty paragraph).
+func TestStripLeadingOffsetEmpty(t *testing.T) {
+	plan := LayoutPlan{Status: LayoutFull, Consumed: 0}
+	stripLeadingOffset(&plan) // must not panic
+}
+
+// TestRenderHeadingMultilineAtPageTop is an end-to-end check that a heading
+// which wraps to multiple lines AND lands at the top of a page renders
+// without overlap and without an oversized gap. This is the case the
+// previous bug + the previous page-top snap interacted in: with the old
+// code, mid-page headings overlapped, and a hypothetical fix that only
+// shifted all blocks would have introduced a top-of-page gap unless the
+// snap also normalized uniformly.
+func TestRenderHeadingMultilineAtPageTop(t *testing.T) {
+	r := NewRenderer(300, 800, Margins{Top: 36, Right: 36, Bottom: 36, Left: 36})
+	r.Add(NewHeading("Globex Corporation — Platform Renewal + Expansion (FY26)", H1))
+
+	pages := r.Render()
+	if len(pages) != 1 {
+		t.Fatalf("expected 1 page, got %d", len(pages))
+	}
+	// The rendered page is opaque from here, but the regression test in
+	// heading_test.go (TestHeadingPlanLayoutMultilineNoOverlap) covers the
+	// block-level invariant. This test simply ensures the full pipeline
+	// runs to completion for a wrapped heading at page top — the previous
+	// page-top snap ignored multi-block plans and would silently drop
+	// later lines off the page in some configurations.
+	if len(pages[0].Stream.Bytes()) == 0 {
+		t.Error("expected non-empty content stream for wrapped heading")
+	}
+}
+
 func TestRenderSpaceBeforeSuppressedOnNewPage(t *testing.T) {
 	r := NewRenderer(612, 792, Margins{Top: 72, Right: 72, Bottom: 72, Left: 72})
 
