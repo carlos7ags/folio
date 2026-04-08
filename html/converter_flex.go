@@ -4,6 +4,7 @@
 package html
 
 import (
+	"sort"
 	"strings"
 
 	"github.com/carlos7ags/folio/layout"
@@ -107,6 +108,18 @@ func (c *converter) convertFlex(n *html.Node, style computedStyle) []layout.Elem
 	// Add children as flex items.
 	// Each direct HTML child becomes exactly one flex item, even if
 	// convertNode returns multiple layout elements (e.g. text with <br>).
+	//
+	// Children are collected first and then stable-sorted by the CSS
+	// `order` property before being added to the Flex container. The
+	// stable sort preserves DOM order for equal `order` values, which
+	// matches CSS Flexbox spec behavior. Children without `order`
+	// have the default value 0.
+	type pendingChild struct {
+		order int
+		item  *layout.FlexItem // non-nil if this child needs FlexItem wrapping
+		elem  layout.Element   // non-nil if this child is added as a plain element
+	}
+	var pending []pendingChild
 	for child := n.FirstChild; child != nil; child = child.NextSibling {
 		// Skip whitespace-only text nodes inside flex containers (CSS spec:
 		// whitespace-only text in flex containers does not generate flex items).
@@ -137,6 +150,12 @@ func (c *converter) convertFlex(n *html.Node, style computedStyle) []layout.Elem
 		childStyle := style // default
 		if child.Type == html.ElementNode {
 			childStyle = c.computeElementStyle(child, style)
+		} else {
+			// Text-node children don't carry their own CSS, but they
+			// must not inherit non-inherited properties from the flex
+			// container (notably Order, which would otherwise leak and
+			// reorder text-node siblings alongside element siblings).
+			childStyle.Order = 0
 		}
 
 		// CSS width on a flex child acts as flex-basis (when flex-basis is not set).
@@ -207,9 +226,21 @@ func (c *converter) convertFlex(n *html.Node, style computedStyle) []layout.Elem
 					p.SetSpaceAfter(0)
 				}
 			}
-			flex.AddItem(item)
+			pending = append(pending, pendingChild{order: childStyle.Order, item: item})
 		} else {
-			flex.Add(elem)
+			pending = append(pending, pendingChild{order: childStyle.Order, elem: elem})
+		}
+	}
+
+	// Stable sort by order so DOM order is preserved for equal values.
+	sort.SliceStable(pending, func(i, j int) bool {
+		return pending[i].order < pending[j].order
+	})
+	for _, p := range pending {
+		if p.item != nil {
+			flex.AddItem(p.item)
+		} else {
+			flex.Add(p.elem)
 		}
 	}
 

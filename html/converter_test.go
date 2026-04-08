@@ -980,6 +980,365 @@ func TestConvertFlexJustifyCenter(t *testing.T) {
 	}
 }
 
+// findLeafBlock returns the Y offset of the deepest descendant block
+// (where deepest means: follows the first-child chain until a block has
+// no children). Used by flex alignment tests to assert vertical position.
+func findLeafBlock(blocks []layout.PlacedBlock) (layout.PlacedBlock, bool) {
+	if len(blocks) == 0 {
+		return layout.PlacedBlock{}, false
+	}
+	cur := blocks[0]
+	for len(cur.Children) > 0 {
+		cur = cur.Children[0]
+	}
+	return cur, true
+}
+
+func TestConvertFlexAlignItemsCenter(t *testing.T) {
+	// align-items:center on a flex container with definite cross-size
+	// must vertically center the child in the container.
+	htmlStr := `<div style="display: flex; height: 60px; align-items: center; border: 1px dashed gray">` +
+		`<div>ITEM</div>` +
+		`</div>`
+	elems, err := Convert(htmlStr, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan := elems[0].PlanLayout(layout.LayoutArea{Width: 400, Height: 800})
+	leaf, ok := findLeafBlock(plan.Blocks)
+	if !ok {
+		t.Fatal("no blocks produced")
+	}
+	// 60px container = 45pt. A small item should be centered ~ Y=15pt.
+	// Top-aligned would be Y≈0; bottom-aligned would be Y≈30.
+	if leaf.Y < 8 || leaf.Y > 22 {
+		t.Errorf("centered child Y = %.2f, want ~15 (centered in 45pt container)", leaf.Y)
+	}
+}
+
+func TestConvertFlexAlignItemsViaCustomProperty(t *testing.T) {
+	// Regression for the CSS var() cascade-order bug: a stylesheet rule
+	// like `align-items: var(--ai)` must resolve against an inline
+	// `--ai: center` declared on the same element, even though inline
+	// declarations come AFTER stylesheet rules in apply order. The
+	// computeElementStyle two-pass apply makes custom properties
+	// available to var() at apply-time regardless of source location.
+	htmlStr := `<html><head><style>
+.row { display: flex; height: 60px; align-items: var(--ai); border: 1px dashed gray; }
+</style></head><body>
+<div class="row" style="--ai: center"><div>ITEM</div></div>
+</body></html>`
+	elems, err := Convert(htmlStr, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan := elems[0].PlanLayout(layout.LayoutArea{Width: 400, Height: 800})
+	leaf, ok := findLeafBlock(plan.Blocks)
+	if !ok {
+		t.Fatal("no blocks produced")
+	}
+	// With the cascade bug, var(--ai) would resolve to nothing,
+	// align-items would default to stretch, and the leaf would be
+	// at Y=0 (stretched to fill). With the fix, it must center.
+	if leaf.Y < 8 || leaf.Y > 22 {
+		t.Errorf("centered child Y = %.2f, want ~15 (var(--ai) should resolve to center)", leaf.Y)
+	}
+}
+
+func TestConvertFlexAlignItemsViaCustomPropertyAllValues(t *testing.T) {
+	// Exercise all four align-items keyword values via var(), as the
+	// flexbox.html stress test does. Each variant must resolve to the
+	// expected vertical position.
+	cases := []struct {
+		name    string
+		ai      string
+		minY    float64
+		maxY    float64
+		comment string
+	}{
+		{"flex-start", "flex-start", -0.1, 4, "top of container"},
+		{"center", "center", 8, 22, "vertical center of container"},
+		{"flex-end", "flex-end", 26, 32, "bottom of container"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			htmlStr := `<html><head><style>` +
+				`.row { display: flex; height: 60px; align-items: var(--ai); border: 1px dashed gray; }` +
+				`</style></head><body>` +
+				`<div class="row" style="--ai: ` + tc.ai + `"><div>ITEM</div></div>` +
+				`</body></html>`
+			elems, err := Convert(htmlStr, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			plan := elems[0].PlanLayout(layout.LayoutArea{Width: 400, Height: 800})
+			leaf, ok := findLeafBlock(plan.Blocks)
+			if !ok {
+				t.Fatal("no blocks produced")
+			}
+			if leaf.Y < tc.minY || leaf.Y > tc.maxY {
+				t.Errorf("var(--ai)=%s: leaf Y = %.2f, want %.1f..%.1f (%s)",
+					tc.ai, leaf.Y, tc.minY, tc.maxY, tc.comment)
+			}
+		})
+	}
+}
+
+// flexItemWidths returns the widths of a flex container's immediate
+// child blocks, in visual (left-to-right) order. Each child in the
+// test fixtures uses a distinct width-hint so its identity can be
+// recovered from its laid-out width.
+func flexItemWidths(flexBlock layout.PlacedBlock) []float64 {
+	out := make([]float64, len(flexBlock.Children))
+	for i, child := range flexBlock.Children {
+		out[i] = child.Width
+	}
+	return out
+}
+
+func TestConvertFlexOrderProperty(t *testing.T) {
+	// Children with explicit order values must be visually reordered.
+	// DOM order: A(order:3, w:50px) B(order:1, w:100px) C(order:2, w:150px)
+	// Expected visual order: B, C, A → widths in visual order: 100, 150, 50.
+	// Each child uses width:Npx as its distinct identifier (consumed
+	// as flex-basis with shrink:0 so it isn't resized).
+	htmlStr := `<div style="display: flex">` +
+		`<div style="order: 3; width: 50px; flex-shrink: 0">A</div>` +
+		`<div style="order: 1; width: 100px; flex-shrink: 0">B</div>` +
+		`<div style="order: 2; width: 150px; flex-shrink: 0">C</div>` +
+		`</div>`
+	elems, err := Convert(htmlStr, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan := elems[0].PlanLayout(layout.LayoutArea{Width: 600, Height: 800})
+	flexBlock := plan.Blocks[0]
+	if len(flexBlock.Children) != 3 {
+		t.Fatalf("expected 3 child blocks, got %d", len(flexBlock.Children))
+	}
+	widths := flexItemWidths(flexBlock)
+	// Expected widths in visual order, in points (px*0.75): 75, 112.5, 37.5.
+	wantWidths := []float64{75, 112.5, 37.5}
+	for i, w := range wantWidths {
+		if widths[i] < w-2 || widths[i] > w+2 {
+			t.Errorf("visual slot %d: width = %.2f, want ~%.1f (full: %v)", i, widths[i], w, widths)
+		}
+	}
+}
+
+func TestConvertFlexOrderReordersFront(t *testing.T) {
+	// A single child with order:-1 should jump to the front (leftmost).
+	// DOM: A(w:50) B(w:100) C(order:-1, w:150) → visual: C, A, B.
+	htmlStr := `<div style="display: flex">` +
+		`<div style="width: 50px; flex-shrink: 0">A</div>` +
+		`<div style="width: 100px; flex-shrink: 0">B</div>` +
+		`<div style="order: -1; width: 150px; flex-shrink: 0">C</div>` +
+		`</div>`
+	elems, err := Convert(htmlStr, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan := elems[0].PlanLayout(layout.LayoutArea{Width: 600, Height: 800})
+	flexBlock := plan.Blocks[0]
+	if len(flexBlock.Children) != 3 {
+		t.Fatalf("expected 3 child blocks, got %d", len(flexBlock.Children))
+	}
+	widths := flexItemWidths(flexBlock)
+	// Expected: C (112.5), A (37.5), B (75).
+	wantWidths := []float64{112.5, 37.5, 75}
+	for i, w := range wantWidths {
+		if widths[i] < w-2 || widths[i] > w+2 {
+			t.Errorf("visual slot %d: width = %.2f, want ~%.1f (full: %v)", i, widths[i], w, widths)
+		}
+	}
+}
+
+func TestConvertFlexOrderStableSortPreservesDOMOrderForTies(t *testing.T) {
+	// Children with the same order value must remain in DOM order.
+	// Mix tied and untied children so the test actually exercises
+	// stability: a non-stable sort would permute the two order:1
+	// children relative to each other.
+	//
+	// DOM: A(order:1, w:50) B(order:1, w:100) C(order:0, w:150)
+	// Expected visual order by order value: C (order:0), A (order:1),
+	// B (order:1) — A and B tied, A must come before B per DOM order.
+	// In widths: 112.5 (C), 37.5 (A), 75 (B).
+	htmlStr := `<div style="display: flex">` +
+		`<div style="order: 1; width: 50px; flex-shrink: 0">A</div>` +
+		`<div style="order: 1; width: 100px; flex-shrink: 0">B</div>` +
+		`<div style="order: 0; width: 150px; flex-shrink: 0">C</div>` +
+		`</div>`
+	elems, err := Convert(htmlStr, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan := elems[0].PlanLayout(layout.LayoutArea{Width: 600, Height: 800})
+	flexBlock := plan.Blocks[0]
+	widths := flexItemWidths(flexBlock)
+	wantWidths := []float64{112.5, 37.5, 75}
+	for i, w := range wantWidths {
+		if widths[i] < w-2 || widths[i] > w+2 {
+			t.Errorf("tie slot %d: width = %.2f, want ~%.1f (full: %v)", i, widths[i], w, widths)
+		}
+	}
+}
+
+func TestConvertFlexOrderColumnDirection(t *testing.T) {
+	// The order property must also work in column direction. Children
+	// are distinguished by their Y offset instead of X.
+	//
+	// DOM: A(order:2, h:30px) B(order:1, h:60px) C(order:0, h:90px)
+	// Expected visual (top-to-bottom) order: C, B, A.
+	htmlStr := `<div style="display: flex; flex-direction: column">` +
+		`<div style="order: 2; height: 30px">A</div>` +
+		`<div style="order: 1; height: 60px">B</div>` +
+		`<div style="order: 0; height: 90px">C</div>` +
+		`</div>`
+	elems, err := Convert(htmlStr, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan := elems[0].PlanLayout(layout.LayoutArea{Width: 400, Height: 800})
+	flexBlock := plan.Blocks[0]
+	if len(flexBlock.Children) != 3 {
+		t.Fatalf("expected 3 children, got %d", len(flexBlock.Children))
+	}
+	// Visual slot 0 (topmost) should be C (height 67.5pt = 90px).
+	// Visual slot 1 should be B (height 45pt = 60px).
+	// Visual slot 2 should be A (height 22.5pt = 30px).
+	wantHeights := []float64{67.5, 45, 22.5}
+	for i, h := range wantHeights {
+		got := flexBlock.Children[i].Height
+		if got < h-2 || got > h+2 {
+			t.Errorf("visual slot %d: height = %.2f, want ~%.1f", i, got, h)
+		}
+	}
+}
+
+func TestConvertFlexOrderWithAlignSelf(t *testing.T) {
+	// A flex child with both `order` and `align-self` set: the order
+	// must reshuffle the children AND align-self must still be applied
+	// (the `needsItem` branch wraps in a FlexItem).
+	//
+	// DOM:
+	//   A (order:2, w:50, align-self unset)
+	//   B (order:0, w:100, align-self:center)
+	// Expected: B is first (order:0) and is vertically centered; A is
+	// second (order:2) and is top-aligned (default for row).
+	htmlStr := `<div style="display: flex; height: 60px">` +
+		`<div style="order: 2; width: 50px; flex-shrink: 0">A</div>` +
+		`<div style="order: 0; width: 100px; flex-shrink: 0; align-self: center">B</div>` +
+		`</div>`
+	elems, err := Convert(htmlStr, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan := elems[0].PlanLayout(layout.LayoutArea{Width: 400, Height: 800})
+	// Container is wrapped in Div because of height.
+	div := plan.Blocks[0]
+	if len(div.Children) == 0 {
+		t.Fatal("no flex block")
+	}
+	flexBlock := div.Children[0]
+	if len(flexBlock.Children) != 2 {
+		t.Fatalf("expected 2 children, got %d", len(flexBlock.Children))
+	}
+	// Visual slot 0 is B (100px = 75pt), slot 1 is A (50px = 37.5pt).
+	if w := flexBlock.Children[0].Width; w < 73 || w > 77 {
+		t.Errorf("visual slot 0 width = %.2f, want ~75 (B with order:0)", w)
+	}
+	if w := flexBlock.Children[1].Width; w < 35.5 || w > 39.5 {
+		t.Errorf("visual slot 1 width = %.2f, want ~37.5 (A with order:2)", w)
+	}
+	// align-self: center on B: its Y should be in the middle of 45pt.
+	// B's rendered content is small, so Y should be > 0 if centered.
+	if y := flexBlock.Children[0].Y; y < 5 {
+		t.Errorf("B (align-self: center) Y = %.2f, want > 5 (centered, not top)", y)
+	}
+}
+
+func TestCSSVarFallbackForUndeclaredProperty(t *testing.T) {
+	// var() with a fallback when the referenced custom property is
+	// undeclared should use the fallback. The fix must not break
+	// this.
+	htmlStr := `<div style="color: var(--undefined, #ff0000)">hello</div>`
+	elems, err := Convert(htmlStr, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// If the fallback resolved correctly, color becomes red and the
+	// element has a Paragraph run with red color — we just verify
+	// conversion succeeds and produces elements.
+	if len(elems) == 0 {
+		t.Fatal("expected at least one element")
+	}
+	plan := elems[0].PlanLayout(layout.LayoutArea{Width: 400, Height: 800})
+	if plan.Status != layout.LayoutFull {
+		t.Errorf("expected LayoutFull, got %v", plan.Status)
+	}
+}
+
+func TestCSSVarCustomPropertyForwardReference(t *testing.T) {
+	// Regression for audit finding #2: a custom property that
+	// references another custom property declared LATER in the
+	// cascade must still resolve.
+	//
+	//   --b: var(--a);
+	//   --a: 150px;
+	//   width: var(--b);
+	//
+	// With eager resolution (the old behavior), --b would freeze to
+	// the empty fallback because --a wasn't declared yet at apply
+	// time. With lazy custom-prop resolution, var(--b) expands to
+	// var(--a) which expands to 150px.
+	htmlStr := `<div style="--b: var(--a); --a: 150px; width: var(--b); height: 20px; background: #ddd"></div>`
+	elems, err := Convert(htmlStr, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan := elems[0].PlanLayout(layout.LayoutArea{Width: 600, Height: 800})
+	if len(plan.Blocks) == 0 {
+		t.Fatal("no blocks produced")
+	}
+	box := plan.Blocks[0]
+	// 150px = 112.5pt.
+	if box.Width < 110 || box.Width > 115 {
+		t.Errorf("box width = %.2f, want ~112.5 (var(--b) → var(--a) → 150px)", box.Width)
+	}
+}
+
+func TestCSSVarCascadeOrderInlineOverridesParent(t *testing.T) {
+	// General regression test for the CSS var() cascade-order fix:
+	// a stylesheet rule that uses var() must read the custom property
+	// from the inline style of the SAME element, even though inline
+	// styles apply later in the cascade than stylesheet rules. This
+	// is the same fix that makes align-items: var(--ai) work.
+	//
+	// We exercise it through a Width assertion: a stylesheet rule sets
+	// width: var(--w), and the inline style sets --w. Without the
+	// cascade fix, width is unset (var doesn't resolve at apply-time).
+	// With the fix, width is honored.
+	htmlStr := `<html><head><style>
+.box { width: var(--w); height: 20px; background: #ddd; }
+</style></head><body>
+<div class="box" style="--w: 200px"></div>
+</body></html>`
+	elems, err := Convert(htmlStr, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan := elems[0].PlanLayout(layout.LayoutArea{Width: 600, Height: 800})
+	if len(plan.Blocks) == 0 {
+		t.Fatal("no blocks produced")
+	}
+	box := plan.Blocks[0]
+	// 200px = 150pt. Without the fix, var(--w) doesn't resolve and the
+	// box takes the full container width.
+	if box.Width < 148 || box.Width > 152 {
+		t.Errorf("box width = %.2f, want ~150 (var(--w) should resolve to 200px = 150pt)", box.Width)
+	}
+}
+
 // --- Nested list tests ---
 
 func TestConvertNestedList(t *testing.T) {

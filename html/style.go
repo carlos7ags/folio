@@ -98,6 +98,7 @@ type computedStyle struct {
 	AlignContent   string // "flex-start", "flex-end", "center", "space-between", "space-around", "stretch"
 	JustifyItems   string // "start", "end", "center", "stretch" (grid only)
 	Gap            float64
+	Order          int // CSS order property; ascending sort key for flex children, ties broken by DOM order
 
 	// Grid
 	GridTemplateColumns string     // raw CSS value e.g. "1fr 1fr 1fr", "200px 1fr 2fr"
