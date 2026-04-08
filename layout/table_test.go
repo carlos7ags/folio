@@ -228,6 +228,134 @@ func TestTableRendererHeaderRepetition(t *testing.T) {
 	}
 }
 
+// TestTableOverflowPreservesAutoWidthsWithCellHints is a regression test for
+// a bug where a table that relied on per-cell width hints for sizing (the
+// path used by the HTML converter for `<th style="width:N%">`) would silently
+// fall back to equal-distribution column widths on continuation pages after
+// a page break. The root cause was that Table.PlanLayout's overflow table
+// construction copied only a subset of the source table's fields and
+// omitted autoWidths, minWidth, and minWidthUnit. With autoWidths=false and
+// no colWidths/colUnitWidths set, resolveColWidths fell through to equal
+// distribution, shifting the columns visibly between pages.
+//
+// We exercise the scenario directly: a 3-column table sized via
+// SetAutoColumnWidths() + per-cell SetWidthHint calls, forced to split by a
+// narrow area Height. The overflow table's resolved column widths must
+// match the first page's exactly.
+func TestTableOverflowPreservesAutoWidthsWithCellHints(t *testing.T) {
+	tbl := NewTable()
+	tbl.SetAutoColumnWidths()
+
+	// Header row with width hints on every cell. The hints pin the
+	// intrinsic widths of the auto-sizing algorithm.
+	h := tbl.AddHeaderRow()
+	h.AddCell("Item", font.HelveticaBold, 10).SetWidthHint(250)
+	h.AddCell("Qty", font.HelveticaBold, 10).SetWidthHint(100)
+	h.AddCell("Amount", font.HelveticaBold, 10).SetWidthHint(150)
+
+	// Enough body rows to force a split at the Height we pick below.
+	for range 20 {
+		row := tbl.AddRow()
+		row.AddCell("Widget", font.Helvetica, 10)
+		row.AddCell("1", font.Helvetica, 10)
+		row.AddCell("$10", font.Helvetica, 10)
+	}
+
+	const areaWidth = 500.0
+	// Height chosen to fit the header + a handful of body rows, forcing
+	// the rest to overflow. Exact value doesn't matter — we just need
+	// Status: LayoutPartial.
+	plan := tbl.PlanLayout(LayoutArea{Width: areaWidth, Height: 100})
+	if plan.Status != LayoutPartial {
+		t.Fatalf("expected LayoutPartial to exercise the overflow path, got %v", plan.Status)
+	}
+
+	overflow, ok := plan.Overflow.(*Table)
+	if !ok {
+		t.Fatalf("expected overflow to be *Table, got %T", plan.Overflow)
+	}
+
+	// First-page widths computed from the source table.
+	wantWidths := tbl.resolveColWidths(areaWidth)
+	gotWidths := overflow.resolveColWidths(areaWidth)
+
+	if len(gotWidths) != len(wantWidths) {
+		t.Fatalf("overflow column count: got %d, want %d", len(gotWidths), len(wantWidths))
+	}
+	for i := range wantWidths {
+		if math.Abs(gotWidths[i]-wantWidths[i]) > 0.01 {
+			t.Errorf("overflow column %d width: got %.2f, want %.2f — overflow table "+
+				"should reproduce the source table's column widths exactly so "+
+				"continuation pages don't visibly shift",
+				i, gotWidths[i], wantWidths[i])
+		}
+	}
+}
+
+// TestTableOverflowPreservesMinWidth guards the less common path where a
+// table's total width is constrained by SetMinWidth. The overflow must
+// carry the same constraint, otherwise the continuation table would shrink
+// to fit its content (still auto-sized) and drift below the first page's
+// total width.
+func TestTableOverflowPreservesMinWidth(t *testing.T) {
+	tbl := NewTable()
+	tbl.SetAutoColumnWidths()
+	tbl.SetMinWidth(450)
+
+	tbl.AddHeaderRow().
+		AddCell("A", font.HelveticaBold, 10)
+	for range 20 {
+		tbl.AddRow().AddCell("x", font.Helvetica, 10)
+	}
+
+	const areaWidth = 500.0
+	plan := tbl.PlanLayout(LayoutArea{Width: areaWidth, Height: 80})
+	if plan.Status != LayoutPartial {
+		t.Fatalf("expected LayoutPartial, got %v", plan.Status)
+	}
+	overflow, ok := plan.Overflow.(*Table)
+	if !ok {
+		t.Fatalf("expected *Table overflow, got %T", plan.Overflow)
+	}
+
+	want := tbl.resolveColWidths(areaWidth)
+	got := overflow.resolveColWidths(areaWidth)
+	if len(got) != len(want) || math.Abs(got[0]-want[0]) > 0.01 {
+		t.Errorf("overflow minWidth not preserved: got %v, want %v", got, want)
+	}
+}
+
+// TestTableOverflowPreservesBorderCollapseAndSpacing is a coverage guard
+// for the fields that were already copied by the old field-by-field
+// construction. The struct-copy fix must not regress them.
+func TestTableOverflowPreservesBorderCollapseAndSpacing(t *testing.T) {
+	tbl := NewTable()
+	tbl.SetAutoColumnWidths()
+	tbl.SetBorderCollapse(true)
+	tbl.SetCellSpacing(3, 5)
+
+	tbl.AddHeaderRow().AddCell("H", font.HelveticaBold, 10)
+	for range 20 {
+		tbl.AddRow().AddCell("b", font.Helvetica, 10)
+	}
+
+	plan := tbl.PlanLayout(LayoutArea{Width: 400, Height: 80})
+	if plan.Status != LayoutPartial {
+		t.Fatalf("expected LayoutPartial, got %v", plan.Status)
+	}
+	overflow, ok := plan.Overflow.(*Table)
+	if !ok {
+		t.Fatalf("expected *Table overflow, got %T", plan.Overflow)
+	}
+	if !overflow.BorderCollapse() {
+		t.Error("overflow lost borderCollapse flag")
+	}
+	if overflow.cellSpacingH != 3 || overflow.cellSpacingV != 5 {
+		t.Errorf("overflow lost cellSpacing: got (%v, %v), want (3, 5)",
+			overflow.cellSpacingH, overflow.cellSpacingV)
+	}
+}
+
 func contains(s, substr string) bool {
 	return len(s) > 0 && len(substr) > 0 && stringContains(s, substr)
 }
