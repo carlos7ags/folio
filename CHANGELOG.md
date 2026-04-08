@@ -5,6 +5,32 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.2] - 2026-04-08
+
+No breaking API changes — all additions below are additive. `layout.Grid.SetAlignContent` keeps its signature; it now also records that the value was explicitly set so implicit "normal" stretching is preserved. The C ABI grows from 348 to 372 exports, all additive.
+
+### Added
+
+- **SVG `<image>` elements with data-URI raster sources** — `<image href="data:image/png;base64,...">` inside an `<svg>` now decodes and draws the embedded PNG/JPEG/WebP/GIF. Missing `width`/`height` fall back to the raster's intrinsic pixel dimensions (#130)
+- **Real SVG gradients** — `linearGradient` and `radialGradient` referenced via `fill="url(#id)"` are now rasterized and drawn clipped to the shape instead of collapsing to the first stop color (#130)
+- **`svg.RenderOptions.RegisterImage`** — new callback for wiring an external image decoder and XObject registrar from SVG `<image>` elements, keeping the svg package free of image-format dependencies (#130)
+- **`svg.RenderOptions.RegisterGradient`** — new callback for rasterizing SVG gradients into PDF image XObjects; nil callback preserves the legacy first-stop fallback (#130)
+- **`svg.Node.LinearGradient()` / `svg.Node.RadialGradient()`** — accessors returning parsed gradient definitions (`LinearGradientInfo` / `RadialGradientInfo`) with resolved `Stop` values, so callers can drive an external rasterizer without reparsing SVG syntax (#130)
+- **`svg.BBox`** — new exported type representing an axis-aligned bounding box in SVG local coordinates, used as the shape bounding box passed to `RegisterGradient` (#130)
+- **24 new C ABI exports** — `folio_document_to_bytes`, `folio_document_validate_pdfa`, Div extras (`set_aspect_ratio`, `set_keep_together`, `set_border_radius_per_corner`, `set_width_percent`, `set_hcenter`, `set_hright`, `set_clear`, `set_outline`, `add_box_shadow`), Cell extras (`set_border_radius`, `set_border_radius_per_corner`), Grid extras (`set_border`, `set_borders`, `set_template_areas`), Flex extras (`set_align_content`, `set_borders`), `paragraph_set_text_align_last`, Image extras (`set_object_fit`, `set_object_position`), `run_list_last_set_background_color`, `signer_new_pkcs12`, `parse_css_length`. Total C ABI: 372 exports, up from 348 (#143)
+
+### Fixed
+
+- **Inline `<svg>` / `<img>` dropped from paragraph flow** — replaced elements inside a `<p>` inherited `display: block` from the parent and were silently skipped by the inline collector. They now default to `display: inline` in `applyTagDefaults`, matching browser replaced-element behavior. Affects any `<p>` containing a bare `<svg>` or `<img>` without an explicit inline `display` override (#130)
+- **Inline `<strong>` / `<em>` / `<span>` / `<a>` split paragraphs into three** — `<div>text <strong>bold</strong> more text</div>` produced three stacked paragraphs with the trailing punctuation orphaned on a new line. Two interacting bugs: text-emphasis tags (`strong`, `em`, `span`, `b`, `i`, `u`, `s`, `del`, `mark`, `small`, `sub`, `sup`, `code`, `a`) inherited `display: block`, and `walkChildren` didn't group consecutive inline siblings into anonymous block boxes per CSS 2.1 §9.2.1.1. `walkChildren` now buffers consecutive inline flow children and flushes them as a single paragraph (#142)
+- **`<td style="width:50%">` overflow in narrow flex columns** — cell width percentages were resolved against the converter's outer container width instead of the table's actual layout width, producing absolute hints much larger than the table could hold and cells that ran off the page. Percentage widths are now deferred to layout time where the real table width is known (#142)
+- **CSS Grid `align-items`, `justify-items`, and container height** — explicit `height` on a grid container is now honored so `align-items` / `align-content` have room to distribute; `justify-items` values (`start`/`end`/`center`/`stretch`) are applied; explicit `align-content: flex-start` no longer triggers row stretching (#129)
+- **Flexbox `order` property** — children are stable-sorted by their CSS `order` value before layout; ties preserve DOM order per Flexbox spec. `align-items` now resolves `var(--custom-property)` references through the cascade (#128)
+- **Table sizing preserved across page-break continuations** — `min-width`, auto-column widths with cell hints, and `border-collapse`/`border-spacing` now survive when a table splits across pages (#134)
+- **Multi-line headings no longer overprint wrapped lines** — `Heading.PlanLayout` allocates per-line boxes so long headings that wrap at narrow widths render cleanly without glyph overlap (#132)
+- **`column-span: all` inside multi-column containers** — elements with `column-span: all` now break the column flow correctly at leading, trailing, consecutive, and column-boundary positions, including when `column-rule` is set (#127)
+- **Heading overflow tag + `Consumed` accounting on page break** — headings that split across pages carry the correct structure tag on continuation and no longer over-advance the available height (#139)
+
 ## [0.6.1] - 2026-04-05
 
 ### Added
