@@ -322,6 +322,27 @@ func (t *Table) effectiveSpacingV() float64 {
 	return t.cellSpacingV
 }
 
+// cloneForOverflow returns a shallow copy of t with no rows, used by
+// PlanLayout to build the continuation table when a page break splits
+// this table. Every sizing field (autoWidths, minWidth, minWidthUnit,
+// colWidths, colUnitWidths, border-collapse, cell spacing) is inherited
+// so column widths on the continuation page exactly match the first
+// page. Without this, a table that relied on auto-sizing from per-cell
+// width hints — notably `<th style="width:N%">` in the HTML converter,
+// which calls SetAutoColumnWidths + SetWidthHint — would silently fall
+// back to equal-distribution column widths after a page break and
+// visibly shift between pages. Rows are rebuilt by the caller from
+// header + remaining body + footer rows.
+//
+// When adding a new field to Table, no change is needed here: the
+// whole struct is copied. Tests in TestTableOverflowPreserves* guard
+// the invariant.
+func (t *Table) cloneForOverflow() *Table {
+	clone := *t
+	clone.rows = nil
+	return &clone
+}
+
 // totalSpacingH returns the total horizontal space consumed by cell spacing.
 // For N columns there are N+1 gaps (left edge, between each pair, right edge).
 func (t *Table) totalSpacingH(nCols int) float64 {
@@ -942,13 +963,9 @@ func (t *Table) PlanLayout(area LayoutArea) LayoutPlan {
 	}
 
 	// Build overflow table with header + footer rows + remaining data rows.
-	overflowTable := &Table{
-		colWidths:      t.colWidths,
-		colUnitWidths:  t.colUnitWidths,
-		borderCollapse: t.borderCollapse,
-		cellSpacingH:   t.cellSpacingH,
-		cellSpacingV:   t.cellSpacingV,
-	}
+	// cloneForOverflow inherits every sizing field (see its doc comment);
+	// rows are rebuilt below from header + remaining body + footer.
+	overflowTable := t.cloneForOverflow()
 	// Re-add header rows.
 	for _, row := range t.rows {
 		if row.isHeader {
