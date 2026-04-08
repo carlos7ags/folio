@@ -182,17 +182,6 @@ func (c *converter) applyTagDefaults(n *html.Node, style *computedStyle) {
 	}
 }
 
-// applyInlineStyle parses a CSS style attribute and applies it to the style.
-func (c *converter) applyInlineStyle(attr string, style *computedStyle) {
-	for _, decl := range splitDeclarations(attr) {
-		prop, val := splitDeclaration(decl)
-		if prop == "" || val == "" {
-			continue
-		}
-		c.applyProperty(prop, val, style)
-	}
-}
-
 // resolveVars replaces var(--name) and var(--name, fallback) references in a
 // CSS value string using the element's custom properties. Handles nested var()
 // calls and multiple var() references in a single value.
