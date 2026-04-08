@@ -180,6 +180,10 @@ int32_t  folio_document_set_pdfa(uint64_t doc, int32_t level);
 int32_t  folio_document_set_encryption(uint64_t doc, const char *user_pw, const char *owner_pw, int32_t algorithm);
 int32_t  folio_document_set_encryption_with_permissions(uint64_t doc, const char *user_pw,
              const char *owner_pw, int32_t algorithm, int32_t permissions);  /* FOLIO_PERM_* */
+
+/* Convenience: serialize document to a buffer handle (caller must folio_buffer_free). */
+uint64_t folio_document_to_bytes(uint64_t doc);
+int32_t  folio_document_validate_pdfa(uint64_t doc);
 int32_t  folio_document_set_auto_bookmarks(uint64_t doc, int32_t enabled);
 int32_t  folio_document_set_form(uint64_t doc, uint64_t form);
 
@@ -308,6 +312,7 @@ int32_t  folio_paragraph_set_widows(uint64_t para, int32_t n);
 int32_t  folio_paragraph_set_ellipsis(uint64_t para, int32_t enabled);
 int32_t  folio_paragraph_set_word_break(uint64_t para, const char *mode);
 int32_t  folio_paragraph_set_hyphens(uint64_t para, const char *mode);
+int32_t  folio_paragraph_set_text_align_last(uint64_t para, int32_t align);
 
 int32_t  folio_paragraph_add_run(uint64_t para, const char *text, uint64_t font, double font_size, double r, double g, double b);
 
@@ -355,6 +360,8 @@ int32_t  folio_cell_set_borders(uint64_t cell,
              double bottom_w, double bottom_r, double bottom_g, double bottom_b,
              double left_w, double left_r, double left_g, double left_b);
 int32_t  folio_cell_set_width_hint(uint64_t cell, double pts);
+int32_t  folio_cell_set_border_radius(uint64_t cell, double radius);
+int32_t  folio_cell_set_border_radius_per_corner(uint64_t cell, double tl, double tr, double br, double bl);
 
 /* ── Image ─────────────────────────────────────────────────────────── */
 
@@ -371,6 +378,8 @@ uint64_t folio_image_element_new(uint64_t img);
 int32_t  folio_image_element_set_size(uint64_t elem, double w, double h);
 int32_t  folio_image_element_set_align(uint64_t elem, int32_t align);
 int32_t  folio_image_element_set_alt_text(uint64_t elem, const char *text);
+int32_t  folio_image_element_set_object_fit(uint64_t elem, const char *fit);
+int32_t  folio_image_element_set_object_position(uint64_t elem, const char *pos);
 void     folio_image_element_free(uint64_t elem);
 
 /* ── Div (container) ───────────────────────────────────────────────── */
@@ -386,6 +395,17 @@ int32_t  folio_div_set_width(uint64_t div, double pts);
 int32_t  folio_div_set_min_height(uint64_t div, double pts);
 int32_t  folio_div_set_max_width(uint64_t div, double pts);
 int32_t  folio_div_set_min_width(uint64_t div, double pts);
+int32_t  folio_div_set_width_percent(uint64_t div, double pct);
+int32_t  folio_div_set_aspect_ratio(uint64_t div, double ratio);
+int32_t  folio_div_set_keep_together(uint64_t div, int32_t enabled);
+int32_t  folio_div_set_border_radius_per_corner(uint64_t div, double tl, double tr, double br, double bl);
+int32_t  folio_div_set_hcenter(uint64_t div, int32_t enabled);
+int32_t  folio_div_set_hright(uint64_t div, int32_t enabled);
+int32_t  folio_div_set_clear(uint64_t div, const char *value);
+int32_t  folio_div_set_outline(uint64_t div, double width, const char *style,
+             double r, double g, double b, double offset);
+int32_t  folio_div_add_box_shadow(uint64_t div, double offset_x, double offset_y,
+             double blur, double spread, double r, double g, double b);
 int32_t  folio_div_set_space_before(uint64_t div, double pts);
 int32_t  folio_div_set_space_after(uint64_t div, double pts);
 int32_t  folio_div_set_border_radius(uint64_t div, double radius);
@@ -436,6 +456,7 @@ int32_t  folio_run_list_add_link(uint64_t rl, const char *text, uint64_t font, d
 int32_t  folio_run_list_last_set_underline(uint64_t rl);
 int32_t  folio_run_list_last_set_strikethrough(uint64_t rl);
 int32_t  folio_run_list_last_set_letter_spacing(uint64_t rl, double spacing);
+int32_t  folio_run_list_last_set_background_color(uint64_t rl, double r, double g, double b);
 
 int32_t  folio_heading_set_runs(uint64_t heading, uint64_t run_list);
 int32_t  folio_list_add_item_runs(uint64_t list, uint64_t run_list);
@@ -494,6 +515,12 @@ int32_t  folio_flex_set_space_before(uint64_t flex, double pts);
 int32_t  folio_flex_set_space_after(uint64_t flex, double pts);
 int32_t  folio_flex_set_row_gap(uint64_t flex, double gap);
 int32_t  folio_flex_set_column_gap(uint64_t flex, double gap);
+int32_t  folio_flex_set_align_content(uint64_t flex, int32_t align);
+int32_t  folio_flex_set_borders(uint64_t flex,
+             double top_w, double top_r, double top_g, double top_b,
+             double right_w, double right_r, double right_g, double right_b,
+             double bottom_w, double bottom_r, double bottom_g, double bottom_b,
+             double left_w, double left_r, double left_g, double left_b);
 int32_t  folio_flex_set_padding_all(uint64_t flex, double top, double right, double bottom, double left);
 int32_t  folio_flex_set_border(uint64_t flex, double width, double r, double g, double b);
 
@@ -511,6 +538,7 @@ int32_t  folio_flex_item_set_margins(uint64_t item, double top, double right, do
 int32_t  folio_html_to_pdf(const char *html, const char *output_path);
 uint64_t folio_html_to_buffer(const char *html, double page_width, double page_height);
 uint64_t folio_html_convert(const char *html, double page_width, double page_height);
+double   folio_html_parse_css_length(const char *s, double font_size, double relative_to);
 
 /* ── Reader (PDF parsing) ──────────────────────────────────────────── */
 
@@ -542,6 +570,7 @@ uint64_t folio_reader_paths(uint64_t reader, int32_t page_index);
 
 uint64_t folio_signer_new_pem(const void *key_pem, int32_t key_len,
              const void *cert_pem, int32_t cert_len);
+uint64_t folio_signer_new_pkcs12(const void *data, int32_t length, const char *password);
 void     folio_signer_free(uint64_t signer);
 
 uint64_t folio_tsa_client_new(const char *url);
@@ -637,6 +666,16 @@ void     folio_grid_free(uint64_t grid);
 int32_t  folio_grid_add_child(uint64_t grid, uint64_t element);
 int32_t  folio_grid_set_template_columns(uint64_t grid, const int32_t *types, const double *values, int32_t count);
 int32_t  folio_grid_set_template_rows(uint64_t grid, const int32_t *types, const double *values, int32_t count);
+int32_t  folio_grid_set_border(uint64_t grid, double width, double r, double g, double b);
+int32_t  folio_grid_set_borders(uint64_t grid,
+             double top_w, double top_r, double top_g, double top_b,
+             double right_w, double right_r, double right_g, double right_b,
+             double bottom_w, double bottom_r, double bottom_g, double bottom_b,
+             double left_w, double left_r, double left_g, double left_b);
+/* template_areas: rows is an array of space-separated area names; cols is the
+ * column count per row. Example: rows={"header header","nav main"} cols={2,2}. */
+int32_t  folio_grid_set_template_areas(uint64_t grid, const char **rows,
+             const int32_t *cols, int32_t row_count);
 int32_t  folio_grid_set_auto_rows(uint64_t grid, const int32_t *types, const double *values, int32_t count);
 int32_t  folio_grid_set_gap(uint64_t grid, double row_gap, double col_gap);
 int32_t  folio_grid_set_placement(uint64_t grid, int32_t child_index, int32_t col_start, int32_t col_end, int32_t row_start, int32_t row_end);
