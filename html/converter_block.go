@@ -339,6 +339,16 @@ func applyDivStyles(div *layout.Div, style computedStyle, containerWidth float64
 // recomputes the style as part of normal element handling). If
 // computeElementStyle ever acquires side effects (counter increments, font
 // registration, etc.) the peek would double-apply them and corrupt state.
+//
+// TODO: this function does NOT group consecutive inline-flow children
+// (text + <strong>/<em>/<span>/<a>) into anonymous block boxes the way
+// walkChildren does. Mixed inline/text children of a multicol container
+// will produce one paragraph per sibling node instead of one wrapped
+// paragraph — the same bug pattern fixed for walkChildren in this PR.
+// The fix here would be to add an inline-buffering pass equivalent to
+// walkChildren's flushInline helper, gated on isInlineFlowChild. Left as
+// a follow-up because multicol containers with mixed inline children are
+// uncommon in the reported templates.
 func (c *converter) buildMulticolSegments(n *html.Node, style computedStyle) []layout.Element {
 	var result []layout.Element
 	var segment []layout.Element

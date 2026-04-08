@@ -403,10 +403,20 @@ func (c *converter) convertTableRowKind(n *html.Node, tbl *layout.Table, parentS
 		}
 
 		// CSS width on the cell → column width hint for auto-sizing.
+		// Percentage widths are stored as lazy UnitValues so they
+		// resolve against the table's actual maxWidth at layout time
+		// (see Cell.SetWidthHintUnit). Without lazy resolution, a
+		// cell inside a narrow flex column would resolve its 50%
+		// against c.containerWidth (the outer page width), producing
+		// an absurdly large hint that overflows the column on render.
 		if cellStyle.Width != nil {
-			w := cellStyle.Width.toPoints(c.containerWidth, cellStyle.FontSize)
-			if w > 0 {
-				cell.SetWidthHint(w)
+			if cellStyle.Width.Unit == "%" {
+				cell.SetWidthHintUnit(layout.Pct(cellStyle.Width.Value))
+			} else {
+				w := cellStyle.Width.toPoints(c.containerWidth, cellStyle.FontSize)
+				if w > 0 {
+					cell.SetWidthHint(w)
+				}
 			}
 		}
 	}
