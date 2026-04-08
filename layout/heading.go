@@ -40,6 +40,7 @@ type Heading struct {
 	bookmarkLevel int               // CSS bookmark-level override (0 = use level)
 	bookmarkLabel string            // CSS bookmark-label override (empty = use text)
 	stringSets    map[string]string // CSS string-set values to capture
+	continuation  bool              // true for the overflow half of a split heading
 }
 
 // NewHeading creates a heading using a standard font.
@@ -165,45 +166,103 @@ func (h *Heading) MinWidth() float64 { return h.para.MinWidth() }
 func (h *Heading) MaxWidth() float64 { return h.para.MaxWidth() }
 
 // PlanLayout implements Element by delegating to the inner Paragraph
-// and overriding the structure tag.
+// and overriding the structure tag. When the heading wraps across a
+// page break, the overflow is wrapped in a continuation Heading so
+// the remaining lines on the next page keep their H1-H6 structure tag
+// (see the continuation field).
 func (h *Heading) PlanLayout(area LayoutArea) LayoutPlan {
-	plan := h.para.PlanLayout(area)
+	// Reserve the half-em "space above" up front so the inner Paragraph
+	// packs into the available height minus the spacing. Without this
+	// reservation, a heading that exactly fills the remaining area
+	// would report Consumed = area.Height + spacing and over-advance
+	// the renderer's curY by spacing after the heading — a bug that
+	// was previously masked by the multi-line overlap fixed in #132
+	// and is now exposed.
+	//
+	// Continuation headings inherit no space above: the spacing belongs
+	// to the original heading on the starting page, not to the wrapped
+	// lines on subsequent pages.
+	spacing := 0.0
+	if !h.continuation {
+		spacing = headingSize(h.level) * 0.5
+	}
 
-	// Override structure tags from P to H1-H6 and set heading text.
-	// Use bookmarkLevel/bookmarkLabel overrides if set (CSS bookmark-level/label).
+	// Note: the Consumed <= area.Height bound is only tight for
+	// multi-line headings. For a single-line heading whose line height
+	// exceeds area.Height - spacing, Paragraph.PlanLayout's `i > 0`
+	// escape hatch (see the split loop in paragraph.go) still places
+	// the line, so Consumed can exceed area.Height by the overshoot.
+	// That's a pre-existing degenerate case not addressed by this fix.
+	innerArea := area
+	innerArea.Height -= spacing
+	if innerArea.Height <= 0 {
+		return LayoutPlan{Status: LayoutNothing}
+	}
+
+	plan := h.para.PlanLayout(innerArea)
+	if plan.Status == LayoutNothing {
+		return plan
+	}
+
+	// Override structure tags from P to H1-H6. The tag must be applied
+	// to every block (including continuation headings) so the tagged
+	// PDF structure tree remains correct when a heading wraps across
+	// pages. HeadingText and stringSets, on the other hand, are only
+	// attached to the first block of the *original* heading — they
+	// drive auto-bookmarks and the CSS string() capture, both of which
+	// must fire exactly once per heading regardless of how many page
+	// breaks the heading spans.
 	effectiveLevel := h.level
 	if h.bookmarkLevel > 0 && h.bookmarkLevel <= 6 {
 		effectiveLevel = HeadingLevel(h.bookmarkLevel)
 	}
 	tag := headingTag(effectiveLevel)
-	headingText := h.text()
-	if h.bookmarkLabel != "" {
-		headingText = h.bookmarkLabel
-	}
 	for i := range plan.Blocks {
 		plan.Blocks[i].Tag = tag
-		if i == 0 {
-			plan.Blocks[i].HeadingText = headingText
-			if len(h.stringSets) > 0 {
-				plan.Blocks[i].StringSets = h.stringSets
-			}
+	}
+	if !h.continuation && len(plan.Blocks) > 0 {
+		headingText := h.text()
+		if h.bookmarkLabel != "" {
+			headingText = h.bookmarkLabel
+		}
+		plan.Blocks[0].HeadingText = headingText
+		if len(h.stringSets) > 0 {
+			plan.Blocks[0].StringSets = h.stringSets
 		}
 	}
 
-	// Apply the half-em "space above" that distinguishes a heading from
-	// surrounding text. The shift must apply to every placed block, not
-	// just the first one — a heading that wraps to multiple lines
-	// produces one PlacedBlock per line, and shifting only Blocks[0]
-	// would push line 0 down into line 1's space, causing the wrapped
-	// lines to overprint each other in the rendered PDF. At a page top,
-	// render_plans normalizes the leading offset away uniformly so the
-	// heading still snaps flush to the top margin.
-	spacing := headingSize(h.level) * 0.5
+	// Shift every block down by the reserved spacing. This must apply
+	// to all blocks, not just the first — a heading that wraps to
+	// multiple lines produces one PlacedBlock per line, and shifting
+	// only Blocks[0] would push line 0 down into line 1's space,
+	// causing the wrapped lines to overprint each other (#132).
+	// At a page top, render_plans normalizes the leading offset away
+	// uniformly so the heading still snaps flush to the top margin.
 	if spacing > 0 && len(plan.Blocks) > 0 {
 		for i := range plan.Blocks {
 			plan.Blocks[i].Y += spacing
 		}
 		plan.Consumed += spacing
+	}
+
+	// If the inner paragraph split, wrap its overflow Paragraph in a
+	// continuation Heading so the remaining lines on the next page
+	// keep the H1-H6 tag. The continuation intentionally inherits
+	// level / bookmarkLevel / bookmarkLabel (so the tag override still
+	// resolves correctly) but NOT stringSets: those are captured once
+	// on the starting page. HeadingText is suppressed on continuation
+	// blocks by the !h.continuation guard above, so no duplicate
+	// bookmark is emitted on the continuation page.
+	if plan.Status == LayoutPartial {
+		if overflowPara, ok := plan.Overflow.(*Paragraph); ok {
+			plan.Overflow = &Heading{
+				para:          overflowPara,
+				level:         h.level,
+				bookmarkLevel: h.bookmarkLevel,
+				bookmarkLabel: h.bookmarkLabel,
+				continuation:  true,
+			}
+		}
 	}
 
 	return plan
