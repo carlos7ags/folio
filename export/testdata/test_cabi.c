@@ -1499,6 +1499,147 @@ int main(void) {
     folio_buffer_free(buf);
     folio_document_free(doc);
 
+    /* ===== Stage 39: v0.6.2 exports ===== */
+    printf("Testing v0.6.2 exports (ToBytes, Div/Cell/Grid/Flex extras, image fit, highlights, PKCS12, CSS length)...\n");
+
+    /* Document.ToBytes — convenience */
+    doc = folio_document_new_letter();
+    helv = folio_font_helvetica();
+    para = folio_paragraph_new("ToBytes test", helv, 14.0);
+    folio_document_add(doc, para);
+    uint64_t tbBuf = folio_document_to_bytes(doc);
+    ASSERT(tbBuf != 0, "document_to_bytes returns buffer");
+    ASSERT(folio_buffer_len(tbBuf) > 100, "to_bytes buffer has content");
+    ASSERT(memcmp(folio_buffer_data(tbBuf), "%PDF", 4) == 0, "to_bytes output is PDF");
+    folio_buffer_free(tbBuf);
+    folio_document_free(doc);
+
+    /* Document.ValidatePdfA — returns OK when PDF/A not configured (no-op) */
+    doc = folio_document_new_letter();
+    rc = folio_document_validate_pdfa(doc);
+    ASSERT(rc == 0, "validate_pdfa no-op when PDF/A not configured");
+    folio_document_free(doc);
+
+    /* Div extensions */
+    doc = folio_document_new_letter();
+    div = folio_div_new();
+    rc = folio_div_set_aspect_ratio(div, 16.0/9.0);
+    ASSERT(rc == 0, "div_set_aspect_ratio succeeds");
+    rc = folio_div_set_keep_together(div, 1);
+    ASSERT(rc == 0, "div_set_keep_together succeeds");
+    rc = folio_div_set_border_radius_per_corner(div, 4, 8, 4, 8);
+    ASSERT(rc == 0, "div_set_border_radius_per_corner succeeds");
+    rc = folio_div_set_width_percent(div, 0.5);
+    ASSERT(rc == 0, "div_set_width_percent succeeds");
+    rc = folio_div_set_hcenter(div, 1);
+    ASSERT(rc == 0, "div_set_hcenter succeeds");
+    rc = folio_div_set_outline(div, 2.0, "solid", 0.2, 0.2, 0.2, 2.0);
+    ASSERT(rc == 0, "div_set_outline succeeds");
+    rc = folio_div_add_box_shadow(div, 2, 2, 4, 0, 0.5, 0.5, 0.5);
+    ASSERT(rc == 0, "div_add_box_shadow succeeds");
+    rc = folio_div_set_clear(div, "both");
+    ASSERT(rc == 0, "div_set_clear succeeds");
+    rc = folio_div_set_hright(div, 0);
+    ASSERT(rc == 0, "div_set_hright succeeds");
+
+    para = folio_paragraph_new("Styled div content", helv, 12.0);
+    folio_div_add(div, para);
+    folio_document_add(doc, div);
+
+    /* Cell border radius */
+    uint64_t tbl62 = folio_table_new();
+    uint64_t hrow62 = folio_table_add_header_row(tbl62);
+    uint64_t hcell62 = folio_row_add_cell(hrow62, "Header", helv, 12.0);
+    rc = folio_cell_set_border_radius(hcell62, 4.0);
+    ASSERT(rc == 0, "cell_set_border_radius succeeds");
+    rc = folio_cell_set_border_radius_per_corner(hcell62, 6, 6, 0, 0);
+    ASSERT(rc == 0, "cell_set_border_radius_per_corner succeeds");
+    folio_document_add(doc, tbl62);
+
+    /* Grid extensions */
+    uint64_t gr = folio_grid_new();
+    int32_t gCols[] = {2, 2}; /* fr, fr */
+    double gColVals[] = {1.0, 1.0};
+    folio_grid_set_template_columns(gr, gCols, gColVals, 2);
+    rc = folio_grid_set_border(gr, 1.0, 0.3, 0.3, 0.3);
+    ASSERT(rc == 0, "grid_set_border succeeds");
+    rc = folio_grid_set_borders(gr,
+        1,0,0,0, 1,0,0,0, 1,0,0,0, 1,0,0,0);
+    ASSERT(rc == 0, "grid_set_borders succeeds");
+    const char* gAreas[] = {"a a", "b c"};
+    int32_t gAreaCols[] = {2, 2};
+    rc = folio_grid_set_template_areas(gr, gAreas, gAreaCols, 2);
+    ASSERT(rc == 0, "grid_set_template_areas succeeds");
+    uint64_t gP1 = folio_paragraph_new("A", helv, 10.0);
+    folio_grid_add_child(gr, gP1);
+    uint64_t gP2 = folio_paragraph_new("B", helv, 10.0);
+    folio_grid_add_child(gr, gP2);
+    uint64_t gP3 = folio_paragraph_new("C", helv, 10.0);
+    folio_grid_add_child(gr, gP3);
+    folio_document_add(doc, gr);
+
+    /* Flex extensions */
+    uint64_t fl = folio_flex_new();
+    rc = folio_flex_set_borders(fl,
+        1,0.2,0.2,0.2, 1,0.2,0.2,0.2, 1,0.2,0.2,0.2, 1,0.2,0.2,0.2);
+    ASSERT(rc == 0, "flex_set_borders succeeds");
+    rc = folio_flex_set_align_content(fl, 2 /* center */);
+    ASSERT(rc == 0, "flex_set_align_content succeeds");
+    uint64_t fpara = folio_paragraph_new("Flex child", helv, 10.0);
+    folio_flex_add(fl, fpara);
+    folio_document_add(doc, fl);
+
+    /* Paragraph text-align-last */
+    uint64_t tap = folio_paragraph_new("Justified paragraph with align last setting", helv, 12.0);
+    rc = folio_paragraph_set_align(tap, 3 /* justify */);
+    ASSERT(rc == 0, "para_set_align succeeds");
+    rc = folio_paragraph_set_text_align_last(tap, 1 /* center */);
+    ASSERT(rc == 0, "para_set_text_align_last succeeds");
+    folio_document_add(doc, tap);
+
+    /* Run list with background highlight */
+    uint64_t rl62 = folio_run_list_new();
+    folio_run_list_add(rl62, "Normal ", helv, 12, 0, 0, 0);
+    folio_run_list_add(rl62, "highlighted", helv, 12, 0, 0, 0);
+    rc = folio_run_list_last_set_background_color(rl62, 1.0, 1.0, 0.0);
+    ASSERT(rc == 0, "run_list_last_set_background_color succeeds");
+    folio_run_list_add(rl62, " text.", helv, 12, 0, 0, 0);
+
+    uint64_t runP = folio_heading_new("placeholder", 2);
+    folio_heading_set_runs(runP, rl62);
+    folio_document_add(doc, runP);
+
+    rc = folio_document_save(doc, "/tmp/folio_cabi_v062.pdf");
+    ASSERT(rc == 0, "v062 document save succeeds");
+
+    folio_run_list_free(rl62);
+    folio_heading_free(runP);
+    folio_flex_free(fl);
+    folio_grid_free(gr);
+    folio_table_free(tbl62);
+    folio_div_free(div);
+    folio_document_free(doc);
+
+    /* HTML ParseCSSLength */
+    double cssLen = folio_html_parse_css_length("72pt", 12.0, 100.0);
+    ASSERT(cssLen == 72.0, "parse_css_length 72pt = 72");
+    cssLen = folio_html_parse_css_length("1in", 12.0, 100.0);
+    ASSERT(cssLen > 71.9 && cssLen < 72.1, "parse_css_length 1in ≈ 72");
+    cssLen = folio_html_parse_css_length("50%", 12.0, 200.0);
+    ASSERT(cssLen == 100.0, "parse_css_length 50% of 200 = 100");
+    cssLen = folio_html_parse_css_length("2em", 14.0, 100.0);
+    ASSERT(cssLen == 28.0, "parse_css_length 2em at 14px = 28");
+
+    /* PKCS#12 signer (negative test — invalid data) */
+    uint64_t badPkcs12 = folio_signer_new_pkcs12("invalid", 7, "wrong");
+    ASSERT(badPkcs12 == 0, "signer_new_pkcs12 rejects invalid data");
+
+    /* Image element object-fit (exists but no image loaded; test error path) */
+    rc = folio_image_element_set_object_fit(99999, "contain");
+    ASSERT(rc != 0, "image_element_set_object_fit rejects bad handle");
+    rc = folio_image_element_set_object_position(99999, "center");
+    ASSERT(rc != 0, "image_element_set_object_position rejects bad handle");
+
     /* Summary */
     printf("\n%d passed, %d failed\n", passes, failures);
     return failures > 0 ? 1 : 0;
