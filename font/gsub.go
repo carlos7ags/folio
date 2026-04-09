@@ -212,8 +212,7 @@ func matchFeatures(gsub []byte, off int, allowed []int, targetTags map[string]GS
 			continue
 		}
 		rec := gsub[off+2+i*6:]
-		tag := string(rec[:4])
-		feat, ok := targetTags[tag]
+		feat, ok := targetTags[string(rec[:4])]
 		if !ok {
 			continue
 		}

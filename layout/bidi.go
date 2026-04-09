@@ -18,13 +18,13 @@ import (
 // The returned direction is the resolved base direction of the paragraph
 // (LTR or RTL), which callers use for the default alignment decision.
 //
-// Reordering is done at word granularity: each word is assigned the bidi
+// Reordering operates at word granularity: each word is assigned the bidi
 // level of its first character, and words are placed into the visual
 // sequence according to the runs returned by bidi.Ordering. Within an
-// RTL run, the words appear in reverse logical order. Character-level
-// reordering within a single word (e.g. digits inside a Hebrew word) is
-// a known limitation of this approach — it requires splitting words at
-// level transitions, which is deferred to a follow-up.
+// RTL run, the words appear in reverse logical order. Words with mixed
+// bidi levels (e.g. Hebrew+digits in a single token) are pre-split by
+// splitMixedBidiWord before reaching this function, so each word here
+// is directionally uniform.
 //
 // If the line contains only LTR text and the base direction is LTR, the
 // words are returned unchanged (fast path).
