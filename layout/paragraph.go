@@ -1482,13 +1482,18 @@ func (p *Paragraph) cloneWithWords(words []Word) *Paragraph {
 	}
 
 	return &Paragraph{
-		runs:       runs,
-		leading:    p.leading,
-		align:      p.align,
-		alignSet:   p.alignSet,
-		direction:  p.direction,
-		spaceAfter: p.spaceAfter,
-		background: p.background,
+		runs:             runs,
+		leading:          p.leading,
+		align:            p.align,
+		alignSet:         p.alignSet,
+		direction:        p.direction,
+		spaceAfter:       p.spaceAfter,
+		background:       p.background,
+		wordBreak:        p.wordBreak,
+		hyphens:          p.hyphens,
+		textAlignLast:    p.textAlignLast,
+		textAlignLastSet: p.textAlignLastSet,
+		ellipsis:         p.ellipsis,
 		// firstIndent is NOT propagated — it only applies to the first line
 		orphans: p.orphans,
 		widows:  p.widows,

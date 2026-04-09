@@ -181,6 +181,52 @@ func TestParagraphDirectionPreservedOnOverflow(t *testing.T) {
 	}
 }
 
+// TestParagraphOverflowPreservesAllFields verifies that cloneWithWords
+// propagates wordBreak, hyphens, textAlignLast, textAlignLastSet, and
+// ellipsis to the overflow paragraph. Pre-existing bug found by audit.
+func TestParagraphOverflowPreservesAllFields(t *testing.T) {
+	var parts []string
+	for i := 0; i < 30; i++ {
+		parts = append(parts, "word")
+	}
+	text := ""
+	for i, p := range parts {
+		if i > 0 {
+			text += " "
+		}
+		text += p
+	}
+	p := NewParagraph(text, font.Helvetica, 12)
+	p.SetWordBreak("break-all")
+	p.SetHyphens("auto")
+	p.SetTextAlignLast(AlignCenter)
+	p.SetEllipsis(true)
+
+	plan := p.PlanLayout(LayoutArea{Width: 100, Height: 15})
+	if plan.Status != LayoutPartial {
+		t.Fatalf("expected LayoutPartial, got %v", plan.Status)
+	}
+	overflow, ok := plan.Overflow.(*Paragraph)
+	if !ok {
+		t.Fatalf("overflow is %T, want *Paragraph", plan.Overflow)
+	}
+	if overflow.wordBreak != "break-all" {
+		t.Errorf("wordBreak: got %q, want %q", overflow.wordBreak, "break-all")
+	}
+	if overflow.hyphens != "auto" {
+		t.Errorf("hyphens: got %q, want %q", overflow.hyphens, "auto")
+	}
+	if overflow.textAlignLast != AlignCenter {
+		t.Errorf("textAlignLast: got %v, want AlignCenter", overflow.textAlignLast)
+	}
+	if !overflow.textAlignLastSet {
+		t.Error("textAlignLastSet not propagated")
+	}
+	if !overflow.ellipsis {
+		t.Error("ellipsis not propagated")
+	}
+}
+
 // TestParagraphEmptyRTLNoPanic verifies that an empty paragraph with
 // SetDirection(RTL) does not panic and produces a valid layout.
 func TestParagraphEmptyRTLNoPanic(t *testing.T) {
