@@ -390,6 +390,32 @@ Pre-built binaries for Linux, macOS, and Windows are attached to each
 
 ---
 
+## Performance
+
+All benchmarks run the full pipeline: HTML parsing, CSS cascade, layout,
+and PDF serialization. Each document uses real styling: grid, flexbox,
+border-radius, alternating rows, and page breaks. No headless browser,
+no external process.
+
+Benchmarks on Apple M1 Pro (`go test -bench`):
+
+| Benchmark | What it generates | Time |
+|-----------|-------------------|------|
+| HTMLInvoice | Styled invoice: CSS Grid, flexbox, cards, 3-row table | 1.1 ms |
+| HTMLReport | 2-page quarterly report: KPI cards, 3 tables, page break | 7.9 ms |
+| HTMLTableHeavy100 | 100-row, 5-column data table with alternating rows | 11.3 ms |
+| BlankPage | Empty page + PDF serialization | 5.4 µs |
+| SingleParagraph | One paragraph, end-to-end | 130 µs |
+| Table10x3 | 10-row table via layout API | 400 µs |
+
+Reproduce locally:
+
+```bash
+go test -run='^$' -bench=. -benchmem ./document/
+```
+
+---
+
 ## Architecture
 
 ```
