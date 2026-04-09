@@ -186,6 +186,52 @@ func TestBidiWhitespaceOnlyRespectsBase(t *testing.T) {
 	}
 }
 
+func TestSplitMixedBidiWord(t *testing.T) {
+	// "מחיר42" has Hebrew + digits → should split at the transition.
+	w := Word{Text: "\u05DE\u05D7\u05D9\u05E842", Width: 60, SpaceAfter: 5}
+	subs := splitMixedBidiWord(w)
+	if subs == nil {
+		t.Fatal("expected split, got nil")
+	}
+	if len(subs) != 2 {
+		t.Fatalf("expected 2 sub-words, got %d", len(subs))
+	}
+	if subs[0].Text != "\u05DE\u05D7\u05D9\u05E8" {
+		t.Errorf("sub[0]: got %q, want Hebrew part", subs[0].Text)
+	}
+	if subs[1].Text != "42" {
+		t.Errorf("sub[1]: got %q, want '42'", subs[1].Text)
+	}
+	// SpaceAfter should be on the last sub-word only.
+	if subs[0].SpaceAfter != 0 {
+		t.Errorf("sub[0].SpaceAfter: got %v, want 0", subs[0].SpaceAfter)
+	}
+	if subs[1].SpaceAfter != 5 {
+		t.Errorf("sub[1].SpaceAfter: got %v, want 5", subs[1].SpaceAfter)
+	}
+}
+
+func TestSplitMixedBidiWordNoSplit(t *testing.T) {
+	// Pure Hebrew — no transition, should return nil.
+	w := Word{Text: "\u05E9\u05DC\u05D5\u05DD", Width: 40}
+	if subs := splitMixedBidiWord(w); subs != nil {
+		t.Errorf("pure Hebrew should not split, got %d sub-words", len(subs))
+	}
+	// Pure English — no transition.
+	w2 := Word{Text: "Hello", Width: 30}
+	if subs := splitMixedBidiWord(w2); subs != nil {
+		t.Errorf("pure English should not split, got %d sub-words", len(subs))
+	}
+}
+
+func TestSplitMixedBidiWordInlineBlock(t *testing.T) {
+	// InlineBlock words should never split.
+	w := Word{Text: "", InlineBlock: &Div{}}
+	if subs := splitMixedBidiWord(w); subs != nil {
+		t.Error("InlineBlock should not split")
+	}
+}
+
 func TestBidiNumbersInRTL(t *testing.T) {
 	// "שלום 42 עולם" — numbers in an RTL paragraph stay LTR.
 	// Visual order (left-to-right): עולם 42 שלום

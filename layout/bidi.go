@@ -206,6 +206,104 @@ func resolveLineBidi(words []Word, base Direction) ([]Word, Direction) {
 	return visual, resolved
 }
 
+// splitMixedBidiWord checks if a word contains characters at different
+// bidi embedding levels (e.g. Hebrew letters mixed with digits or Latin
+// characters in a single whitespace-delimited token). If level transitions
+// are found, it splits the word into sub-words at the transition points.
+// Each sub-word inherits all styling from the original word; only Text and
+// Width differ. The caller must re-measure the sub-words' widths.
+//
+// Returns nil if the word has uniform bidi level (no split needed) or if
+// it has no text content (inline block, empty).
+func splitMixedBidiWord(w Word) []Word {
+	if w.Text == "" || w.InlineBlock != nil {
+		return nil
+	}
+	runes := []rune(w.Text)
+	if len(runes) <= 1 {
+		return nil
+	}
+
+	// Classify each rune's bidi class quickly. We only care about the
+	// distinction between strong-RTL (R, AL, AN) and everything else.
+	// If all runes have the same "directionality bucket", no split.
+	type bucket int
+	const (
+		bucketLTR bucket = iota
+		bucketRTL
+		bucketNeutral
+	)
+	classify := func(r rune) bucket {
+		props, _ := bidi.LookupRune(r)
+		switch props.Class() {
+		case bidi.R, bidi.AL, bidi.AN:
+			return bucketRTL
+		case bidi.L, bidi.EN:
+			return bucketLTR
+		default:
+			return bucketNeutral
+		}
+	}
+
+	// Walk runes, detect transitions between LTR and RTL (ignoring neutrals).
+	prevStrong := bucketNeutral
+	hasTransition := false
+	for _, r := range runes {
+		b := classify(r)
+		if b == bucketNeutral {
+			continue
+		}
+		if prevStrong != bucketNeutral && b != prevStrong {
+			hasTransition = true
+			break
+		}
+		prevStrong = b
+	}
+	if !hasTransition {
+		return nil
+	}
+
+	// Split at strong-direction transitions. Neutral characters attach to
+	// the preceding strong direction run (or the first strong run if they
+	// lead). This produces the smallest number of sub-words while keeping
+	// each sub-word directionally uniform.
+	var parts []string
+	start := 0
+	currentStrong := bucketNeutral
+	for i, r := range runes {
+		b := classify(r)
+		if b == bucketNeutral {
+			continue
+		}
+		if currentStrong == bucketNeutral {
+			currentStrong = b
+			continue
+		}
+		if b != currentStrong {
+			parts = append(parts, string(runes[start:i]))
+			start = i
+			currentStrong = b
+		}
+	}
+	parts = append(parts, string(runes[start:]))
+	if len(parts) <= 1 {
+		return nil
+	}
+
+	// Build sub-words inheriting all styling from the original.
+	subs := make([]Word, len(parts))
+	for i, p := range parts {
+		subs[i] = w                   // copy all fields
+		subs[i].Text = p              // override text
+		subs[i].Width = 0             // caller must re-measure
+		subs[i].SpaceAfter = 0        // only the last sub-word gets inter-word space
+		subs[i].LineBreak = false      // only the first inherits the original's LineBreak
+	}
+	subs[0].LineBreak = w.LineBreak
+	subs[len(subs)-1].SpaceAfter = w.SpaceAfter
+	return subs
+}
+
 // bidiMirrorMap maps opening brackets to closing and vice versa for
 // UAX #9 rule L4 (mirrored characters). Only the commonly-used pairs
 // are included; the full BidiMirroring.txt has ~550 entries but the

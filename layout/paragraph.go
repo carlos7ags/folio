@@ -277,7 +277,7 @@ func (p *Paragraph) Layout(maxWidth float64) []Line {
 			if run.LetterSpacing != 0 && len([]rune(w)) > 1 {
 				wordW += run.LetterSpacing * float64(len([]rune(w))-1)
 			}
-			measured = append(measured, Word{
+			word := Word{
 				Text:            w,
 				Width:           wordW,
 				Font:            run.Font,
@@ -295,7 +295,26 @@ func (p *Paragraph) Layout(maxWidth float64) []Line {
 				LinkURI:         run.LinkURI,
 				TextShadow:      run.TextShadow,
 				BackgroundColor: run.BackgroundColor,
-			})
+			}
+			// Split words with mixed bidi levels into sub-words so
+			// each piece can be independently reordered by the bidi
+			// algorithm. E.g. "מחיר:₪42" splits at the transition
+			// between Hebrew and digit characters.
+			if subs := splitMixedBidiWord(word); subs != nil {
+				for si, sub := range subs {
+					sub.Text = ShapeArabic(sub.Text)
+					sub.Width = measurer.MeasureString(sub.Text, run.FontSize)
+					if run.LetterSpacing != 0 && len([]rune(sub.Text)) > 1 {
+						sub.Width += run.LetterSpacing * float64(len([]rune(sub.Text))-1)
+					}
+					if si == 0 {
+						sub.LineBreak = nextLineBreak
+					}
+					measured = append(measured, sub)
+				}
+			} else {
+				measured = append(measured, word)
+			}
 			nextLineBreak = false
 		}
 		if run.FontSize > maxFontSize {
@@ -1181,7 +1200,7 @@ func (p *Paragraph) measureWords(maxWidth float64) ([]Word, float64) {
 			if run.LetterSpacing != 0 && len([]rune(w)) > 1 {
 				wordW += run.LetterSpacing * float64(len([]rune(w))-1)
 			}
-			measured = append(measured, Word{
+			word := Word{
 				Text:            w,
 				Width:           wordW,
 				Font:            run.Font,
@@ -1199,7 +1218,22 @@ func (p *Paragraph) measureWords(maxWidth float64) ([]Word, float64) {
 				TextShadow:      run.TextShadow,
 				BackgroundColor: run.BackgroundColor,
 				LineBreak:       nextLineBreak,
-			})
+			}
+			if subs := splitMixedBidiWord(word); subs != nil {
+				for si, sub := range subs {
+					sub.Text = ShapeArabic(sub.Text)
+					sub.Width = measurer.MeasureString(sub.Text, run.FontSize)
+					if run.LetterSpacing != 0 && len([]rune(sub.Text)) > 1 {
+						sub.Width += run.LetterSpacing * float64(len([]rune(sub.Text))-1)
+					}
+					if si == 0 {
+						sub.LineBreak = nextLineBreak
+					}
+					measured = append(measured, sub)
+				}
+			} else {
+				measured = append(measured, word)
+			}
 			nextLineBreak = false
 		}
 		if run.FontSize > maxFontSize {
