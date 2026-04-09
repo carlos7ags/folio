@@ -236,11 +236,11 @@ func (ef *EmbeddedFont) buildToUnicodeCMap() string {
 	b.WriteString("endcodespacerange\n")
 
 	// Write mappings in chunks of 100 (PDF limit per beginbfchar block).
-	// Skip .notdef (GID 0) and non-BMP runes (> 0xFFFF) which require
-	// surrogate pairs and a different CMap format.
+	// Skip .notdef (GID 0). Non-BMP runes (> 0xFFFF) are encoded as
+	// UTF-16 surrogate pairs per the PDF spec (section 9.10.3).
 	var mappings []glyphMapping
 	for gid, r := range ef.usedGlyphs {
-		if gid == 0 || r > 0xFFFF {
+		if gid == 0 {
 			continue
 		}
 		mappings = append(mappings, glyphMapping{gid: gid, r: r})
@@ -255,7 +255,14 @@ func (ef *EmbeddedFont) buildToUnicodeCMap() string {
 
 		fmt.Fprintf(&b, "%d beginbfchar\n", len(chunk))
 		for _, m := range chunk {
-			fmt.Fprintf(&b, "<%04X> <%04X>\n", m.gid, m.r)
+			if m.r <= 0xFFFF {
+				fmt.Fprintf(&b, "<%04X> <%04X>\n", m.gid, m.r)
+			} else {
+				// Encode as UTF-16 surrogate pair for non-BMP characters
+				// (CJK Extension B-F, emoji, etc.).
+				hi, lo := utf16Surrogates(m.r)
+				fmt.Fprintf(&b, "<%04X> <%04X%04X>\n", m.gid, hi, lo)
+			}
 		}
 		b.WriteString("endbfchar\n")
 	}
@@ -266,6 +273,15 @@ func (ef *EmbeddedFont) buildToUnicodeCMap() string {
 	b.WriteString("end\n")
 
 	return b.String()
+}
+
+// utf16Surrogates returns the high and low surrogate pair for a non-BMP
+// rune (U+10000 and above) per the UTF-16 encoding scheme.
+func utf16Surrogates(r rune) (hi, lo uint16) {
+	r -= 0x10000
+	hi = 0xD800 + uint16(r>>10)
+	lo = 0xDC00 + uint16(r&0x3FF)
+	return
 }
 
 // glyphMapping pairs a glyph ID with its Unicode codepoint.

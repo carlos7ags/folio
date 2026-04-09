@@ -106,7 +106,7 @@ func (c *converter) buildParagraphFromRuns(runs []layout.TextRun, style computed
 	if style.TextOverflow == "ellipsis" && style.Overflow == "hidden" {
 		p.SetEllipsis(true)
 	}
-	if style.WordBreak == "break-all" || style.WordBreak == "break-word" {
+	if style.WordBreak == "break-all" || style.WordBreak == "break-word" || style.WordBreak == "keep-all" {
 		p.SetWordBreak(style.WordBreak)
 	}
 	if style.Orphans > 0 {
