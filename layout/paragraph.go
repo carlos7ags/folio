@@ -268,6 +268,10 @@ func (p *Paragraph) Layout(maxWidth float64) []Line {
 				nextLineBreak = true
 				continue
 			}
+			// Apply Arabic contextual shaping before measurement so the
+			// shaped codepoints (which may have different glyph widths)
+			// are measured correctly.
+			w = ShapeArabic(w)
 			wordW := measurer.MeasureString(w, run.FontSize)
 			// Account for letter-spacing: adds extra space after each character except last.
 			if run.LetterSpacing != 0 && len([]rune(w)) > 1 {
@@ -1172,6 +1176,7 @@ func (p *Paragraph) measureWords(maxWidth float64) ([]Word, float64) {
 				nextLineBreak = true
 				continue
 			}
+			w = ShapeArabic(w)
 			wordW := measurer.MeasureString(w, run.FontSize)
 			if run.LetterSpacing != 0 && len([]rune(w)) > 1 {
 				wordW += run.LetterSpacing * float64(len([]rune(w))-1)
