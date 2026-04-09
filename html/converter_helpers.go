@@ -269,14 +269,6 @@ func splitDeclarations(style string) []string {
 	return strings.Split(style, ";")
 }
 
-// splitDeclaration splits "property: value" into (property, value).
-// Strips any trailing "!important" from the value side; callers that need
-// to distinguish important from normal should use splitDeclarationWithImportant.
-func splitDeclaration(decl string) (string, string) {
-	prop, val, _ := splitDeclarationWithImportant(decl)
-	return prop, val
-}
-
 // splitDeclarationWithImportant splits "property: value" into
 // (property, value, important). The "!important" suffix is recognized
 // case-insensitively and stripped from the returned value so downstream
