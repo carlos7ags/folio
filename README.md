@@ -21,6 +21,14 @@ go get github.com/carlos7ags/folio
 
 Requires Go 1.25+. Two external dependencies: `golang.org/x/image` and `golang.org/x/net`.
 
+## Language SDKs
+
+| Language | Package | Status |
+|----------|---------|--------|
+| **Go** | `go get github.com/carlos7ags/folio` | This repo |
+| **Java** | [`dev.foliopdf:folio-java`](https://central.sonatype.com/artifact/dev.foliopdf/folio-java) | [folio-java](https://github.com/carlos7ags/folio-java) |
+| **WASM** | [Playground](https://playground.foliopdf.dev) | Built-in |
+
 ---
 
 ## Quick Start
