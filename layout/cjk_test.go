@@ -243,7 +243,7 @@ func TestIsCJKClosingPunct(t *testing.T) {
 
 func TestIsKinsokuNoStart(t *testing.T) {
 	noStart := []rune{
-		0x30FC, // prolonged sound mark
+		0x30FC,                                 // prolonged sound mark
 		0x3041, 0x3043, 0x3045, 0x3047, 0x3049, // small hiragana
 		0x3063, 0x3083, 0x3085, 0x3087, 0x308E,
 		0x30A1, 0x30A3, 0x30A5, 0x30A7, 0x30A9, // small katakana
