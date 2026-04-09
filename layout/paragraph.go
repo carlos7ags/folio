@@ -67,11 +67,15 @@ func NewParagraphEmbedded(text string, ef *font.EmbeddedFont, fontSize float64) 
 // NewStyledParagraph creates a paragraph from multiple styled runs.
 // Runs are concatenated and word-wrapped as a single flowing text.
 // Panics if any text run has both Font and Embedded nil.
-// Runs with InlineElement set are exempt from the font requirement.
+// Runs with InlineElement set or whose Text is a line-break marker
+// ("\n") are exempt from the font requirement.
 func NewStyledParagraph(runs ...TextRun) *Paragraph {
 	for i, r := range runs {
 		if r.InlineElement != nil {
 			continue // inline elements don't need fonts
+		}
+		if r.Text == "\n" && r.Font == nil && r.Embedded == nil {
+			continue // line-break markers from <br> don't need fonts
 		}
 		if r.Font == nil && r.Embedded == nil {
 			panic(fmt.Sprintf("layout.NewStyledParagraph: run %d has nil Font and nil Embedded", i))
@@ -85,9 +89,10 @@ func NewStyledParagraph(runs ...TextRun) *Paragraph {
 }
 
 // AddRun appends a styled run to the paragraph.
-// Panics if the run has both Font and Embedded nil (unless InlineElement is set).
+// Panics if the run has both Font and Embedded nil (unless InlineElement
+// is set or the run is a line-break marker).
 func (p *Paragraph) AddRun(r TextRun) *Paragraph {
-	if r.InlineElement == nil && r.Font == nil && r.Embedded == nil {
+	if r.InlineElement == nil && r.Font == nil && r.Embedded == nil && r.Text != "\n" {
 		panic("layout.Paragraph.AddRun: run has nil Font and nil Embedded")
 	}
 	p.runs = append(p.runs, r)
