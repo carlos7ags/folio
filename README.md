@@ -21,6 +21,14 @@ go get github.com/carlos7ags/folio
 
 Requires Go 1.25+. Two external dependencies: `golang.org/x/image` and `golang.org/x/net`.
 
+## Language SDKs
+
+| Language | Package | Status |
+|----------|---------|--------|
+| **Go** | `go get github.com/carlos7ags/folio` | This repo |
+| **Java** | [`dev.foliopdf:folio-java`](https://central.sonatype.com/artifact/dev.foliopdf/folio-java) | [folio-java](https://github.com/carlos7ags/folio-java) |
+| **WASM** | [Playground](https://playground.foliopdf.dev) | Built-in |
+
 ---
 
 ## Quick Start
@@ -360,7 +368,7 @@ folio blank -o empty.pdf -size a4 -pages 5
 
 ## C Shared Library
 
-Folio exports a C ABI (`libfolio.so` / `.dylib` / `.dll`) with 346 functions,
+Folio exports a C ABI (`libfolio.so` / `.dylib` / `.dll`) with 372 functions,
 usable from Python, Ruby, C#, Java, or any language with FFI support.
 
 ```bash
@@ -393,7 +401,7 @@ PlacedBlock.Draw(ctx, x, y) -> PDF operators
 - **Content splitting** across pages via overflow elements
 - **Intrinsic sizing** via MinWidth/MaxWidth for auto-column tables
 - **Deterministic output** — byte-for-byte reproducible PDFs
-- **One external dependency** — `golang.org/x/image`
+- **Two external dependencies** — `golang.org/x/image` and `golang.org/x/net`
 
 ---
 
@@ -413,7 +421,7 @@ folio/
   svg/        SVG to PDF rendering
   sign/       Digital signatures (PAdES, CMS, timestamps)
   reader/     PDF parser, text extraction, merge, redaction, page import
-  export/     C shared library (346 exported functions)
+  export/     C shared library (372 exported functions)
   cmd/folio/  CLI tool
 ```
 
