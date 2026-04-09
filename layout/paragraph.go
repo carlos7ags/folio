@@ -18,6 +18,8 @@ type Paragraph struct {
 	runs             []TextRun
 	leading          float64 // line height multiplier (e.g. 1.2 means 120% of fontSize)
 	align            Align
+	alignSet         bool              // true if SetAlign was called explicitly
+	direction        Direction         // base text direction for bidi layout
 	spaceBefore      float64           // extra space before the paragraph (points)
 	spaceAfter       float64           // extra space after the paragraph (points)
 	background       *Color            // background fill color (nil = transparent)
@@ -102,10 +104,29 @@ func (p *Paragraph) SetLeading(l float64) *Paragraph {
 	return p
 }
 
-// SetAlign sets the horizontal text alignment.
+// SetAlign sets the horizontal text alignment. When this method is called
+// explicitly, the alignment is treated as an author override and will not
+// be changed by the automatic RTL default (which would otherwise flip the
+// alignment to AlignRight for right-to-left paragraphs).
 func (p *Paragraph) SetAlign(a Align) *Paragraph {
 	p.align = a
+	p.alignSet = true
 	return p
+}
+
+// SetDirection sets the base text direction for bidi layout. The default
+// is DirectionAuto, which auto-detects from the first strong directional
+// character in the paragraph text. When direction resolves to RTL and no
+// explicit SetAlign call has been made, the paragraph defaults to
+// right-aligned.
+func (p *Paragraph) SetDirection(d Direction) *Paragraph {
+	p.direction = d
+	return p
+}
+
+// Direction returns the paragraph's base text direction setting.
+func (p *Paragraph) Direction() Direction {
+	return p.direction
 }
 
 // SetSpaceBefore sets extra vertical space before the paragraph (in points).
@@ -247,12 +268,16 @@ func (p *Paragraph) Layout(maxWidth float64) []Line {
 				nextLineBreak = true
 				continue
 			}
+			// Apply Arabic contextual shaping before measurement so the
+			// shaped codepoints (which may have different glyph widths)
+			// are measured correctly.
+			w = ShapeArabic(w)
 			wordW := measurer.MeasureString(w, run.FontSize)
 			// Account for letter-spacing: adds extra space after each character except last.
 			if run.LetterSpacing != 0 && len([]rune(w)) > 1 {
 				wordW += run.LetterSpacing * float64(len([]rune(w))-1)
 			}
-			measured = append(measured, Word{
+			word := Word{
 				Text:            w,
 				Width:           wordW,
 				Font:            run.Font,
@@ -270,7 +295,26 @@ func (p *Paragraph) Layout(maxWidth float64) []Line {
 				LinkURI:         run.LinkURI,
 				TextShadow:      run.TextShadow,
 				BackgroundColor: run.BackgroundColor,
-			})
+			}
+			// Split words with mixed bidi levels into sub-words so
+			// each piece can be independently reordered by the bidi
+			// algorithm. E.g. "מחיר:₪42" splits at the transition
+			// between Hebrew and digit characters.
+			if subs := splitMixedBidiWord(word); subs != nil {
+				for si, sub := range subs {
+					sub.Text = ShapeArabic(sub.Text)
+					sub.Width = measurer.MeasureString(sub.Text, run.FontSize)
+					if run.LetterSpacing != 0 && len([]rune(sub.Text)) > 1 {
+						sub.Width += run.LetterSpacing * float64(len([]rune(sub.Text))-1)
+					}
+					if si == 0 {
+						sub.LineBreak = nextLineBreak
+					}
+					measured = append(measured, sub)
+				}
+			} else {
+				measured = append(measured, word)
+			}
 			nextLineBreak = false
 		}
 		if run.FontSize > maxFontSize {
@@ -361,6 +405,31 @@ func (p *Paragraph) Layout(maxWidth float64) []Line {
 	}
 	// Last line.
 	lines = append(lines, buildLine(measured[lineStart:], lineWidth, lineHeight, p.align, true))
+
+	// Bidi reordering: resolve the paragraph direction and reorder each
+	// line's words into visual order. Same step as in PlanLayout.
+	resolvedDirL := DirectionLTR
+	for i, line := range lines {
+		reordered, dir := resolveLineBidi(line.Words, p.direction)
+		lines[i].Words = reordered
+		if i == 0 {
+			resolvedDirL = dir
+		}
+	}
+	// Apply RTL default alignment. When direction is explicitly set (from
+	// CSS direction:rtl or HTML dir="rtl"), always use it for alignment
+	// even if the bidi algorithm resolved LTR from the text content.
+	// This matches CSS behavior where direction:rtl right-aligns
+	// regardless of the script in the text.
+	effectiveDir := resolvedDirL
+	if p.direction != DirectionAuto {
+		effectiveDir = p.direction
+	}
+	if effectiveDir == DirectionRTL && !p.alignSet {
+		for j := range lines {
+			lines[j].Align = AlignRight
+		}
+	}
 
 	// Apply ellipsis truncation: if enabled, keep only the first line
 	// and replace trailing text with "..." if it overflows.
@@ -873,6 +942,23 @@ func (p *Paragraph) PlanLayout(area LayoutArea) LayoutPlan {
 	lineHeight := maxFontSize * p.leading
 	wordLines := p.wrapWords(measured, area.Width)
 
+	// Bidi reordering: resolve the paragraph's base direction and
+	// reorder each line's words into visual order for correct
+	// left-to-right rendering of RTL and mixed-direction text.
+	resolvedDir := DirectionLTR
+	for i, wl := range wordLines {
+		reordered, dir := resolveLineBidi(wl, p.direction)
+		wordLines[i] = reordered
+		if i == 0 {
+			resolvedDir = dir
+		}
+	}
+	// When direction is explicitly set (CSS direction:rtl or HTML
+	// dir="rtl"), use it for alignment even if bidi resolved LTR.
+	if p.direction != DirectionAuto {
+		resolvedDir = p.direction
+	}
+
 	// Compute heights and split at available height.
 	type lineInfo struct {
 		words       []Word
@@ -956,6 +1042,12 @@ func (p *Paragraph) PlanLayout(area LayoutArea) LayoutPlan {
 			lineMaxW -= p.firstIndent
 		}
 		effectiveAlign := p.align
+		// RTL paragraphs default to right-aligned unless the caller
+		// explicitly called SetAlign. This matches CSS behavior where
+		// `direction: rtl` flips the default text-align to "right".
+		if resolvedDir == DirectionRTL && !p.alignSet {
+			effectiveAlign = AlignRight
+		}
 		if p.textAlignLastSet && (info.isLast || i == splitIdx-1) {
 			effectiveAlign = p.textAlignLast
 		}
@@ -1120,11 +1212,12 @@ func (p *Paragraph) measureWords(maxWidth float64) ([]Word, float64) {
 				nextLineBreak = true
 				continue
 			}
+			w = ShapeArabic(w)
 			wordW := measurer.MeasureString(w, run.FontSize)
 			if run.LetterSpacing != 0 && len([]rune(w)) > 1 {
 				wordW += run.LetterSpacing * float64(len([]rune(w))-1)
 			}
-			measured = append(measured, Word{
+			word := Word{
 				Text:            w,
 				Width:           wordW,
 				Font:            run.Font,
@@ -1142,7 +1235,22 @@ func (p *Paragraph) measureWords(maxWidth float64) ([]Word, float64) {
 				TextShadow:      run.TextShadow,
 				BackgroundColor: run.BackgroundColor,
 				LineBreak:       nextLineBreak,
-			})
+			}
+			if subs := splitMixedBidiWord(word); subs != nil {
+				for si, sub := range subs {
+					sub.Text = ShapeArabic(sub.Text)
+					sub.Width = measurer.MeasureString(sub.Text, run.FontSize)
+					if run.LetterSpacing != 0 && len([]rune(sub.Text)) > 1 {
+						sub.Width += run.LetterSpacing * float64(len([]rune(sub.Text))-1)
+					}
+					if si == 0 {
+						sub.LineBreak = nextLineBreak
+					}
+					measured = append(measured, sub)
+				}
+			} else {
+				measured = append(measured, word)
+			}
 			nextLineBreak = false
 		}
 		if run.FontSize > maxFontSize {
@@ -1425,11 +1533,18 @@ func (p *Paragraph) cloneWithWords(words []Word) *Paragraph {
 	}
 
 	return &Paragraph{
-		runs:       runs,
-		leading:    p.leading,
-		align:      p.align,
-		spaceAfter: p.spaceAfter,
-		background: p.background,
+		runs:             runs,
+		leading:          p.leading,
+		align:            p.align,
+		alignSet:         p.alignSet,
+		direction:        p.direction,
+		spaceAfter:       p.spaceAfter,
+		background:       p.background,
+		wordBreak:        p.wordBreak,
+		hyphens:          p.hyphens,
+		textAlignLast:    p.textAlignLast,
+		textAlignLastSet: p.textAlignLastSet,
+		ellipsis:         p.ellipsis,
 		// firstIndent is NOT propagated — it only applies to the first line
 		orphans: p.orphans,
 		widows:  p.widows,

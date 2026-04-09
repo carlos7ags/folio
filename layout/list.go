@@ -31,8 +31,9 @@ type List struct {
 	fontSize       float64
 	indent         float64 // left indent for item text (points)
 	leading        float64
-	markerColor    *Color  // optional override color for markers
-	markerFontSize float64 // optional override font size for markers (0 = use list fontSize)
+	direction      Direction // text direction for list items
+	markerColor    *Color    // optional override color for markers
+	markerFontSize float64   // optional override font size for markers (0 = use list fontSize)
 }
 
 // listItem is a single entry in a list, optionally containing a nested sub-list.
@@ -87,6 +88,14 @@ func (l *List) SetIndent(indent float64) *List {
 // SetLeading sets the line height multiplier.
 func (l *List) SetLeading(leading float64) *List {
 	l.leading = leading
+	return l
+}
+
+// SetDirection sets the text direction for list items. When RTL, markers
+// are positioned on the right side and item text is indented from the
+// right margin. Item paragraphs inherit this direction for bidi reordering.
+func (l *List) SetDirection(d Direction) *List {
+	l.direction = d
 	return l
 }
 
@@ -181,6 +190,9 @@ func (l *List) layoutAt(maxWidth float64, baseIndent float64) []Line {
 		// Create a paragraph for the item text.
 		textPara := l.itemParagraph(item)
 		textPara.SetLeading(l.leading)
+		if l.direction != DirectionAuto {
+			textPara.SetDirection(l.direction)
+		}
 		textLines := textPara.Layout(itemWidth)
 
 		// Combine: the first line has both marker and text side by side.
@@ -325,6 +337,9 @@ func (l *List) planAt(area LayoutArea, baseIndent float64) LayoutPlan {
 		// Measure and wrap item text directly.
 		textPara := l.itemParagraph(item)
 		textPara.SetLeading(l.leading)
+		if l.direction != DirectionAuto {
+			textPara.SetDirection(l.direction)
+		}
 		textWords, maxFS := textPara.measureWords(itemWidth)
 		lineHeight := maxFS * l.leading
 		wordLines := textPara.wrapWords(textWords, itemWidth)
@@ -341,6 +356,7 @@ func (l *List) planAt(area LayoutArea, baseIndent float64) LayoutPlan {
 			capturedMaxW := area.Width
 			capturedIndent := totalIndent
 			capturedIsLast := j == len(wordLines)-1
+			capturedRTL := l.direction == DirectionRTL
 			var capturedMarker []Word
 			if j == 0 {
 				capturedMarker = markerWords
@@ -352,10 +368,18 @@ func (l *List) planAt(area LayoutArea, baseIndent float64) LayoutPlan {
 				Links: linkSpans(wl),
 				Draw: func(ctx DrawContext, absX, absTopY float64) {
 					baselineY := absTopY - computeBaseline(capturedWords, capturedHeight)
-					if len(capturedMarker) > 0 {
-						drawTextLine(ctx, capturedMarker, absX, baselineY, capturedIndent, AlignLeft, true)
+					if capturedRTL {
+						// RTL: marker on the right, text indented from the right.
+						if len(capturedMarker) > 0 {
+							drawTextLine(ctx, capturedMarker, absX+capturedMaxW-capturedIndent, baselineY, capturedIndent, AlignRight, true)
+						}
+						drawTextLine(ctx, capturedWords, absX, baselineY, capturedMaxW-capturedIndent, AlignRight, capturedIsLast)
+					} else {
+						if len(capturedMarker) > 0 {
+							drawTextLine(ctx, capturedMarker, absX, baselineY, capturedIndent, AlignLeft, true)
+						}
+						drawTextLine(ctx, capturedWords, absX+capturedIndent, baselineY, capturedMaxW-capturedIndent, AlignLeft, capturedIsLast)
 					}
-					drawTextLine(ctx, capturedWords, absX+capturedIndent, baselineY, capturedMaxW-capturedIndent, AlignLeft, capturedIsLast)
 				},
 			}
 			// Offset link annotation x-coords by the indent since the

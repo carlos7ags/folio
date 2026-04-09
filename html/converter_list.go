@@ -74,6 +74,12 @@ func (c *converter) convertList(n *html.Node, style computedStyle, ordered bool)
 		}
 	}
 
+	// Propagate text direction to the list so markers position correctly
+	// and item paragraphs inherit the direction for bidi reordering.
+	if style.Direction != layout.DirectionAuto {
+		list.SetDirection(style.Direction)
+	}
+
 	c.populateList(n, list, style)
 
 	return []layout.Element{list}

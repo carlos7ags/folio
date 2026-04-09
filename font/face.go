@@ -63,3 +63,16 @@ type Face interface {
 	// NumGlyphs returns the total number of glyphs in the font.
 	NumGlyphs() int
 }
+
+// GSUBProvider is an optional interface that a Face may implement to
+// expose parsed OpenType GSUB substitution tables for Arabic positional
+// shaping features (init, medi, fina, isol). Callers should type-assert
+// to check availability rather than requiring all Face implementations
+// to support GSUB. This avoids breaking external Face implementers
+// during v0.x.
+//
+// TODO: at v1.0, merge GSUB() back into Face. The type-assertion
+// indirection adds no value once the API is stable.
+type GSUBProvider interface {
+	GSUB() GSUBSubstitutions
+}

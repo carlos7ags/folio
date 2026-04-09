@@ -25,6 +25,9 @@ type sfntFace struct {
 	// Cached table data from raw TTF (parsed lazily).
 	tables       map[string][]byte
 	tablesParsed bool
+
+	// Cached GSUB substitution tables (nil = not yet parsed).
+	gsubResult GSUBSubstitutions
 }
 
 // ParseTTF parses a TrueType (.ttf) or OpenType (.otf) font from raw bytes.
@@ -397,6 +400,28 @@ func (f *sfntFace) RawData() []byte {
 // NumGlyphs returns the total number of glyphs in the font.
 func (f *sfntFace) NumGlyphs() int {
 	return f.font.NumGlyphs()
+}
+
+// gsubCache caches the parsed GSUB substitutions (nil means not yet parsed;
+// an empty map means "parsed but no Arabic features found").
+var gsubSentinel = GSUBSubstitutions{} // non-nil empty sentinel
+
+// GSUB returns the parsed GSUB substitution tables for Arabic positional
+// features. The result is cached after the first call.
+func (f *sfntFace) GSUB() GSUBSubstitutions {
+	if f.gsubResult != nil {
+		if len(f.gsubResult) == 0 {
+			return nil // sentinel: already parsed, nothing found
+		}
+		return f.gsubResult
+	}
+	result := ParseGSUB(f.rawData)
+	if result == nil {
+		f.gsubResult = gsubSentinel
+		return nil
+	}
+	f.gsubResult = result
+	return result
 }
 
 // BuildGIDToUnicode parses a TrueType/OpenType font and builds a map
