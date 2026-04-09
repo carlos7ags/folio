@@ -408,14 +408,26 @@ func (p *Paragraph) Layout(maxWidth float64) []Line {
 
 	// Bidi reordering: resolve the paragraph direction and reorder each
 	// line's words into visual order. Same step as in PlanLayout.
+	resolvedDirL := DirectionLTR
 	for i, line := range lines {
 		reordered, dir := resolveLineBidi(line.Words, p.direction)
 		lines[i].Words = reordered
-		// Apply RTL default alignment if no explicit SetAlign was called.
-		if i == 0 && dir == DirectionRTL && !p.alignSet {
-			for j := range lines {
-				lines[j].Align = AlignRight
-			}
+		if i == 0 {
+			resolvedDirL = dir
+		}
+	}
+	// Apply RTL default alignment. When direction is explicitly set (from
+	// CSS direction:rtl or HTML dir="rtl"), always use it for alignment
+	// even if the bidi algorithm resolved LTR from the text content.
+	// This matches CSS behavior where direction:rtl right-aligns
+	// regardless of the script in the text.
+	effectiveDir := resolvedDirL
+	if p.direction != DirectionAuto {
+		effectiveDir = p.direction
+	}
+	if effectiveDir == DirectionRTL && !p.alignSet {
+		for j := range lines {
+			lines[j].Align = AlignRight
 		}
 	}
 
@@ -940,6 +952,11 @@ func (p *Paragraph) PlanLayout(area LayoutArea) LayoutPlan {
 		if i == 0 {
 			resolvedDir = dir
 		}
+	}
+	// When direction is explicitly set (CSS direction:rtl or HTML
+	// dir="rtl"), use it for alignment even if bidi resolved LTR.
+	if p.direction != DirectionAuto {
+		resolvedDir = p.direction
 	}
 
 	// Compute heights and split at available height.

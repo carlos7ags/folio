@@ -21,6 +21,20 @@ func (c *converter) computeElementStyle(n *html.Node, parent computedStyle) comp
 	// Apply tag defaults.
 	c.applyTagDefaults(n, &style)
 
+	// Apply the HTML dir attribute. Per HTML spec, dir is a presentational
+	// hint that maps to the CSS direction property. It can be overridden
+	// by an explicit CSS direction declaration in the cascade below.
+	if dir := getAttr(n, "dir"); dir != "" {
+		switch strings.ToLower(dir) {
+		case "rtl":
+			style.Direction = layout.DirectionRTL
+		case "ltr":
+			style.Direction = layout.DirectionLTR
+		case "auto":
+			style.Direction = layout.DirectionAuto
+		}
+	}
+
 	// Collect all CSS declarations from the matched stylesheet rules and
 	// the element's inline style, then apply them in cascade tier order.
 	// Per CSS Cascading Level 4 §6.4.4, the origin-and-importance tiers
@@ -361,6 +375,7 @@ func (c *converter) applyProperty(prop, val string, style *computedStyle) {
 	case "text-align":
 		if a, ok := parseTextAlign(val); ok {
 			style.TextAlign = a
+			style.TextAlignSet = true
 		}
 	case "text-align-last":
 		if a, ok := parseTextAlign(val); ok {
@@ -373,6 +388,14 @@ func (c *converter) applyProperty(prop, val string, style *computedStyle) {
 		v := strings.TrimSpace(strings.ToLower(val))
 		if v == "uppercase" || v == "lowercase" || v == "capitalize" || v == "none" {
 			style.TextTransform = v
+		}
+	case "direction":
+		v := strings.TrimSpace(strings.ToLower(val))
+		switch v {
+		case "rtl":
+			style.Direction = layout.DirectionRTL
+		case "ltr":
+			style.Direction = layout.DirectionLTR
 		}
 	case "white-space":
 		v := strings.TrimSpace(strings.ToLower(val))

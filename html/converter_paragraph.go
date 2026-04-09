@@ -77,7 +77,12 @@ func (c *converter) buildParagraphFromRuns(runs []layout.TextRun, style computed
 	// fast path was a premature optimization that discarded per-run styling.
 	p := layout.NewStyledParagraph(runs...)
 
-	p.SetAlign(style.TextAlign)
+	if style.TextAlignSet {
+		p.SetAlign(style.TextAlign)
+	}
+	if style.Direction != layout.DirectionAuto {
+		p.SetDirection(style.Direction)
+	}
 	if style.TextAlignLastSet {
 		p.SetTextAlignLast(style.TextAlignLast)
 	}
@@ -147,7 +152,12 @@ func (c *converter) convertText(n *html.Node, style computedStyle) []layout.Elem
 		TextShadow:      textShadowFromStyle(style),
 	}
 	p := layout.NewStyledParagraph(run)
-	p.SetAlign(style.TextAlign)
+	if style.TextAlignSet {
+		p.SetAlign(style.TextAlign)
+	}
+	if style.Direction != layout.DirectionAuto {
+		p.SetDirection(style.Direction)
+	}
 	p.SetLeading(style.LineHeight)
 	return []layout.Element{p}
 }

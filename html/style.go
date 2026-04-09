@@ -14,6 +14,7 @@ type computedStyle struct {
 	FontStyle        string // "normal", "italic"
 	Color            layout.Color
 	TextAlign        layout.Align
+	TextAlignSet     bool // true if text-align was explicitly declared
 	TextAlignLast    layout.Align // text-align-last override for the last line
 	TextAlignLastSet bool         // true if text-align-last was explicitly set
 	TextDecoration   layout.TextDecoration
@@ -55,6 +56,9 @@ type computedStyle struct {
 	BorderRightStyle  string
 	BorderBottomStyle string
 	BorderLeftStyle   string
+
+	// Text direction (bidi)
+	Direction layout.Direction // DirectionAuto (default), DirectionLTR, DirectionRTL
 
 	// Layout
 	Display         string // "block", "inline", "flex", "none", "table", etc.
@@ -372,6 +376,7 @@ func (s *computedStyle) inherit() computedStyle {
 		LetterSpacing:    s.LetterSpacing,
 		WordSpacing:      s.WordSpacing,
 		TextIndent:       s.TextIndent,
+		Direction:        s.Direction, // CSS direction is inherited
 		Display:          "block",
 		FlexDirection:    "row",
 		JustifyContent:   "flex-start",
