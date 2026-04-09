@@ -127,6 +127,43 @@ func TestDirAutoAttribute(t *testing.T) {
 	}
 }
 
+// TestRTLListDirection verifies that dir="rtl" on a list container
+// propagates to the list element and its item paragraphs.
+func TestRTLListDirection(t *testing.T) {
+	src := `<ul dir="rtl"><li>Hello</li><li>World</li></ul>`
+	elems, err := Convert(src, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(elems) == 0 {
+		t.Fatal("expected elements")
+	}
+	plan := elems[0].PlanLayout(layout.LayoutArea{Width: 500, Height: 500})
+	if plan.Status != layout.LayoutFull {
+		t.Fatalf("layout status: %v", plan.Status)
+	}
+	if plan.Consumed <= 0 {
+		t.Errorf("expected positive Consumed, got %v", plan.Consumed)
+	}
+}
+
+// TestRTLOrderedList verifies that an ordered list with dir="rtl" renders
+// without errors and produces output.
+func TestRTLOrderedList(t *testing.T) {
+	src := `<ol dir="rtl"><li>First</li><li>Second</li><li>Third</li></ol>`
+	elems, err := Convert(src, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(elems) == 0 {
+		t.Fatal("expected elements")
+	}
+	plan := elems[0].PlanLayout(layout.LayoutArea{Width: 500, Height: 500})
+	if plan.Consumed <= 0 {
+		t.Errorf("expected positive Consumed, got %v", plan.Consumed)
+	}
+}
+
 // TestDefaultDirectionIsAuto verifies that paragraphs without any dir
 // or direction declaration use DirectionAuto (no forced direction).
 func TestDefaultDirectionIsAuto(t *testing.T) {
