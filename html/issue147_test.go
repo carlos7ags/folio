@@ -64,6 +64,23 @@ func TestIssue147_BrInsideAnchor(t *testing.T) {
 	}
 }
 
+// TestIssue10_BrInsideSpan reproduces the crash from the earlier #10:
+// same root cause as #147, different inline element (<span> vs <strong>).
+func TestIssue10_BrInsideSpan(t *testing.T) {
+	src := `<span>xxxxxxxxxxx<br>xxxxxxxxxxxxxxxx</span>`
+	elems, err := Convert(src, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(elems) == 0 {
+		t.Fatal("expected elements")
+	}
+	plan := elems[0].PlanLayout(layout.LayoutArea{Width: 500, Height: 500})
+	if plan.Consumed <= 0 {
+		t.Errorf("expected positive Consumed, got %v", plan.Consumed)
+	}
+}
+
 // TestIssue147_BrAsFirstChild covers <br> as the first child of an inline
 // element inside a list item.
 func TestIssue147_BrAsFirstChild(t *testing.T) {
