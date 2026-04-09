@@ -14,7 +14,7 @@ type computedStyle struct {
 	FontStyle        string // "normal", "italic"
 	Color            layout.Color
 	TextAlign        layout.Align
-	TextAlignSet     bool // true if text-align was explicitly declared
+	TextAlignSet     bool         // true if text-align was explicitly declared
 	TextAlignLast    layout.Align // text-align-last override for the last line
 	TextAlignLastSet bool         // true if text-align-last was explicitly set
 	TextDecoration   layout.TextDecoration

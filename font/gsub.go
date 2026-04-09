@@ -29,10 +29,11 @@ type GSUBSubstitutions map[GSUBFeature]map[uint16]uint16
 // table or no matching features.
 //
 // The implementation walks the OpenType GSUB table structure:
-//   ScriptList -> find "arab" or "DFLT" script -> default LangSys
-//   FeatureList -> match "init"/"medi"/"fina"/"isol" features
-//   LookupList -> follow each feature's lookup indices
-//   Each lookup -> subtables -> SingleSubstitution format 1 or 2
+//
+//	ScriptList -> find "arab" or "DFLT" script -> default LangSys
+//	FeatureList -> match "init"/"medi"/"fina"/"isol" features
+//	LookupList -> follow each feature's lookup indices
+//	Each lookup -> subtables -> SingleSubstitution format 1 or 2
 //
 // Reference: OpenType spec v1.9, GSUB table (ISO 14496-22 §6.2).
 func ParseGSUB(data []byte) GSUBSubstitutions {

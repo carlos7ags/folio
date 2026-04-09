@@ -157,8 +157,8 @@ func TestBidiInlineBlockPreserved(t *testing.T) {
 	// visual output between the two reversed text words.
 	words := []Word{
 		{Text: "\u05E9\u05DC\u05D5\u05DD", Width: 40}, // שלום
-		{Text: "", Width: 12, InlineBlock: &Div{}},      // inline image
-		{Text: "\u05E2\u05D5\u05DC\u05DD", Width: 40},  // עולם
+		{Text: "", Width: 12, InlineBlock: &Div{}},    // inline image
+		{Text: "\u05E2\u05D5\u05DC\u05DD", Width: 40}, // עולם
 	}
 	visual, _ := resolveLineBidi(words, DirectionRTL)
 	if len(visual) != 3 {

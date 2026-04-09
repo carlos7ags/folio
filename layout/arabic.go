@@ -70,7 +70,7 @@ func getJoiningType(r rune) joiningType {
 	// Known right-joining characters not in the forms table.
 	switch r {
 	case 0x0622, 0x0623, 0x0624, 0x0625, 0x0627, // alef variants + waw
-		0x0629, // teh marbuta
+		0x0629,                         // teh marbuta
 		0x062F, 0x0630, 0x0631, 0x0632, // dal, dhal, ra, zain
 		0x0648, // waw
 		0x0698: // Farsi zhe

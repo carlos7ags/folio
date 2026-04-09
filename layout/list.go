@@ -29,7 +29,7 @@ type List struct {
 	font           *font.Standard
 	embedded       *font.EmbeddedFont
 	fontSize       float64
-	indent         float64   // left indent for item text (points)
+	indent         float64 // left indent for item text (points)
 	leading        float64
 	direction      Direction // text direction for list items
 	markerColor    *Color    // optional override color for markers

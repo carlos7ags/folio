@@ -97,7 +97,7 @@ func resolveLineBidi(words []Word, base Direction) ([]Word, Direction) {
 		opts = append(opts, bidi.DefaultDirection(bidi.RightToLeft))
 	case DirectionLTR:
 		opts = append(opts, bidi.DefaultDirection(bidi.LeftToRight))
-	// DirectionAuto: no option → auto-detect, LTR fallback.
+		// DirectionAuto: no option → auto-detect, LTR fallback.
 	}
 	if _, err := p.SetString(lineText, opts...); err != nil {
 		return words, DirectionLTR
@@ -293,11 +293,11 @@ func splitMixedBidiWord(w Word) []Word {
 	// Build sub-words inheriting all styling from the original.
 	subs := make([]Word, len(parts))
 	for i, p := range parts {
-		subs[i] = w                   // copy all fields
-		subs[i].Text = p              // override text
-		subs[i].Width = 0             // caller must re-measure
-		subs[i].SpaceAfter = 0        // only the last sub-word gets inter-word space
-		subs[i].LineBreak = false      // only the first inherits the original's LineBreak
+		subs[i] = w               // copy all fields
+		subs[i].Text = p          // override text
+		subs[i].Width = 0         // caller must re-measure
+		subs[i].SpaceAfter = 0    // only the last sub-word gets inter-word space
+		subs[i].LineBreak = false // only the first inherits the original's LineBreak
 	}
 	subs[0].LineBreak = w.LineBreak
 	subs[len(subs)-1].SpaceAfter = w.SpaceAfter
@@ -310,14 +310,14 @@ func splitMixedBidiWord(w Word) []Word {
 // vast majority are obscure mathematical symbols that rarely appear
 // in production documents.
 var bidiMirrorMap = map[rune]rune{
-	'(':    ')',
-	')':    '(',
-	'[':    ']',
-	']':    '[',
-	'{':    '}',
-	'}':    '{',
-	'<':    '>',
-	'>':    '<',
+	'(':      ')',
+	')':      '(',
+	'[':      ']',
+	']':      '[',
+	'{':      '}',
+	'}':      '{',
+	'<':      '>',
+	'>':      '<',
 	'\u00AB': '\u00BB', // « → »
 	'\u00BB': '\u00AB', // » → «
 	'\u2018': '\u2019', // ' → '
