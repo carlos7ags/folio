@@ -15,6 +15,31 @@ const (
 	AlignJustify
 )
 
+// Direction specifies the base text direction for bidi (bidirectional)
+// layout. It controls how the Unicode Bidirectional Algorithm (UAX #9)
+// resolves the paragraph embedding level and, consequently, how words
+// are visually ordered on each line and which alignment default applies.
+//
+// DirectionAuto (the zero value) auto-detects from the first strong
+// directional character in the text — Hebrew/Arabic characters produce
+// RTL, Latin/CJK characters produce LTR, and text with no strong
+// characters falls back to LTR.
+//
+// DirectionLTR and DirectionRTL set the fallback direction when the
+// text contains no strong directional characters. When strong characters
+// ARE present, the first strong character still determines the resolved
+// direction (per UAX #9 rules P2/P3). This matches CSS `direction`
+// behavior for the common case of pure-script paragraphs. Forcing a
+// base level override on mixed-script text (CSS `unicode-bidi:
+// bidi-override`) is not yet supported.
+type Direction int
+
+const (
+	DirectionAuto Direction = iota // detect from first strong character (default)
+	DirectionLTR                   // left-to-right fallback
+	DirectionRTL                   // right-to-left fallback
+)
+
 // ColorSpace identifies the color space of a Color value.
 type ColorSpace int
 
