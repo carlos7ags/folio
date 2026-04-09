@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<!--
+Created 2026-03-21, David Richardson
+Copyright © 2026 David Richardson. All rights reserved.
+Licensed under the Apache License, Version 2.0.
+See http://www.apache.org/licenses/LICENSE-2.0
+-->
+<html>
+<head>
+  <title>Column Layout Test</title>
+  <style>
+    @page { size: A4; margin: 2cm; }
+    body { font-family: Helvetica, Arial, sans-serif; font-size: 9pt; color: #2d3748; line-height: 1.5; }
+
+    h1 { font-size: 14pt; font-weight: 700; color: #0f172a; margin: 0 0 4px; }
+    h2 { font-size: 10pt; font-weight: 700; color: #0f172a; margin: 20px 0 8px; border-bottom: 1px solid #e2e8f0; padding-bottom: 4px; }
+    h3 { font-size: 8.5pt; font-weight: 700; color: #64748b; text-transform: uppercase; letter-spacing: 0.8px; margin: 0 0 6px; }
+    .subtitle { font-size: 8pt; color: #64748b; margin-bottom: 20px; padding-bottom: 12px; border-bottom: 2px solid #0f172a; }
+
+    p { margin: 0 0 8px; }
+    .lorem { font-size: 8.5pt; color: #4a5568; }
+
+    /* Test container */
+    .test { margin-bottom: 24px; padding: 12px; border: 1px solid #e2e8f0; background: #fafafa; }
+    .test-label { font-size: 6.5pt; text-transform: uppercase; letter-spacing: 1px; color: #94a3b8; margin-bottom: 8px; }
+
+    /* outlined box utility */
+    .box { border: 1px solid #cbd5e1; background: white; padding: 8px; }
+    .box-tinted { border: 1px solid #cbd5e1; background: #f1f5f9; padding: 8px; }
+
+    /* ── TEST 1: Basic 2-column ── */
+    .col-2 { column-count: 2; column-gap: 20px; }
+
+    /* ── TEST 2: Basic 3-column ── */
+    .col-3 { column-count: 3; column-gap: 16px; }
+
+    /* ── TEST 3: column-width driven ── */
+    .col-width { column-width: 120px; column-gap: 16px; }
+
+    /* ── TEST 4: column-rule ── */
+    .col-rule { column-count: 2; column-gap: 24px; column-rule: 1px solid #cbd5e1; }
+
+    /* ── TEST 5: column-span heading ── */
+    .col-span-test { column-count: 2; column-gap: 20px; }
+    .col-span-test h3 { column-span: all; border-bottom: 2px solid #0f172a; padding-bottom: 4px; margin-bottom: 10px; color: #0f172a; }
+
+    /* ── TEST 6: avoid break inside ── */
+    .col-break { column-count: 2; column-gap: 20px; }
+    .keep-together { break-inside: avoid; border: 1px solid #94a3b8; padding: 6px; margin-bottom: 8px; background: white; }
+
+    /* ── TEST 7: explicit column break ── */
+    .col-explicit { column-count: 2; column-gap: 20px; }
+    .break-before { break-before: column; }
+
+    /* ── TEST 8: nested block in column ── */
+    .col-nested { column-count: 2; column-gap: 20px; }
+    .nested-box { border: 1px solid #0d9488; background: #f0fdfa; padding: 8px; margin-bottom: 8px; }
+    .nested-box h3 { color: #0d9488; text-transform: none; letter-spacing: 0; font-size: 8.5pt; margin-bottom: 4px; }
+  </style>
+</head>
+<body>
+
+  <h1>CSS Multi-Column Layout</h1>
+  <div class="subtitle">Folio rendering test — column-count, column-width, column-rule, column-span, break controls</div>
+
+  <!-- TEST 1 -->
+  <h2>Test 1 — column-count: 2</h2>
+  <div class="test">
+    <div class="test-label">Basic two-column layout. Text should flow from bottom of column 1 to top of column 2. Columns should balance.</div>
+    <div class="col-2 lorem">
+      <p>Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat.</p>
+      <p>Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur. Excepteur sint occaecat cupidatat non proident, sunt in culpa qui officia deserunt mollit anim id est laborum.</p>
+      <p>Sed ut perspiciatis unde omnis iste natus error sit voluptatem accusantium doloremque laudantium, totam rem aperiam eaque ipsa quae ab illo inventore veritatis et quasi architecto beatae vitae dicta sunt explicabo.</p>
+    </div>
+  </div>
+
+  <!-- TEST 2 -->
+  <h2>Test 2 — column-count: 3</h2>
+  <div class="test">
+    <div class="test-label">Three equal columns. Text should distribute evenly across all three.</div>
+    <div class="col-3 lorem">
+      <p>Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation.</p>
+      <p>Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur. Excepteur sint occaecat cupidatat non proident deserunt mollit.</p>
+      <p>Sed ut perspiciatis unde omnis iste natus error sit voluptatem accusantium doloremque laudantium totam rem aperiam eaque ipsa quae ab illo inventore veritatis explicabo.</p>
+    </div>
+  </div>
+
+  <!-- TEST 3 -->
+  <h2>Test 3 — column-width: 120px (auto count)</h2>
+  <div class="test">
+    <div class="test-label">Column count determined by available width divided by column-width. Should produce 3-4 columns on A4.</div>
+    <div class="col-width lorem">
+      <p>Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua ut enim veniam.</p>
+      <p>Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur occaecat cupidatat non proident.</p>
+      <p>Perspiciatis unde omnis iste natus error sit voluptatem accusantium doloremque laudantium totam rem aperiam eaque ipsa quae ab illo.</p>
+    </div>
+  </div>
+
+  <!-- TEST 4 -->
+  <h2>Test 4 — column-rule</h2>
+  <div class="test">
+    <div class="test-label">Two columns with a visible dividing rule between them. Rule should be centred in the gap.</div>
+    <div class="col-rule lorem">
+      <p>Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris.</p>
+      <p>Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur. Excepteur sint occaecat cupidatat non proident, sunt in culpa qui officia deserunt mollit anim.</p>
+    </div>
+  </div>
+
+  <!-- TEST 5 -->
+  <h2>Test 5 — column-span: all</h2>
+  <div class="test">
+    <div class="test-label">Heading with column-span: all should span both columns, breaking flow above and below.</div>
+    <div class="col-span-test lorem">
+      <p>Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam quis nostrud.</p>
+      <h3>This heading should span both columns</h3>
+      <p>Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur. Excepteur sint occaecat cupidatat non proident deserunt mollit anim id est laborum.</p>
+      <p>Sed ut perspiciatis unde omnis iste natus error sit voluptatem accusantium doloremque laudantium totam rem aperiam eaque ipsa quae ab illo inventore veritatis explicabo nemo.</p>
+    </div>
+  </div>
+
+  <!-- TEST 6 -->
+  <h2>Test 6 — break-inside: avoid</h2>
+  <div class="test">
+    <div class="test-label">Boxed items marked break-inside: avoid should not be split across columns.</div>
+    <div class="col-break lorem">
+      <div class="keep-together">
+        <h3>Item One</h3>
+        <p>Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore.</p>
+      </div>
+      <div class="keep-together">
+        <h3>Item Two</h3>
+        <p>Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur.</p>
+      </div>
+      <div class="keep-together">
+        <h3>Item Three</h3>
+        <p>Sed ut perspiciatis unde omnis iste natus error sit voluptatem accusantium doloremque laudantium.</p>
+      </div>
+      <div class="keep-together">
+        <h3>Item Four</h3>
+        <p>Nemo enim ipsam voluptatem quia voluptas sit aspernatur aut odit aut fugit sed quia consequuntur.</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- TEST 7 -->
+  <h2>Test 7 — break-before: column</h2>
+  <div class="test">
+    <div class="test-label">Second paragraph marked break-before: column should begin at top of column 2 regardless of column 1 fill.</div>
+    <div class="col-explicit lorem">
+      <p>Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua.</p>
+      <p class="break-before">This paragraph should start at the top of column 2. Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur excepteur sint.</p>
+    </div>
+  </div>
+
+  <!-- TEST 8 -->
+  <h2>Test 8 — nested block elements in columns</h2>
+  <div class="test">
+    <div class="test-label">Styled block elements flowing within columns. Borders and backgrounds should render correctly within column context.</div>
+    <div class="col-nested lorem">
+      <div class="nested-box">
+        <h3>Advisory</h3>
+        <p>Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore.</p>
+      </div>
+      <div class="nested-box">
+        <h3>Research</h3>
+        <p>Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat pariatur.</p>
+      </div>
+      <div class="nested-box">
+        <h3>Asset Management</h3>
+        <p>Sed ut perspiciatis unde omnis iste natus error sit voluptatem accusantium doloremque laudantium.</p>
+      </div>
+      <div class="nested-box">
+        <h3>Operations</h3>
+        <p>Nemo enim ipsam voluptatem quia voluptas sit aspernatur aut odit aut fugit consequuntur magni.</p>
+      </div>
+    </div>
+  </div>
+
+</body>
+</html>
