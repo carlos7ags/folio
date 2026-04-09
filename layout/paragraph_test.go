@@ -546,28 +546,28 @@ func TestStyledParagraphAcceptsInlineRun(t *testing.T) {
 	}
 }
 
-// TestNewStyledParagraphAcceptsLineBreakMarker verifies that a fontless
-// TextRun{Text:"\n"} (line-break marker from <br>) does not panic in
-// NewStyledParagraph. Regression test for issue #147.
+// TestNewStyledParagraphAcceptsLineBreakMarker verifies that a
+// TextRun{IsLineBreak: true} produces a forced line break between
+// the surrounding text runs. Regression test for issue #147, updated
+// for #150 (typed field with proper line-break propagation).
 func TestNewStyledParagraphAcceptsLineBreakMarker(t *testing.T) {
-	// Should not panic — that's the primary assertion.
 	p := NewStyledParagraph(
 		NewRun("Hello", font.Helvetica, 12),
-		TextRun{Text: "\n"}, // <br> marker — nil Font
+		TextRun{IsLineBreak: true},
 		NewRun("World", font.Helvetica, 12),
 	)
 	lines := p.Layout(500)
-	if len(lines) == 0 {
-		t.Error("expected at least one line")
+	if len(lines) < 2 {
+		t.Errorf("IsLineBreak should produce 2 lines, got %d", len(lines))
 	}
 }
 
 // TestAddRunAcceptsLineBreakMarker verifies AddRun also accepts the
-// fontless "\n" marker. Same exemption as NewStyledParagraph.
+// IsLineBreak marker. Same exemption as NewStyledParagraph.
 func TestAddRunAcceptsLineBreakMarker(t *testing.T) {
 	p := NewParagraph("Hello", font.Helvetica, 12)
 	// Should not panic.
-	p.AddRun(TextRun{Text: "\n"})
+	p.AddRun(TextRun{IsLineBreak: true})
 	p.AddRun(NewRun("World", font.Helvetica, 12))
 }
 

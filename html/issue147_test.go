@@ -10,8 +10,8 @@ import (
 )
 
 // TestIssue147_BrInsideStrongInList reproduces the exact crash from #147:
-// a <br> inside a <strong> inside an <li> produces a TextRun{Text:"\n"}
-// with nil Font, which panics in NewStyledParagraph.
+// a <br> inside a <strong> inside an <li> produces an IsLineBreak marker
+// run that previously panicked in NewStyledParagraph.
 func TestIssue147_BrInsideStrongInList(t *testing.T) {
 	src := `<ol>
    <li>This is a <strong>test<br />to see</strong> if it breaks</li>

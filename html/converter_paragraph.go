@@ -19,7 +19,7 @@ func (c *converter) convertParagraph(n *html.Node, style computedStyle) []layout
 		return nil
 	}
 
-	// Split runs at <br> markers (TextRun with "\n") into line groups.
+	// Split runs at <br> markers (TextRun with IsLineBreak) into line groups.
 	groups := splitRunsAtBr(runs)
 
 	var elems []layout.Element
@@ -54,12 +54,12 @@ func (c *converter) convertParagraph(n *html.Node, style computedStyle) []layout
 }
 
 // splitRunsAtBr splits a flat slice of TextRuns into groups separated by
-// newline markers (from <br> tags). Each group becomes a separate paragraph.
+// line-break markers (from <br> tags). Each group becomes a separate paragraph.
 func splitRunsAtBr(runs []layout.TextRun) [][]layout.TextRun {
 	var groups [][]layout.TextRun
 	var current []layout.TextRun
 	for _, r := range runs {
-		if r.Text == "\n" && r.Font == nil && r.Embedded == nil {
+		if r.IsLineBreak {
 			groups = append(groups, current)
 			current = nil
 			continue
@@ -275,26 +275,11 @@ func (c *converter) collectRunsFromNode(child *html.Node, parentStyle computedSt
 			return nil
 		}
 		text = applyTextTransform(text, parentStyle.TextTransform)
-		stdFont, embFont := c.resolveFontForText(parentStyle, text)
-		return []layout.TextRun{{
-			Text:            text,
-			Font:            stdFont,
-			Embedded:        embFont,
-			FontSize:        parentStyle.FontSize,
-			Color:           parentStyle.Color,
-			Decoration:      parentStyle.TextDecoration,
-			DecorationColor: parentStyle.TextDecorationColor,
-			DecorationStyle: parentStyle.TextDecorationStyle,
-			LetterSpacing:   parentStyle.LetterSpacing,
-			WordSpacing:     parentStyle.WordSpacing,
-			BaselineShift:   baselineShiftFromStyle(parentStyle),
-			TextShadow:      textShadowFromStyle(parentStyle),
-			BackgroundColor: parentStyle.BackgroundColor,
-		}}
+		return c.splitTextByFont(text, parentStyle)
 	case html.ElementNode:
 		if child.DataAtom == atom.Br {
-			// Insert a newline marker that convertParagraph splits on.
-			return []layout.TextRun{{Text: "\n"}}
+			// Insert a line-break marker that splitRunsAtBr splits on.
+			return []layout.TextRun{{IsLineBreak: true}}
 		}
 		childStyle := c.computeElementStyle(child, parentStyle)
 
