@@ -383,6 +383,57 @@ func (c *converter) resolveFontForText(style computedStyle, text string) (*font.
 	return stdFont, nil
 }
 
+// applyUnicodeBidi wraps text in Unicode bidi control characters based on
+// the computed CSS direction and unicode-bidi properties. This implements
+// CSS Unicode Bidirectional Algorithm integration:
+//
+//   - bidi-override + rtl: wraps in RLO...PDF (U+202E...U+202C) to force
+//     all characters to RTL visual order regardless of their bidi class.
+//   - bidi-override + ltr: wraps in LRO...PDF (U+202D...U+202C).
+//   - embed + rtl: wraps in RLE...PDF (U+202B...U+202C).
+//   - embed + ltr: wraps in LRE...PDF (U+202A...U+202C).
+//   - isolate + rtl: wraps in RLI...PDI (U+2067...U+2069).
+//   - isolate + ltr: wraps in LRI...PDI (U+2066...U+2069).
+//
+// These characters are consumed by the bidi algorithm in x/text/unicode/bidi
+// during resolveLineBidi, producing the correct embedding levels.
+func applyUnicodeBidi(text string, style computedStyle) string {
+	if style.UnicodeBidi == "" || style.UnicodeBidi == "normal" {
+		return text
+	}
+	switch style.UnicodeBidi {
+	case "bidi-override":
+		if style.Direction == layout.DirectionRTL {
+			return "\u202E" + text + "\u202C" // RLO + text + PDF
+		}
+		if style.Direction == layout.DirectionLTR {
+			return "\u202D" + text + "\u202C" // LRO + text + PDF
+		}
+	case "embed":
+		if style.Direction == layout.DirectionRTL {
+			return "\u202B" + text + "\u202C" // RLE + text + PDF
+		}
+		if style.Direction == layout.DirectionLTR {
+			return "\u202A" + text + "\u202C" // LRE + text + PDF
+		}
+	case "isolate":
+		if style.Direction == layout.DirectionRTL {
+			return "\u2067" + text + "\u2069" // RLI + text + PDI
+		}
+		if style.Direction == layout.DirectionLTR {
+			return "\u2066" + text + "\u2069" // LRI + text + PDI
+		}
+	case "isolate-override":
+		if style.Direction == layout.DirectionRTL {
+			return "\u2067\u202E" + text + "\u202C\u2069"
+		}
+		if style.Direction == layout.DirectionLTR {
+			return "\u2067\u202D" + text + "\u202C\u2069"
+		}
+	}
+	return text
+}
+
 // splitTextByFont splits a text string into one or more TextRuns at script
 // boundaries where the font needs to change. Characters encodable in
 // WinAnsiEncoding use the standard font; characters that need a fallback
@@ -394,6 +445,11 @@ func (c *converter) resolveFontForText(style computedStyle, text string) (*font.
 // when no fallback font is available, the text is returned as a single run
 // (no splitting needed — same behavior as before this function existed).
 func (c *converter) splitTextByFont(text string, style computedStyle) []layout.TextRun {
+	// Apply unicode-bidi overrides by wrapping text in Unicode bidi
+	// control characters. This forces the base embedding level per
+	// CSS Unicode Bidirectional Algorithm §2.2.
+	text = applyUnicodeBidi(text, style)
+
 	stdFont, embFont := c.resolveFontPair(style)
 
 	// If already using an embedded font, it handles all Unicode — no split.

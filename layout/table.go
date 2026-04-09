@@ -279,6 +279,7 @@ type Table struct {
 	minWidthUnit   *UnitValue  // lazy-resolved min-width (overrides minWidth when set)
 	cellSpacingH   float64     // horizontal spacing between cells (CSS border-spacing)
 	cellSpacingV   float64     // vertical spacing between cells (CSS border-spacing)
+	direction      Direction   // text direction; RTL reverses column order
 }
 
 // NewTable creates a new empty table.
@@ -307,6 +308,15 @@ func (t *Table) SetBorderCollapse(enabled bool) *Table {
 // BorderCollapse reports whether border-collapse is enabled.
 func (t *Table) BorderCollapse() bool {
 	return t.borderCollapse
+}
+
+// SetDirection sets the text direction for the table. When RTL, columns
+// are rendered right-to-left: column 0 appears at the right edge of the
+// table and the last column at the left edge. Cell content paragraphs
+// also inherit the direction for bidi text reordering.
+func (t *Table) SetDirection(d Direction) *Table {
+	t.direction = d
+	return t
 }
 
 // SetCellSpacing sets horizontal and vertical spacing between cells,
@@ -1296,12 +1306,27 @@ func drawTableRowDirect(ctx DrawContext, tbl *Table, grid []gridRow, rowIndex in
 
 	sh := tbl.effectiveSpacingH()
 
+	// Compute total table width for RTL mirroring.
+	totalW := sh // left-edge spacing
+	for _, w := range colWidths {
+		totalW += w + sh
+	}
+
 	for _, gc := range gr.cells {
-		// Start after the left-edge spacing gap, then advance past
-		// each preceding column plus its inter-column gap.
-		cellX := x + sh
-		for c := range gc.col {
-			cellX += colWidths[c] + sh
+		var cellX float64
+		if tbl.direction == DirectionRTL {
+			// RTL: column 0 at the right edge, last column at the left.
+			// Start from the right and work leftward past each column.
+			cellX = x + totalW - gc.spanWidth - sh
+			for c := range gc.col {
+				cellX -= colWidths[len(colWidths)-1-c] + sh
+			}
+		} else {
+			// LTR: column 0 at the left edge (default).
+			cellX = x + sh
+			for c := range gc.col {
+				cellX += colWidths[c] + sh
+			}
 		}
 		cellBottomY := topY - gr.height
 

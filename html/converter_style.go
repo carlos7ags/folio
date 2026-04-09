@@ -397,6 +397,12 @@ func (c *converter) applyProperty(prop, val string, style *computedStyle) {
 		case "ltr":
 			style.Direction = layout.DirectionLTR
 		}
+	case "unicode-bidi":
+		v := strings.TrimSpace(strings.ToLower(val))
+		if v == "normal" || v == "embed" || v == "bidi-override" || v == "isolate" ||
+			v == "isolate-override" || v == "plaintext" {
+			style.UnicodeBidi = v
+		}
 	case "white-space":
 		v := strings.TrimSpace(strings.ToLower(val))
 		if v == "normal" || v == "nowrap" || v == "pre" || v == "pre-wrap" || v == "pre-line" {

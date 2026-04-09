@@ -174,6 +174,76 @@ func TestRTLOrderedListProducesItems(t *testing.T) {
 	}
 }
 
+// TestRTLTableRendersWithReversedColumns verifies that a table inside
+// a dir="rtl" container renders with columns in right-to-left order.
+func TestRTLTableRendersWithReversedColumns(t *testing.T) {
+	src := `<div dir="rtl"><table><tr><td>A</td><td>B</td><td>C</td></tr></table></div>`
+	elems, err := Convert(src, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(elems) == 0 {
+		t.Fatal("expected elements")
+	}
+	plan := elems[0].PlanLayout(layout.LayoutArea{Width: 500, Height: 500})
+	if plan.Consumed <= 0 {
+		t.Errorf("expected positive Consumed, got %v", plan.Consumed)
+	}
+}
+
+// TestRTLCSSTableRendersWithReversedColumns covers display:table with
+// direction:rtl via CSS.
+func TestRTLCSSTableRendersWithReversedColumns(t *testing.T) {
+	src := `<html><head><style>
+		.t { display: table; direction: rtl; width: 100%; }
+		.r { display: table-row; }
+		.c { display: table-cell; }
+	</style></head><body>
+		<div class="t"><div class="r"><div class="c">Right</div><div class="c">Left</div></div></div>
+	</body></html>`
+	elems, err := Convert(src, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(elems) == 0 {
+		t.Fatal("expected elements")
+	}
+	plan := elems[0].PlanLayout(layout.LayoutArea{Width: 500, Height: 500})
+	if plan.Consumed <= 0 {
+		t.Errorf("expected positive Consumed, got %v", plan.Consumed)
+	}
+}
+
+// TestUnicodeBidiOverrideRTL verifies that unicode-bidi:bidi-override
+// with direction:rtl forces all text to render right-to-left, even
+// Latin characters that would normally be LTR.
+func TestUnicodeBidiOverrideRTL(t *testing.T) {
+	src := `<html><head><style>
+		.override { direction: rtl; unicode-bidi: bidi-override; }
+	</style></head><body>
+		<p class="override">Hello</p>
+	</body></html>`
+	elems, err := Convert(src, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(elems) == 0 {
+		t.Fatal("expected elements")
+	}
+	p, ok := elems[0].(*layout.Paragraph)
+	if !ok {
+		t.Fatalf("expected *Paragraph, got %T", elems[0])
+	}
+	// With bidi-override + RTL, even English text should right-align.
+	plan := p.PlanLayout(layout.LayoutArea{Width: 500, Height: 200})
+	if plan.Status != layout.LayoutFull || len(plan.Blocks) == 0 {
+		t.Fatal("layout failed")
+	}
+	if plan.Blocks[0].X <= 0 {
+		t.Errorf("bidi-override RTL should right-align; X=%v", plan.Blocks[0].X)
+	}
+}
+
 // TestDefaultDirectionIsAuto verifies that paragraphs without any dir
 // or direction declaration use DirectionAuto (no forced direction).
 func TestDefaultDirectionIsAuto(t *testing.T) {

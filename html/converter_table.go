@@ -45,6 +45,9 @@ func (c *converter) convertTable(n *html.Node, style computedStyle) []layout.Ele
 	if style.BorderSpacingH > 0 || style.BorderSpacingV > 0 {
 		tbl.SetCellSpacing(style.BorderSpacingH, style.BorderSpacingV)
 	}
+	if style.Direction == layout.DirectionRTL {
+		tbl.SetDirection(layout.DirectionRTL)
+	}
 
 	// Collect <col> widths from <colgroup>/<col> elements.
 	var colWidths []layout.UnitValue
@@ -133,6 +136,9 @@ func (c *converter) convertCSSTable(n *html.Node, style computedStyle) []layout.
 	}
 	if style.BorderSpacingH > 0 || style.BorderSpacingV > 0 {
 		tbl.SetCellSpacing(style.BorderSpacingH, style.BorderSpacingV)
+	}
+	if style.Direction == layout.DirectionRTL {
+		tbl.SetDirection(layout.DirectionRTL)
 	}
 
 	// Apply CSS width as table minimum width.

@@ -58,7 +58,8 @@ type computedStyle struct {
 	BorderLeftStyle   string
 
 	// Text direction (bidi)
-	Direction layout.Direction // DirectionAuto (default), DirectionLTR, DirectionRTL
+	Direction   layout.Direction // DirectionAuto (default), DirectionLTR, DirectionRTL
+	UnicodeBidi string           // "normal", "embed", "bidi-override", "isolate"
 
 	// Layout
 	Display         string // "block", "inline", "flex", "none", "table", etc.
