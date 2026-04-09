@@ -147,14 +147,27 @@ func TestParagraphRTLBracketsAreMirrored(t *testing.T) {
 // TestParagraphDirectionPreservedOnOverflow verifies that direction and
 // alignSet survive a page-break split (cloneWithWords).
 func TestParagraphDirectionPreservedOnOverflow(t *testing.T) {
-	long := "\u05E9\u05DC\u05D5\u05DD \u05E2\u05D5\u05DC\u05DD \u05E9\u05DC\u05D5\u05DD \u05E2\u05D5\u05DC\u05DD \u05E9\u05DC\u05D5\u05DD \u05E2\u05D5\u05DC\u05DD"
+	// Build a long paragraph that forces overflow. Each Hebrew word
+	// plus space is ~24pt wide in Helvetica 12, so 20 words in a
+	// 200pt-wide area at 14.4pt line height with only 15pt available
+	// height forces a split after the first line.
+	var parts []string
+	for i := 0; i < 20; i++ {
+		parts = append(parts, "\u05E9\u05DC\u05D5\u05DD")
+	}
+	long := ""
+	for i, p := range parts {
+		if i > 0 {
+			long += " "
+		}
+		long += p
+	}
 	p := NewParagraph(long, font.Helvetica, 12)
 	p.SetDirection(DirectionRTL)
 
-	// Tight area forces overflow.
-	plan := p.PlanLayout(LayoutArea{Width: 200, Height: 20})
+	plan := p.PlanLayout(LayoutArea{Width: 200, Height: 15})
 	if plan.Status != LayoutPartial {
-		t.Skipf("no overflow on this text/area combo (status=%v)", plan.Status)
+		t.Fatalf("expected LayoutPartial, got %v (need more words or tighter area)", plan.Status)
 	}
 	overflow, ok := plan.Overflow.(*Paragraph)
 	if !ok {
@@ -162,5 +175,35 @@ func TestParagraphDirectionPreservedOnOverflow(t *testing.T) {
 	}
 	if overflow.direction != DirectionRTL {
 		t.Errorf("overflow direction: got %v, want RTL", overflow.direction)
+	}
+	if overflow.alignSet != p.alignSet {
+		t.Errorf("overflow alignSet: got %v, want %v", overflow.alignSet, p.alignSet)
+	}
+}
+
+// TestParagraphEmptyRTLNoPanic verifies that an empty paragraph with
+// SetDirection(RTL) does not panic and produces a valid layout.
+func TestParagraphEmptyRTLNoPanic(t *testing.T) {
+	p := NewParagraph("", font.Helvetica, 12)
+	p.SetDirection(DirectionRTL)
+	plan := p.PlanLayout(LayoutArea{Width: 500, Height: 200})
+	if plan.Status != LayoutFull {
+		t.Errorf("empty RTL paragraph: status=%v, want LayoutFull", plan.Status)
+	}
+}
+
+// TestParagraphWhitespaceOnlyRTLAlignment verifies that a whitespace-only
+// paragraph with explicit RTL direction still right-aligns (the hasContent
+// guard should respect the base direction rather than falling back to LTR).
+func TestParagraphWhitespaceOnlyRTLAlignment(t *testing.T) {
+	p := NewParagraph("   ", font.Helvetica, 12)
+	p.SetDirection(DirectionRTL)
+	plan := p.PlanLayout(LayoutArea{Width: 500, Height: 200})
+	if plan.Status != LayoutFull || len(plan.Blocks) == 0 {
+		t.Skipf("whitespace-only paragraph produced no blocks")
+	}
+	// With RTL direction, alignment should be right → X > 0.
+	if plan.Blocks[0].X <= 0 {
+		t.Errorf("whitespace-only RTL should right-align; X=%v", plan.Blocks[0].X)
 	}
 }

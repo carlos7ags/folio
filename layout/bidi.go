@@ -36,6 +36,8 @@ func resolveLineBidi(words []Word, base Direction) ([]Word, Direction) {
 	// Skip bidi processing if all words are empty or contain only
 	// whitespace/control characters (e.g. lineBreakMarker). The bidi
 	// library panics on Order().Direction() for content-free strings.
+	// Respect the base direction parameter so that the caller gets
+	// RTL alignment even for whitespace-only lines in an RTL paragraph.
 	hasContent := false
 	for _, w := range words {
 		for _, r := range w.Text {
@@ -49,18 +51,33 @@ func resolveLineBidi(words []Word, base Direction) ([]Word, Direction) {
 		}
 	}
 	if !hasContent {
-		return words, DirectionLTR
+		fallback := DirectionLTR
+		if base == DirectionRTL {
+			fallback = DirectionRTL
+		}
+		return words, fallback
 	}
 
-	// Build the concatenated line text and record each word's rune range.
-	// Run.Pos() returns rune offsets (not byte offsets), so the spans
-	// must also be in rune units to make the overlap check correct.
+	// Separate inline-block words (Text=="") from text words. Inline
+	// blocks don't participate in bidi — they have no directional text.
+	// We record their original indices so we can splice them back into
+	// the visual output at the correct positions after reordering.
 	type span struct{ start, end int }
 	spans := make([]span, len(words))
+	inlineAt := make(map[int]bool) // word indices that are inline blocks
 	var sb strings.Builder
 	runePos := 0
+	textWordCount := 0
 	for i, w := range words {
-		if i > 0 {
+		if w.InlineBlock != nil || w.Text == "" {
+			// Inline-block or empty word: assign a zero-width span at the
+			// current rune position. It won't overlap any bidi run but we
+			// handle it in the splice pass below.
+			inlineAt[i] = true
+			spans[i] = span{runePos, runePos}
+			continue
+		}
+		if textWordCount > 0 {
 			sb.WriteByte(' ')
 			runePos++
 		}
@@ -68,6 +85,7 @@ func resolveLineBidi(words []Word, base Direction) ([]Word, Direction) {
 		sb.WriteString(w.Text)
 		runePos += len([]rune(w.Text))
 		spans[i].end = runePos
+		textWordCount++
 	}
 	lineText := sb.String()
 
@@ -104,10 +122,10 @@ func resolveLineBidi(words []Word, base Direction) ([]Word, Direction) {
 		}
 	}
 
-	// Map visual runs back to words. Each run covers a rune range in
-	// lineText; we find which words overlap that range and collect them
-	// in visual order. Within an RTL run the overlapping words are
-	// appended in reverse logical order (last overlapping word first).
+	// Map visual runs back to text words. Each run covers a rune range
+	// in lineText; we find which text words overlap that range and
+	// collect them in visual order. Within an RTL run the overlapping
+	// words are appended in reverse logical order (last first).
 	//
 	// The bidi library's Order() returns runs in reading order: for an
 	// LTR paragraph that is left-to-right (Run 0 = leftmost), but for
@@ -117,6 +135,7 @@ func resolveLineBidi(words []Word, base Direction) ([]Word, Direction) {
 	// first collected word lands at the page's left edge.
 	numRuns := ord.NumRuns()
 	visual := make([]Word, 0, len(words))
+	placed := make(map[int]bool, len(words)) // tracks which word indices have been placed
 
 	runStart, runEnd, runStep := 0, numRuns, 1
 	if resolved == DirectionRTL {
@@ -128,26 +147,59 @@ func resolveLineBidi(words []Word, base Direction) ([]Word, Direction) {
 		rStart, rEnd := run.Pos()
 		runDir := run.Direction()
 
-		// Collect indices of words that overlap this run's byte range.
+		// Collect indices of text words that overlap this run's rune range.
 		var indices []int
 		for wi, sp := range spans {
-			// A word overlaps the run if its byte range intersects.
+			if inlineAt[wi] {
+				continue
+			}
 			if sp.end > rStart && sp.start < rEnd {
 				indices = append(indices, wi)
 			}
 		}
 
 		if runDir == bidi.RightToLeft {
-			// Reverse: last overlapping word first in visual order.
 			for j := len(indices) - 1; j >= 0; j-- {
-				w := words[indices[j]]
+				wi := indices[j]
+				w := words[wi]
 				w.Text = mirrorBrackets(w.Text)
+				// Attach any inline-block words that immediately preceded
+				// this text word in logical order (they travel with it).
+				for ib := wi - 1; ib >= 0 && inlineAt[ib] && !placed[ib]; ib-- {
+					visual = append(visual, words[ib])
+					placed[ib] = true
+				}
 				visual = append(visual, w)
+				placed[wi] = true
+				// Attach trailing inline-blocks.
+				for ib := wi + 1; ib < len(words) && inlineAt[ib] && !placed[ib]; ib++ {
+					visual = append(visual, words[ib])
+					placed[ib] = true
+				}
 			}
 		} else {
 			for _, wi := range indices {
+				// Attach preceding inline-blocks.
+				for ib := wi - 1; ib >= 0 && inlineAt[ib] && !placed[ib]; ib-- {
+					visual = append(visual, words[ib])
+					placed[ib] = true
+				}
 				visual = append(visual, words[wi])
+				placed[wi] = true
+				// Attach trailing inline-blocks.
+				for ib := wi + 1; ib < len(words) && inlineAt[ib] && !placed[ib]; ib++ {
+					visual = append(visual, words[ib])
+					placed[ib] = true
+				}
 			}
+		}
+	}
+
+	// Append any remaining inline-block words that weren't adjacent to
+	// any text word (e.g., a line with only inline elements).
+	for i, w := range words {
+		if !placed[i] {
+			visual = append(visual, w)
 		}
 	}
 

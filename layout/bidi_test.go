@@ -151,6 +151,41 @@ func TestMirrorBracketsAppliedToRTLWords(t *testing.T) {
 	}
 }
 
+func TestBidiInlineBlockPreserved(t *testing.T) {
+	// An InlineBlock word (e.g. an inline image) has Text="" and should
+	// not be dropped during bidi reordering. It should appear in the
+	// visual output adjacent to its logical neighbors.
+	words := []Word{
+		{Text: "\u05E9\u05DC\u05D5\u05DD", Width: 40}, // שלום
+		{Text: "", Width: 12, InlineBlock: &Div{}},      // inline image
+		{Text: "\u05E2\u05D5\u05DC\u05DD", Width: 40},  // עולם
+	}
+	visual, _ := resolveLineBidi(words, DirectionRTL)
+	if len(visual) != 3 {
+		t.Fatalf("expected 3 words (including inline), got %d", len(visual))
+	}
+	// The inline block should still be present somewhere in the output.
+	foundInline := false
+	for _, w := range visual {
+		if w.InlineBlock != nil {
+			foundInline = true
+		}
+	}
+	if !foundInline {
+		t.Error("InlineBlock word was dropped during bidi reordering")
+	}
+}
+
+func TestBidiWhitespaceOnlyRespectsBase(t *testing.T) {
+	// A line with only whitespace words should respect the base direction
+	// hint rather than always returning LTR.
+	words := makeWords(" ", " ")
+	_, dir := resolveLineBidi(words, DirectionRTL)
+	if dir != DirectionRTL {
+		t.Errorf("whitespace-only with RTL base: got %v, want RTL", dir)
+	}
+}
+
 func TestBidiNumbersInRTL(t *testing.T) {
 	// "שלום 42 עולם" — numbers in an RTL paragraph stay LTR.
 	// Visual order (left-to-right): עולם 42 שלום
