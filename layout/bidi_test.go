@@ -152,9 +152,9 @@ func TestMirrorBracketsAppliedToRTLWords(t *testing.T) {
 }
 
 func TestBidiInlineBlockPreserved(t *testing.T) {
-	// An InlineBlock word (e.g. an inline image) has Text="" and should
-	// not be dropped during bidi reordering. It should appear in the
-	// visual output adjacent to its logical neighbors.
+	// An InlineBlock word (e.g. an inline image) between two Hebrew words
+	// must not be dropped during bidi reordering. It should appear in the
+	// visual output between the two reversed text words.
 	words := []Word{
 		{Text: "\u05E9\u05DC\u05D5\u05DD", Width: 40}, // שלום
 		{Text: "", Width: 12, InlineBlock: &Div{}},      // inline image
@@ -164,16 +164,31 @@ func TestBidiInlineBlockPreserved(t *testing.T) {
 	if len(visual) != 3 {
 		t.Fatalf("expected 3 words (including inline), got %d", len(visual))
 	}
-	// The inline block should still be present somewhere in the output.
+	// All three words should be present — the critical assertion is that
+	// the InlineBlock was not silently dropped.
 	foundInline := false
+	foundShalom := false
+	foundOlam := false
 	for _, w := range visual {
 		if w.InlineBlock != nil {
 			foundInline = true
+		}
+		if w.Text == "\u05E9\u05DC\u05D5\u05DD" {
+			foundShalom = true
+		}
+		if w.Text == "\u05E2\u05D5\u05DC\u05DD" {
+			foundOlam = true
 		}
 	}
 	if !foundInline {
 		t.Error("InlineBlock word was dropped during bidi reordering")
 	}
+	if !foundShalom || !foundOlam {
+		t.Error("text words were dropped during bidi reordering")
+	}
+	// Both text words should be present, and the inline should sit between them.
+	// The exact order depends on the splicing algorithm; the key invariant is
+	// all three are present.
 }
 
 func TestBidiWhitespaceOnlyRespectsBase(t *testing.T) {

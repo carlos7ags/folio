@@ -151,6 +151,10 @@ func TestShapeArabicSalam(t *testing.T) {
 	if runes[1] != 0xFEFC {
 		t.Errorf("lam-alef: got %U, want U+FEFC (final)", runes[1])
 	}
+	// Meem isolated = FEE1 (lam-alef lig breaks chain → no right join)
+	if runes[2] != 0xFEE1 {
+		t.Errorf("meem: got %U, want U+FEE1 (isolated)", runes[2])
+	}
 }
 
 // TestShapeArabicPassesNonArabic verifies that non-Arabic text passes
@@ -190,5 +194,36 @@ func TestShapeArabicWithDiacritics(t *testing.T) {
 	// Alef should be final (joining from beh through transparent fathah)
 	if runes[2] != 0xFE8E {
 		t.Errorf("alef: got %U, want U+FE8E (final)", runes[2])
+	}
+}
+
+// TestShapeArabicLamAlefWithDiacritic verifies that a diacritic between
+// lam and alef does not prevent lam-alef ligature formation.
+func TestShapeArabicLamAlefWithDiacritic(t *testing.T) {
+	// Lam + Fathah (transparent) + Alef → should still produce lam-alef lig.
+	shaped := ShapeArabic("\u0644\u064E\u0627")
+	runes := []rune(shaped)
+	// The lam-alef merging skips transparent chars, so the output should
+	// contain the ligature + the diacritic (which gets dropped from the
+	// merge but the lig replaces lam+alef).
+	foundLig := false
+	for _, r := range runes {
+		if r == 0xFEFB || r == 0xFEFC { // isolated or final lam-alef
+			foundLig = true
+		}
+	}
+	if !foundLig {
+		t.Errorf("lam-alef ligature not formed through diacritic: got %U", runes)
+	}
+}
+
+// TestShapeArabicWithFontNilFallback verifies that ShapeArabicWithFont
+// with a nil face falls back to the PFB table (same as ShapeArabic).
+func TestShapeArabicWithFontNilFallback(t *testing.T) {
+	input := "\u0628" // beh
+	got := ShapeArabicWithFont(input, nil)
+	want := ShapeArabic(input)
+	if got != want {
+		t.Errorf("ShapeArabicWithFont(nil) = %U, want %U (same as ShapeArabic)", []rune(got), []rune(want))
 	}
 }

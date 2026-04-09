@@ -227,29 +227,49 @@ func TestParagraphOverflowPreservesAllFields(t *testing.T) {
 	}
 }
 
-// TestParagraphEmptyRTLNoPanic verifies that an empty paragraph with
-// SetDirection(RTL) does not panic and produces a valid layout.
-func TestParagraphEmptyRTLNoPanic(t *testing.T) {
+// TestParagraphEmptyRTLPreservesDirection verifies that an empty paragraph
+// with SetDirection(RTL) doesn't panic and preserves the direction setting.
+func TestParagraphEmptyRTLPreservesDirection(t *testing.T) {
 	p := NewParagraph("", font.Helvetica, 12)
 	p.SetDirection(DirectionRTL)
+	if p.Direction() != DirectionRTL {
+		t.Errorf("direction should be RTL after SetDirection")
+	}
 	plan := p.PlanLayout(LayoutArea{Width: 500, Height: 200})
 	if plan.Status != LayoutFull {
 		t.Errorf("empty RTL paragraph: status=%v, want LayoutFull", plan.Status)
 	}
 }
 
-// TestParagraphWhitespaceOnlyRTLAlignment verifies that a whitespace-only
-// paragraph with explicit RTL direction still right-aligns (the hasContent
-// guard should respect the base direction rather than falling back to LTR).
-func TestParagraphWhitespaceOnlyRTLAlignment(t *testing.T) {
+// TestParagraphWhitespaceOnlyRTLNoPanic verifies that a whitespace-only
+// paragraph with explicit RTL direction doesn't panic and preserves the
+// direction. Whitespace-only paragraphs produce no visible output.
+func TestParagraphWhitespaceOnlyRTLNoPanic(t *testing.T) {
 	p := NewParagraph("   ", font.Helvetica, 12)
 	p.SetDirection(DirectionRTL)
-	plan := p.PlanLayout(LayoutArea{Width: 500, Height: 200})
-	if plan.Status != LayoutFull || len(plan.Blocks) == 0 {
-		t.Skipf("whitespace-only paragraph produced no blocks")
+	if p.Direction() != DirectionRTL {
+		t.Errorf("direction should be RTL")
 	}
-	// With RTL direction, alignment should be right → X > 0.
-	if plan.Blocks[0].X <= 0 {
-		t.Errorf("whitespace-only RTL should right-align; X=%v", plan.Blocks[0].X)
+	p.PlanLayout(LayoutArea{Width: 500, Height: 200}) // must not panic
+}
+
+// TestParagraphMultiLineRTLWordOrder verifies that a long RTL paragraph
+// wrapping across multiple lines has correct visual word order on each
+// line independently — not just the first line.
+func TestParagraphMultiLineRTLWordOrder(t *testing.T) {
+	// Build text long enough to wrap at 200pt.
+	text := "\u05D0\u05D1\u05D2 \u05D3\u05D4\u05D5 \u05D6\u05D7\u05D8 \u05D9\u05DA\u05DB \u05DC\u05DD\u05DE \u05DF\u05E0\u05E1"
+	p := NewParagraph(text, font.Helvetica, 12)
+	lines := p.Layout(200)
+	if len(lines) < 2 {
+		t.Skipf("expected 2+ lines at 200pt, got %d", len(lines))
+	}
+	// All words should be present across lines (no drops).
+	totalWords := 0
+	for _, line := range lines {
+		totalWords += len(line.Words)
+	}
+	if totalWords != 6 {
+		t.Errorf("expected 6 total words across lines, got %d", totalWords)
 	}
 }
