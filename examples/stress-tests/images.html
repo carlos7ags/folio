@@ -1,0 +1,110 @@
+<!--
+  Copyright 2024 Carlos Munoz and the Folio Authors
+  SPDX-License-Identifier: Apache-2.0
+
+  Stress test: Images and object-fit
+  Tests object-fit modes, aspect-ratio, data-URI images,
+  SVG with raster image, and background-image/size variations.
+-->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Stress Test: Images and Object-fit</title>
+<style>
+  body { font-family: Helvetica, Arial, sans-serif; font-size: 10pt; color: #1e293b; margin: 40px; }
+  h1 { font-size: 16pt; border-bottom: 2px solid #cbd5e1; padding-bottom: 8px; }
+  h2 { font-size: 12pt; margin-top: 24px; }
+  .desc { color: #64748b; font-size: 9pt; margin-bottom: 12px; }
+  .row { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 16px; }
+  .card { text-align: center; }
+  .card .label { font-size: 8pt; color: #64748b; margin-top: 4px; }
+  .fit-box {
+    width: 100px; height: 80px;
+    border: 1px solid #cbd5e1; background: #f1f5f9;
+    overflow: hidden;
+  }
+  .fit-box img { width: 100%; height: 100%; }
+  .bg-box {
+    width: 140px; height: 100px;
+    border: 1px solid #cbd5e1;
+  }
+  .sample { background: #f1f5f9; border: 1px solid #cbd5e1; padding: 12px; margin-bottom: 16px; }
+</style>
+</head>
+<body>
+<h1>Images and Object-fit</h1>
+
+<h2>1. object-fit Modes</h2>
+<div class="desc">A 1x1 red PNG in a 100x80 container with each object-fit value.</div>
+<div class="row">
+  <div class="card">
+    <div class="fit-box"><img src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==" alt="red" style="object-fit: cover;"></div>
+    <div class="label">cover</div>
+  </div>
+  <div class="card">
+    <div class="fit-box"><img src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==" alt="red" style="object-fit: contain;"></div>
+    <div class="label">contain</div>
+  </div>
+  <div class="card">
+    <div class="fit-box"><img src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==" alt="red" style="object-fit: fill;"></div>
+    <div class="label">fill</div>
+  </div>
+  <div class="card">
+    <div class="fit-box"><img src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==" alt="red" style="object-fit: none;"></div>
+    <div class="label">none</div>
+  </div>
+  <div class="card">
+    <div class="fit-box"><img src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==" alt="red" style="object-fit: scale-down;"></div>
+    <div class="label">scale-down</div>
+  </div>
+</div>
+
+<h2>2. aspect-ratio on a Container</h2>
+<div class="desc">A container with aspect-ratio: 16/9, width 200px, with a background color.</div>
+<div class="sample">
+  <div style="width: 200px; aspect-ratio: 16 / 9; background: #cbd5e1; border: 1px solid #94a3b8; display: flex; align-items: center; justify-content: center;">
+    <span style="font-size: 8pt; color: #475569;">16:9 ratio</span>
+  </div>
+</div>
+
+<h2>3. Data-URI PNG and JPEG Inline</h2>
+<div class="desc">A PNG (red) and a JPEG (minimal gray) displayed inline.</div>
+<div class="sample">
+  <p>
+    PNG: <img src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==" width="30" height="30" alt="red PNG" style="vertical-align: middle; border: 1px solid #cbd5e1;">
+    JPEG: <img src="data:image/jpeg;base64,/9j/4AAQSkZJRgABAQEASABIAAD/2wBDAAgGBgcGBQgHBwcJCQgKDBQNDAsLDBkSEw8UHRofHh0aHBwgJC4nICIsIxwcKDcpLDAxNDQ0Hyc5PTgyPC4zNDL/2wBDAQkJCQwLDBgNDRgyIRwhMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjL/wAARCAABAAEDASIAAhEBAxEB/8QAHwAAAQUBAQEBAQEAAAAAAAAAAAECAwQFBgcICQoL/8QAFBABAAAAAAAAAAAAAAAAAAAACf/EABQRAQAAAAAAAAAAAAAAAAAAAAD/2gAMAwEAAhEDEQA/AKgA/9k=" width="30" height="30" alt="gray JPEG" style="vertical-align: middle; border: 1px solid #cbd5e1;">
+  </p>
+</div>
+
+<h2>4. SVG with Data-URI Raster Image</h2>
+<div class="desc">An SVG element containing a raster &lt;image&gt; via data URI.</div>
+<div class="sample">
+  <svg xmlns="http://www.w3.org/2000/svg" width="80" height="80" style="border: 1px solid #cbd5e1;">
+    <rect width="80" height="80" fill="#f1f5f9"/>
+    <image href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==" x="10" y="10" width="60" height="60"/>
+    <text x="40" y="76" text-anchor="middle" font-size="7" fill="#64748b">raster in SVG</text>
+  </svg>
+</div>
+
+<h2>5. background-image with linear-gradient</h2>
+<div class="desc">A div with a CSS linear-gradient background.</div>
+<div class="sample">
+  <div style="width: 200px; height: 60px; background-image: linear-gradient(135deg, #2563eb, #7c3aed, #ec4899); border: 1px solid #cbd5e1; border-radius: 4px;"></div>
+</div>
+
+<h2>6. background-size: cover vs contain</h2>
+<div class="desc">Same gradient used as background-image with cover and contain modes.</div>
+<div class="row">
+  <div class="card">
+    <div class="bg-box" style="background-image: linear-gradient(to right, #dc2626, #f59e0b); background-size: cover;"></div>
+    <div class="label">background-size: cover</div>
+  </div>
+  <div class="card">
+    <div class="bg-box" style="background-image: linear-gradient(to right, #dc2626, #f59e0b); background-size: contain; background-repeat: no-repeat;"></div>
+    <div class="label">background-size: contain</div>
+  </div>
+</div>
+
+</body>
+</html>

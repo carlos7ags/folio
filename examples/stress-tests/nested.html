@@ -1,0 +1,128 @@
+<!--
+  Copyright 2024 Carlos Munoz and the Folio Authors
+  SPDX-License-Identifier: Apache-2.0
+
+  Stress test: Nested containers
+  Tests flex inside grid, grid inside flex, columns inside flex,
+  table inside grid cell, and 5-level deep nesting.
+-->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Stress Test: Nested Containers</title>
+<style>
+  body { font-family: Helvetica, Arial, sans-serif; font-size: 10pt; color: #1e293b; margin: 40px; }
+  h1 { font-size: 16pt; border-bottom: 2px solid #cbd5e1; padding-bottom: 8px; }
+  h2 { font-size: 12pt; margin-top: 24px; }
+  .desc { color: #64748b; font-size: 9pt; margin-bottom: 12px; }
+  .label { font-size: 8pt; color: #64748b; margin-bottom: 4px; }
+
+  /* Shared nesting visuals */
+  .L1 { border: 2px solid #94a3b8; background: #f8fafc; padding: 10px; margin-bottom: 16px; }
+  .L2 { border: 2px solid #64748b; background: #f1f5f9; padding: 8px; }
+  .L3 { border: 2px solid #475569; background: #e2e8f0; padding: 8px; }
+  .L4 { border: 2px solid #334155; background: #cbd5e1; padding: 8px; }
+  .L5 { border: 2px solid #1e293b; background: #94a3b8; padding: 8px; color: #fff; }
+
+  /* Section 1: Flex inside Grid */
+  .grid-3col { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; }
+  .flex-col { display: flex; flex-direction: column; gap: 6px; }
+  .flex-col > div { background: #e2e8f0; padding: 6px; border: 1px solid #cbd5e1; }
+
+  /* Section 2: Grid inside Flex */
+  .flex-row { display: flex; gap: 10px; }
+  .flex-row > div { flex: 1; padding: 8px; background: #f1f5f9; border: 1px solid #cbd5e1; }
+  .inner-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-top: 6px; }
+  .inner-grid > div { background: #e2e8f0; padding: 6px; border: 1px solid #cbd5e1; }
+
+  /* Section 3: Columns inside Flex */
+  .col-content { column-count: 2; column-gap: 12px; column-rule: 1px solid #cbd5e1; }
+
+  /* Section 4: Table inside Grid */
+  .grid-2col { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  table { border-collapse: collapse; width: 100%; }
+  th, td { border: 1px solid #cbd5e1; padding: 4px 8px; font-size: 9pt; }
+  th { background: #f1f5f9; }
+</style>
+</head>
+<body>
+<h1>Nested Containers</h1>
+
+<h2>1. Flex inside Grid</h2>
+<div class="desc">3-column grid where each cell is a flex column.</div>
+<div class="grid-3col L1">
+  <div class="flex-col L2"><div class="label">Grid 1 / Flex</div><div>Item A</div><div>Item B</div><div>Item C</div></div>
+  <div class="flex-col L2"><div class="label">Grid 2 / Flex</div><div>Item D</div><div>Item E</div></div>
+  <div class="flex-col L2"><div class="label">Grid 3 / Flex</div><div>Item F</div><div>Item G</div><div>Item H</div><div>Item I</div></div>
+</div>
+
+<h2>2. Grid inside Flex</h2>
+<div class="desc">Flex row with a 2x2 grid nested in one item.</div>
+<div class="flex-row L1">
+  <div><div class="label">Flex item 1</div><p>Simple text content in the first flex child.</p></div>
+  <div>
+    <div class="label">Flex item 2 (contains grid)</div>
+    <div class="inner-grid"><div>Grid A</div><div>Grid B</div><div>Grid C</div><div>Grid D</div></div>
+  </div>
+  <div><div class="label">Flex item 3</div><p>Simple text content in the third flex child.</p></div>
+</div>
+
+<h2>3. Columns inside Flex</h2>
+<div class="desc">Flex row where one child uses CSS multi-column layout.</div>
+<div class="flex-row L1">
+  <div style="flex: 1;"><div class="label">Flex item (plain)</div><p>Left-side content.</p></div>
+  <div style="flex: 2;">
+    <div class="label">Flex item (columns)</div>
+    <div class="col-content">
+      Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris. Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur.
+    </div>
+  </div>
+</div>
+
+<h2>4. Table inside Grid Cell</h2>
+<div class="desc">2-column grid with a table in the second cell.</div>
+<div class="grid-2col L1">
+  <div class="L2"><div class="label">Grid cell 1</div><p>Plain text content in the left cell of the grid.</p></div>
+  <div class="L2">
+    <div class="label">Grid cell 2 (table)</div>
+    <table>
+      <thead><tr><th>Col A</th><th>Col B</th></tr></thead>
+      <tbody><tr><td>1</td><td>Alpha</td></tr><tr><td>2</td><td>Beta</td></tr><tr><td>3</td><td>Gamma</td></tr></tbody>
+    </table>
+  </div>
+</div>
+
+<h2>5. Five Levels of Nesting</h2>
+<div class="desc">div &gt; flex &gt; grid &gt; div &gt; flex — each level has a distinct border and background.</div>
+<div class="L1">
+  <div class="label">Level 1: div</div>
+  <div class="L2" style="display: flex; gap: 8px;">
+    <div style="flex: 1;">
+      <div class="label">Level 2: flex</div>
+      <div class="L3" style="display: grid; grid-template-columns: 1fr 1fr; gap: 6px;">
+        <div class="L4">
+          <div class="label">L3: grid / L4: div</div>
+          <div class="L5" style="display: flex; gap: 4px;">
+            <div class="label">Level 5: flex</div>
+            <div>A</div><div>B</div><div>C</div>
+          </div>
+        </div>
+        <div class="L4">
+          <div class="label">L3: grid / L4: div</div>
+          <div class="L5" style="display: flex; gap: 4px;">
+            <div class="label">Level 5: flex</div>
+            <div>D</div><div>E</div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div style="flex: 1;">
+      <div class="label">Level 2: flex (second child)</div>
+      <p>Simpler content in the second flex child for contrast.</p>
+    </div>
+  </div>
+</div>
+
+</body>
+</html>

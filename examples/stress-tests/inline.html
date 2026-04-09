@@ -1,0 +1,80 @@
+<!--
+  Copyright 2024 Carlos Munoz and the Folio Authors
+  SPDX-License-Identifier: Apache-2.0
+
+  Stress test: Inline flow
+  Tests inline images, inline SVG, inline-block, sub/sup,
+  line breaks inside inline elements, and text highlights.
+-->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Stress Test: Inline Flow</title>
+<style>
+  body { font-family: Helvetica, Arial, sans-serif; font-size: 10pt; color: #1e293b; margin: 40px; }
+  h1 { font-size: 16pt; border-bottom: 2px solid #cbd5e1; padding-bottom: 8px; }
+  h2 { font-size: 12pt; margin-top: 24px; }
+  .desc { color: #64748b; font-size: 9pt; margin-bottom: 12px; }
+  .sample { background: #f1f5f9; border: 1px solid #cbd5e1; padding: 12px; margin-bottom: 16px; line-height: 1.8; }
+  .inline-box {
+    display: inline-block; width: 60px; height: 24px;
+    background: #cbd5e1; border: 1px solid #94a3b8;
+    vertical-align: middle; text-align: center; font-size: 8pt; line-height: 24px;
+  }
+  mark { background: #fef08a; padding: 0 2px; }
+  sub { font-size: 7pt; }
+  sup { font-size: 7pt; }
+  a { color: #2563eb; }
+</style>
+</head>
+<body>
+<h1>Inline Flow</h1>
+
+<h2>1. Inline Image (data-URI PNG)</h2>
+<div class="desc">A 1x1 red PNG scaled to 20x20, inline with text.</div>
+<div class="sample">
+  <p>Text before the image <img src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==" width="20" height="20" alt="red pixel" style="vertical-align: middle;"> and text after the image, continuing on the same line.</p>
+</div>
+
+<h2>2. Inline SVG</h2>
+<div class="desc">A 12x12 SVG circle rendered inline with surrounding text.</div>
+<div class="sample">
+  <p>Here is an inline circle
+    <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" style="vertical-align: middle;">
+      <circle cx="6" cy="6" r="5" fill="#ef4444" stroke="#1e293b" stroke-width="1"/>
+    </svg>
+    embedded between words in the paragraph flow.</p>
+</div>
+
+<h2>3. display:inline-block Between Text</h2>
+<div class="desc">An inline-block div sits between runs of text.</div>
+<div class="sample">
+  <p>Leading text before <span class="inline-box">BOX</span> the inline-block element, then trailing text continues here with normal wrapping behavior.</p>
+</div>
+
+<h2>4. Mixed Sub and Sup with Different Font Sizes</h2>
+<div class="desc">Subscript and superscript interleaved with varying sizes.</div>
+<div class="sample">
+  <p>H<sub>2</sub>O is water. E = mc<sup>2</sup> is famous. The formula C<sub style="font-size: 6pt;">12</sub>H<sub style="font-size: 6pt;">22</sub>O<sub style="font-size: 6pt;">11</sub> is sucrose. Footnote reference<sup style="font-size: 8pt;">[1]</sup> and another<sup style="font-size: 6pt;">[2]</sup>.</p>
+  <p>x<sub>i</sub><sup>2</sup> + y<sub>j</sub><sup>3</sup> = z<sub>k</sub><sup>n</sup>, testing adjacent sub/sup pairs.</p>
+</div>
+
+<h2>5. Line Breaks Inside Inline Elements</h2>
+<div class="desc">A &lt;br&gt; tag inside strong, em, a, and span elements.</div>
+<div class="sample">
+  <p><strong>Bold text before break<br>bold text after break</strong> — then normal text.</p>
+  <p><em>Italic text before break<br>italic text after break</em> — then normal text.</p>
+  <p><a href="#">Link text before break<br>link text after break</a> — then normal text.</p>
+  <p><span style="color: #dc2626;">Span text before break<br>span text after break</span> — then normal text.</p>
+</div>
+
+<h2>6. Text with Highlight</h2>
+<div class="desc">The &lt;mark&gt; element used for inline highlighting.</div>
+<div class="sample">
+  <p>In this paragraph, <mark>these words are highlighted</mark> using the mark element. Multiple <mark>separate highlights</mark> can appear in <mark>a single line</mark> of text.</p>
+  <p>A longer passage where the <mark>highlighted section spans enough words that it might wrap across a line boundary in the rendered output</mark>, testing how the background extends.</p>
+</div>
+
+</body>
+</html>

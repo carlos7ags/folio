@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<!--
+  Stress test: Tables across page breaks
+  Exercises: multi-page tables, thead repeat, colspan/rowspan across
+  page boundaries, border-collapse vs separate, percentage-width cells
+  in flex columns, min-width/max-width, nested tables.
+  Copyright 2026 Carlos Munoz and the Folio Authors. Apache-2.0.
+-->
+<html>
+<head>
+  <title>Table Stress Test</title>
+  <style>
+    body { font-family: Helvetica, Arial, sans-serif; font-size: 10pt; margin: 40px; color: #1e293b; }
+    h1 { font-size: 18pt; margin-bottom: 8px; }
+    h2 { font-size: 13pt; margin-top: 20px; margin-bottom: 6px; color: #334155; }
+    .label { font-size: 8pt; color: #94a3b8; margin-bottom: 4px; }
+    table { width: 100%; border-collapse: collapse; margin-bottom: 16px; }
+    th, td { border: 1px solid #cbd5e1; padding: 6px 8px; text-align: left; font-size: 9pt; }
+    th { background: #f1f5f9; font-weight: bold; }
+    .separate { border-collapse: separate; border-spacing: 4px; }
+    .separate th, .separate td { border: 1px solid #94a3b8; border-radius: 3px; }
+  </style>
+</head>
+<body>
+  <h1>Table Stress Test</h1>
+
+  <!-- Test 1: Long table spanning multiple pages -->
+  <h2>Test 1 — Multi-page table with thead</h2>
+  <div class="label">40 rows, should span 2+ pages. Thead should repeat on each page.</div>
+  <table>
+    <thead>
+      <tr><th>#</th><th>Name</th><th>Department</th><th>Status</th><th>Amount</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>1</td><td>Alice Johnson</td><td>Engineering</td><td>Active</td><td>$12,500</td></tr>
+      <tr><td>2</td><td>Bob Smith</td><td>Marketing</td><td>Active</td><td>$9,800</td></tr>
+      <tr><td>3</td><td>Carol White</td><td>Finance</td><td>On Leave</td><td>$11,200</td></tr>
+      <tr><td>4</td><td>David Brown</td><td>Engineering</td><td>Active</td><td>$13,100</td></tr>
+      <tr><td>5</td><td>Eve Davis</td><td>HR</td><td>Active</td><td>$8,900</td></tr>
+      <tr><td>6</td><td>Frank Miller</td><td>Engineering</td><td>Active</td><td>$14,200</td></tr>
+      <tr><td>7</td><td>Grace Wilson</td><td>Marketing</td><td>Probation</td><td>$7,500</td></tr>
+      <tr><td>8</td><td>Henry Moore</td><td>Finance</td><td>Active</td><td>$10,300</td></tr>
+      <tr><td>9</td><td>Ivy Taylor</td><td>Engineering</td><td>Active</td><td>$12,800</td></tr>
+      <tr><td>10</td><td>Jack Anderson</td><td>HR</td><td>Active</td><td>$9,100</td></tr>
+      <tr><td>11</td><td>Karen Thomas</td><td>Engineering</td><td>Active</td><td>$13,500</td></tr>
+      <tr><td>12</td><td>Leo Jackson</td><td>Marketing</td><td>Active</td><td>$8,200</td></tr>
+      <tr><td>13</td><td>Maria Harris</td><td>Finance</td><td>On Leave</td><td>$11,700</td></tr>
+      <tr><td>14</td><td>Nick Martin</td><td>Engineering</td><td>Active</td><td>$14,800</td></tr>
+      <tr><td>15</td><td>Olivia Garcia</td><td>HR</td><td>Active</td><td>$9,400</td></tr>
+      <tr><td>16</td><td>Paul Robinson</td><td>Engineering</td><td>Active</td><td>$12,100</td></tr>
+      <tr><td>17</td><td>Quinn Clark</td><td>Marketing</td><td>Probation</td><td>$7,800</td></tr>
+      <tr><td>18</td><td>Rachel Lewis</td><td>Finance</td><td>Active</td><td>$10,600</td></tr>
+      <tr><td>19</td><td>Sam Walker</td><td>Engineering</td><td>Active</td><td>$13,200</td></tr>
+      <tr><td>20</td><td>Tina Hall</td><td>HR</td><td>Active</td><td>$8,500</td></tr>
+      <tr><td>21</td><td>Uma Allen</td><td>Engineering</td><td>Active</td><td>$14,500</td></tr>
+      <tr><td>22</td><td>Victor Young</td><td>Marketing</td><td>Active</td><td>$9,200</td></tr>
+      <tr><td>23</td><td>Wendy King</td><td>Finance</td><td>Active</td><td>$11,400</td></tr>
+      <tr><td>24</td><td>Xavier Wright</td><td>Engineering</td><td>On Leave</td><td>$13,800</td></tr>
+      <tr><td>25</td><td>Yolanda Scott</td><td>HR</td><td>Active</td><td>$8,800</td></tr>
+      <tr><td>26</td><td>Zach Green</td><td>Engineering</td><td>Active</td><td>$12,400</td></tr>
+      <tr><td>27</td><td>Amy Baker</td><td>Marketing</td><td>Active</td><td>$9,600</td></tr>
+      <tr><td>28</td><td>Brian Adams</td><td>Finance</td><td>Active</td><td>$10,900</td></tr>
+      <tr><td>29</td><td>Clara Nelson</td><td>Engineering</td><td>Active</td><td>$13,600</td></tr>
+      <tr><td>30</td><td>Derek Hill</td><td>HR</td><td>Probation</td><td>$7,200</td></tr>
+      <tr><td>31</td><td>Elena Ramirez</td><td>Engineering</td><td>Active</td><td>$14,100</td></tr>
+      <tr><td>32</td><td>Felix Campbell</td><td>Marketing</td><td>Active</td><td>$8,400</td></tr>
+      <tr><td>33</td><td>Gina Mitchell</td><td>Finance</td><td>Active</td><td>$11,100</td></tr>
+      <tr><td>34</td><td>Hugo Roberts</td><td>Engineering</td><td>Active</td><td>$13,300</td></tr>
+      <tr><td>35</td><td>Iris Carter</td><td>HR</td><td>Active</td><td>$9,000</td></tr>
+      <tr><td>36</td><td>Jake Phillips</td><td>Engineering</td><td>Active</td><td>$12,700</td></tr>
+      <tr><td>37</td><td>Kara Evans</td><td>Marketing</td><td>On Leave</td><td>$8,100</td></tr>
+      <tr><td>38</td><td>Liam Turner</td><td>Finance</td><td>Active</td><td>$10,500</td></tr>
+      <tr><td>39</td><td>Mila Parker</td><td>Engineering</td><td>Active</td><td>$13,900</td></tr>
+      <tr><td>40</td><td>Noah Edwards</td><td>HR</td><td>Active</td><td>$9,300</td></tr>
+    </tbody>
+  </table>
+
+  <!-- Test 2: Colspan and rowspan -->
+  <h2>Test 2 — Colspan and rowspan</h2>
+  <table>
+    <tr><th colspan="3">Q1 2026 Revenue Summary</th></tr>
+    <tr><td rowspan="2">North America</td><td>USA</td><td>$4.2M</td></tr>
+    <tr><td>Canada</td><td>$1.1M</td></tr>
+    <tr><td rowspan="2">Europe</td><td>UK</td><td>$2.8M</td></tr>
+    <tr><td>Germany</td><td>$1.9M</td></tr>
+    <tr><td colspan="2">Total</td><td>$10.0M</td></tr>
+  </table>
+
+  <!-- Test 3: border-collapse: separate -->
+  <h2>Test 3 — Border-separate with spacing and radius</h2>
+  <table class="separate">
+    <tr><th>Product</th><th>Q1</th><th>Q2</th><th>Q3</th><th>Q4</th></tr>
+    <tr><td>Widget A</td><td>120</td><td>145</td><td>132</td><td>158</td></tr>
+    <tr><td>Widget B</td><td>89</td><td>102</td><td>96</td><td>114</td></tr>
+    <tr><td>Widget C</td><td>201</td><td>189</td><td>215</td><td>234</td></tr>
+  </table>
+
+  <!-- Test 4: Percentage widths in flex column -->
+  <h2>Test 4 — Table with percentage widths inside flex column</h2>
+  <div style="display: flex; gap: 16px;">
+    <div style="flex: 0 0 60%;">
+      <table>
+        <tr><th style="width: 50%;">Description</th><th style="width: 25%;">Qty</th><th style="width: 25%;">Price</th></tr>
+        <tr><td>Professional services</td><td>40 hrs</td><td>$6,000</td></tr>
+        <tr><td>Software license</td><td>1</td><td>$2,400</td></tr>
+        <tr><td>Support plan</td><td>12 mo</td><td>$1,200</td></tr>
+      </table>
+    </div>
+    <div style="flex: 1;">
+      <p style="font-size: 9pt; color: #64748b;">This table uses percentage-width cells inside a constrained flex column. The cells should not overflow the column boundary.</p>
+    </div>
+  </div>
+
+  <!-- Test 5: Nested table -->
+  <h2>Test 5 — Nested tables</h2>
+  <table>
+    <tr><th>Region</th><th>Details</th></tr>
+    <tr>
+      <td>Americas</td>
+      <td>
+        <table style="width: 100%; margin: 0;">
+          <tr><td>USA</td><td>$4.2M</td></tr>
+          <tr><td>Canada</td><td>$1.1M</td></tr>
+          <tr><td>Brazil</td><td>$0.8M</td></tr>
+        </table>
+      </td>
+    </tr>
+    <tr>
+      <td>EMEA</td>
+      <td>
+        <table style="width: 100%; margin: 0;">
+          <tr><td>UK</td><td>$2.8M</td></tr>
+          <tr><td>Germany</td><td>$1.9M</td></tr>
+        </table>
+      </td>
+    </tr>
+  </table>
+
+  <!-- Test 6: Min-width and max-width -->
+  <h2>Test 6 — Min-width and max-width on table</h2>
+  <table style="min-width: 400px; max-width: 500px; margin: 0 auto;">
+    <tr><th>Item</th><th>Value</th></tr>
+    <tr><td>Constrained table</td><td>min-width: 400px, max-width: 500px</td></tr>
+    <tr><td>Should center</td><td>with auto margins</td></tr>
+  </table>
+</body>
+</html>

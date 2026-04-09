@@ -1,0 +1,104 @@
+<!--
+  Copyright 2024 Carlos Munoz and the Folio Authors
+  SPDX-License-Identifier: Apache-2.0
+
+  Stress test: Print CSS
+  Tests @page with custom margins, :first page, margin boxes
+  (@top-center, @bottom-right), multi-page content, and
+  size: A4 landscape on a section.
+-->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Stress Test: Print CSS</title>
+<style>
+  @page {
+    margin: 3cm 2cm 2.5cm 2cm;
+    @top-center {
+      content: "Page " counter(page);
+      font-family: Helvetica, Arial, sans-serif;
+      font-size: 8pt;
+      color: #64748b;
+    }
+    @bottom-right {
+      content: "Company Confidential";
+      font-family: Helvetica, Arial, sans-serif;
+      font-size: 7pt;
+      color: #94a3b8;
+    }
+  }
+  @page :first {
+    margin-top: 5cm;
+  }
+  @page landscape-section {
+    size: A4 landscape;
+  }
+
+  body { font-family: Helvetica, Arial, sans-serif; font-size: 10pt; color: #1e293b; margin: 40px; }
+  h1 { font-size: 18pt; border-bottom: 2px solid #cbd5e1; padding-bottom: 8px; margin-bottom: 16px; }
+  h2 { font-size: 13pt; margin-top: 24px; }
+  .desc { color: #64748b; font-size: 9pt; margin-bottom: 12px; }
+  p { line-height: 1.6; margin: 8px 0; }
+  .landscape { page: landscape-section; }
+  table { border-collapse: collapse; width: 100%; margin: 12px 0; }
+  th, td { border: 1px solid #cbd5e1; padding: 6px 10px; }
+  th { background: #f1f5f9; }
+</style>
+</head>
+<body>
+
+<h1>Print CSS Stress Test</h1>
+<div class="desc">This file tests @page margins, :first page overrides, @top-center and @bottom-right margin boxes, and named page for landscape. Print or use a PDF renderer to verify.</div>
+
+<h2>Section 1: First Page Content</h2>
+<p>This content appears on the first page, which has a larger top margin (5cm) defined by @page :first. The running header should read "Page 1" in the top-center margin box, and "Company Confidential" should appear at the bottom-right.</p>
+<p>Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat.</p>
+<p>Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur. Excepteur sint occaecat cupidatat non proident, sunt in culpa qui officia deserunt mollit anim id est laborum.</p>
+<p>Curabitur pretium tincidunt lacus. Nulla gravida orci a odio. Nullam varius, turpis et commodo pharetra, est eros bibendum elit, nec luctus magna felis sollicitudin mauris. Integer in mauris eu nibh euismod gravida.</p>
+
+<h2>Section 2: Continuation</h2>
+<p>This section should flow onto subsequent pages. Each page after the first uses the standard @page margins (3cm top, 2cm sides, 2.5cm bottom). The page counter increments in the header.</p>
+<p>Pellentesque habitant morbi tristique senectus et netus et malesuada fames ac turpis egestas. Proin pharetra nonummy pede. Mauris et orci. Aenean nec lorem.</p>
+<p>In porttitor, justo sed blandit rhoncus, dui urna rutrum lectus, nec vehicula lectus neque eget sapien. Fusce suscipit, wisi nec facilisis facilisis, est dui fermentum leo.</p>
+<p>Nunc porta vulputate tellus. Nunc rutrum turpis sed pede. Sed bibendum. Aliquam posuere. Nunc aliquet, augue nec adipiscing interdum, lacus tellus malesuada massa.</p>
+<p>Suspendisse potenti. Nunc feugiat mi a tellus consequat imperdiet. Vestibulum sapien. Proin quam. Etiam ultrices. Suspendisse in justo eu magna luctus suscipit.</p>
+<p>Sed lacinia, urna non tincidunt mattis, tortor neque adipiscing diam, a cursus ipsum ante quis turpis. Nulla facilisi. Ut fringilla. Suspendisse potenti.</p>
+
+<h2>Section 3: Data Table</h2>
+<p>A table to add vertical content and push toward additional pages.</p>
+<table>
+  <thead><tr><th>Item</th><th>Description</th><th>Status</th><th>Priority</th></tr></thead>
+  <tbody>
+    <tr><td>Alpha</td><td>Initial configuration and setup</td><td>Complete</td><td>High</td></tr>
+    <tr><td>Beta</td><td>Secondary validation pass</td><td>In Progress</td><td>Medium</td></tr>
+    <tr><td>Gamma</td><td>Final review and signoff</td><td>Pending</td><td>High</td></tr>
+    <tr><td>Delta</td><td>Deployment to staging</td><td>Pending</td><td>Low</td></tr>
+    <tr><td>Epsilon</td><td>Production release</td><td>Blocked</td><td>Critical</td></tr>
+  </tbody>
+</table>
+
+<h2>Section 4: More Content for Page Overflow</h2>
+<p>Praesent dapibus, neque id cursus faucibus, tortor neque egestas augue, eu vulputate magna eros eu erat. Aliquam erat volutpat. Nam dui mi, tincidunt quis, accumsan porttitor.</p>
+<p>Phasellus ultrices nulla quis nibh. Quisque a lectus. Donec consectetuer ligula vulputate sem tristique cursus. Nam nulla quam, gravida non, commodo a, sodales sit amet, nisi.</p>
+<p>Pellentesque fermentum dolor. Aliquam quam lectus, facilisis auctor, ultrices ut, elementum vulputate, nunc. Sed velit. Sed libero. Morbi tempus. Cras viverra posuere magna.</p>
+<p>Donec nec justo eget felis facilisis fermentum. Aliquam porttitor mauris sit amet orci. Aenean dignissim pellentesque felis. Morbi in sem quis dui placerat ornare.</p>
+<p>Pellentesque odio nisi, euismod in, pharetra a, ultricies in, diam. Sed arcu. Cras consequat. Praesent dapibus, neque id cursus faucibus.</p>
+<p>Nam dui ligula, fringilla a, euismod sodales, sollicitudin vel, wisi. Morbi auctor lorem non justo. Nam lacus libero, pretium at, lobortis vitae, ultricies et, tellus.</p>
+<p>Vivamus viverra fermentum felis. Donec nonummy pellentesque ante. Phasellus adipiscing semper elit. Proin fermentum massa ac quam. Sed diam turpis, molestie vitae.</p>
+
+<section class="landscape">
+  <h2>Section 5: Landscape Page</h2>
+  <div class="desc">This section uses a named page (landscape-section) with size: A4 landscape.</div>
+  <p>Content in this section should render on a landscape-oriented page when printed. The wider format is useful for tables and charts that need horizontal space.</p>
+  <table>
+    <thead><tr><th>Q1</th><th>Q2</th><th>Q3</th><th>Q4</th><th>Total</th><th>Growth</th><th>Notes</th></tr></thead>
+    <tbody>
+      <tr><td>1,200</td><td>1,350</td><td>1,500</td><td>1,680</td><td>5,730</td><td>+12%</td><td>Strong year</td></tr>
+      <tr><td>980</td><td>1,100</td><td>1,220</td><td>1,150</td><td>4,450</td><td>+8%</td><td>Steady growth</td></tr>
+    </tbody>
+  </table>
+</section>
+
+</body>
+</html>

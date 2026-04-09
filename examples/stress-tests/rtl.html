@@ -1,0 +1,80 @@
+<!--
+  Copyright 2024 Carlos Munoz and the Folio Authors
+  SPDX-License-Identifier: Apache-2.0
+
+  Stress test: RTL and bidirectional text
+  Tests Hebrew, Arabic, Farsi, mixed bidi, bracket mirroring,
+  dir attribute, and CSS direction on tables.
+-->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Stress Test: RTL and Bidirectional Text</title>
+<style>
+  body { font-family: Helvetica, Arial, sans-serif; font-size: 10pt; color: #1e293b; margin: 40px; }
+  h1 { font-size: 16pt; border-bottom: 2px solid #cbd5e1; padding-bottom: 8px; }
+  h2 { font-size: 12pt; margin-top: 24px; }
+  .desc { color: #64748b; font-size: 9pt; margin-bottom: 12px; }
+  .sample { background: #f1f5f9; border: 1px solid #cbd5e1; padding: 12px; margin-bottom: 16px; }
+  table { border-collapse: collapse; width: 100%; }
+  th, td { border: 1px solid #cbd5e1; padding: 6px 10px; text-align: start; }
+  th { background: #f1f5f9; }
+</style>
+</head>
+<body>
+<h1>RTL and Bidirectional Text</h1>
+
+<h2>1. Pure Hebrew</h2>
+<div class="desc">A paragraph entirely in Hebrew script.</div>
+<div class="sample" dir="rtl" lang="he">
+  <p>בראשית ברא אלהים את השמים ואת הארץ. והארץ היתה תהו ובהו וחשך על פני תהום.</p>
+</div>
+
+<h2>2. Pure Arabic (connected script)</h2>
+<div class="desc">Arabic text with ligatures and connected letterforms.</div>
+<div class="sample" dir="rtl" lang="ar">
+  <p>بسم الله الرحمن الرحيم</p>
+  <p>الحمد لله رب العالمين الرحمن الرحيم مالك يوم الدين إياك نعبد وإياك نستعين.</p>
+</div>
+
+<h2>3. Mixed Hebrew / English / Numbers</h2>
+<div class="desc">Bidi reordering within a single line.</div>
+<div class="sample" dir="rtl" lang="he">
+  <p>המספר 42 הוא the answer לשאלה הגדולה, כפי שנכתב ב-RFC 2549.</p>
+</div>
+
+<h2>4. Bracket Mirroring</h2>
+<div class="desc">Brackets and parentheses should mirror in RTL context.</div>
+<div class="sample" dir="rtl" lang="he">
+  <p>הפונקציה (עם פרמטרים [1, 2, 3]) מחזירה {תוצאה: אמת}.</p>
+</div>
+
+<h2>5. dir="rtl" Container with Nested Paragraphs</h2>
+<div class="desc">All nested paragraphs inherit RTL direction from the container.</div>
+<div class="sample" dir="rtl" lang="ar">
+  <p>هذه الفقرة الأولى في الحاوية.</p>
+  <p>هذه الفقرة الثانية مع English words مدمجة فيها.</p>
+  <p>الفقرة الثالثة تحتوي على أرقام مثل 100 و200 و300.</p>
+</div>
+
+<h2>6. CSS direction:rtl on a Table</h2>
+<div class="desc">Table layout flows right-to-left via CSS.</div>
+<table style="direction: rtl;">
+  <thead><tr><th>עמודה א</th><th>عمود ب</th><th>Column C</th></tr></thead>
+  <tbody>
+    <tr><td>שורה 1</td><td>صف 1</td><td>Row 1</td></tr>
+    <tr><td>שורה 2</td><td>صف 2</td><td>Row 2</td></tr>
+    <tr><td>שורה 3</td><td>صف 3</td><td>Row 3</td></tr>
+  </tbody>
+</table>
+
+<h2>7. Farsi Text</h2>
+<div class="desc">Persian (Farsi) uses the Arabic script with additional characters.</div>
+<div class="sample" dir="rtl" lang="fa">
+  <p>زبان فارسی یکی از زبان‌های هندواروپایی است که در کشورهای ایران، افغانستان و تاجیکستان رایج است.</p>
+  <p>حروف پ، چ، ژ و گ مخصوص فارسی هستند و در عربی وجود ندارند.</p>
+</div>
+
+</body>
+</html>

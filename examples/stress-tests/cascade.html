@@ -1,0 +1,103 @@
+<!--
+  Copyright 2024 Carlos Munoz and the Folio Authors
+  SPDX-License-Identifier: Apache-2.0
+
+  Stress test: CSS cascade and variables
+  Tests !important at all cascade tiers, CSS custom properties,
+  specificity ordering, nested var() references, and @font-face.
+-->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Stress Test: CSS Cascade and Variables</title>
+<style>
+  @font-face {
+    font-family: "StressTestFont";
+    src: local("Helvetica");
+    font-weight: normal;
+    font-style: normal;
+  }
+
+  :root {
+    --color-primary: #2563eb;
+    --color-secondary: #7c3aed;
+    --color-fallback: #059669;
+    --color-nested: var(--color-primary);
+    --spacing: 12px;
+    --border-style: 1px solid var(--color-primary);
+  }
+
+  body {
+    font-family: "StressTestFont", Helvetica, Arial, sans-serif;
+    font-size: 10pt; color: #1e293b; margin: 40px;
+  }
+  h1 { font-size: 16pt; border-bottom: 2px solid #cbd5e1; padding-bottom: 8px; }
+  h2 { font-size: 12pt; margin-top: 24px; }
+  .desc { color: #64748b; font-size: 9pt; margin-bottom: 12px; }
+  .sample { background: #f1f5f9; border: 1px solid #cbd5e1; padding: 12px; margin-bottom: 16px; }
+  .swatch { display: inline-block; padding: 6px 16px; margin: 4px; border: 1px solid #cbd5e1; }
+
+  /* Cascade tier 1: stylesheet normal */
+  .cascade-test { color: #dc2626; }
+
+  /* Cascade tier 3: stylesheet !important */
+  .cascade-important { color: #059669 !important; }
+
+  /* Specificity: type selector */
+  p.spec-test { color: #94a3b8; }
+  /* Specificity: class selector (higher) */
+  .spec-class { color: #f59e0b; }
+  /* Specificity: ID selector (highest) */
+  #spec-id { color: #2563eb; }
+
+  /* Var with fallback */
+  .var-fallback { color: var(--color-undefined, #dc2626); }
+  .var-defined { color: var(--color-primary); }
+  .var-nested { color: var(--color-nested); border: var(--border-style); padding: var(--spacing); }
+  .var-double-fallback { color: var(--missing-1, var(--missing-2, #7c3aed)); }
+</style>
+</head>
+<body>
+<h1>CSS Cascade and Variables</h1>
+
+<h2>1. !important at Four Cascade Tiers</h2>
+<div class="desc">Each swatch demonstrates a different cascade tier. The winning color is noted.</div>
+<div class="sample">
+  <div class="swatch cascade-test">Tier 1: stylesheet normal (red #dc2626)</div>
+  <div class="swatch" style="color: #7c3aed;">Tier 2: inline normal (purple #7c3aed)</div>
+  <div class="swatch cascade-important" style="color: #f59e0b;">Tier 3: stylesheet !important beats inline normal (green #059669)</div>
+  <div class="swatch cascade-important" style="color: #1e293b !important;">Tier 4: inline !important beats all (dark #1e293b)</div>
+</div>
+
+<h2>2. CSS Custom Properties with var() and Fallbacks</h2>
+<div class="desc">Testing defined variables, undefined with fallback, and nested fallbacks.</div>
+<div class="sample">
+  <p class="var-defined">This text uses --color-primary (blue #2563eb).</p>
+  <p class="var-fallback">This text uses an undefined variable with fallback (red #dc2626).</p>
+  <p class="var-double-fallback">This text uses a double-nested fallback (purple #7c3aed).</p>
+</div>
+
+<h2>3. Specificity: ID vs Class vs Type</h2>
+<div class="desc">All three selectors target the same element; highest specificity wins.</div>
+<div class="sample">
+  <p class="spec-test">Type + class selector only: amber #f59e0b expected? No — p.spec-test is type+class = (0,1,1). But .spec-class below is (0,1,0). Let's test separately:</p>
+  <p class="spec-test" style="color: #94a3b8;">This uses p.spec-test (type+class): gray #94a3b8</p>
+  <p class="spec-class">This uses .spec-class (class only): amber #f59e0b</p>
+  <p class="spec-class spec-test" id="spec-id">This has all three — ID wins: blue #2563eb</p>
+</div>
+
+<h2>4. Nested var() References</h2>
+<div class="desc">A variable whose value itself references another variable.</div>
+<div class="sample">
+  <p class="var-nested">--color-nested resolves to --color-primary (blue #2563eb), and --border-style uses --color-primary too.</p>
+</div>
+
+<h2>5. @font-face Declaration</h2>
+<div class="desc">A custom @font-face is declared pointing to local Helvetica. The body uses it with generic fallbacks.</div>
+<div class="sample">
+  <p>This paragraph is rendered with the "StressTestFont" face, which resolves to Helvetica via local(). If unavailable, Arial and sans-serif are fallbacks.</p>
+</div>
+
+</body>
+</html>
