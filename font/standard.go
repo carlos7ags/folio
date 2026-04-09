@@ -74,6 +74,16 @@ func CanEncodeWinAnsi(s string) bool {
 	return true
 }
 
+// CanEncodeWinAnsiRune reports whether a single rune can be encoded
+// in WinAnsiEncoding. Used by the per-glyph font fallback splitter.
+func CanEncodeWinAnsiRune(r rune) bool {
+	if r < 128 {
+		return true
+	}
+	_, ok := unicodeToWinAnsi[r]
+	return ok
+}
+
 // WinAnsiEncode converts a Unicode string to a byte string using
 // WinAnsiEncoding (Windows-1252). Characters not in the encoding
 // are replaced with a fallback (e.g. '?' or a close equivalent).

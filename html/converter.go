@@ -366,6 +366,83 @@ func (c *converter) resolveFontForText(style computedStyle, text string) (*font.
 	return stdFont, nil
 }
 
+// splitTextByFont splits a text string into one or more TextRuns at script
+// boundaries where the font needs to change. Characters encodable in
+// WinAnsiEncoding use the standard font; characters that need a fallback
+// (Hebrew, Arabic, CJK, etc.) use the embedded fallback font. This enables
+// mixed-script text like "Hello שלום" to render correctly when the standard
+// font lacks Hebrew glyphs but the fallback font covers both scripts.
+//
+// When the style already specifies an embedded font (via @font-face), or
+// when no fallback font is available, the text is returned as a single run
+// (no splitting needed — same behavior as before this function existed).
+func (c *converter) splitTextByFont(text string, style computedStyle) []layout.TextRun {
+	stdFont, embFont := c.resolveFontPair(style)
+
+	// If already using an embedded font, it handles all Unicode — no split.
+	if embFont != nil {
+		return []layout.TextRun{c.makeTextRun(text, nil, embFont, style)}
+	}
+
+	// If all text fits in WinAnsi, use standard font — no split.
+	if font.CanEncodeWinAnsi(text) {
+		return []layout.TextRun{c.makeTextRun(text, stdFont, nil, style)}
+	}
+
+	// Get the fallback font. If unavailable, return single run with std font.
+	fb := c.getFallbackFont()
+	if fb == nil {
+		return []layout.TextRun{c.makeTextRun(text, stdFont, nil, style)}
+	}
+
+	// Split at boundaries between WinAnsi-encodable and non-WinAnsi characters.
+	// Consecutive characters that share the same "needs fallback" status are
+	// grouped into a single run to minimize run count.
+	runes := []rune(text)
+	var runs []layout.TextRun
+	start := 0
+	startNeedsFallback := !font.CanEncodeWinAnsiRune(runes[0])
+
+	for i := 1; i <= len(runes); i++ {
+		needsFallback := false
+		if i < len(runes) {
+			needsFallback = !font.CanEncodeWinAnsiRune(runes[i])
+		}
+		// Emit a run at boundaries or at end of string.
+		if i == len(runes) || needsFallback != startNeedsFallback {
+			seg := string(runes[start:i])
+			if startNeedsFallback {
+				runs = append(runs, c.makeTextRun(seg, nil, fb, style))
+			} else {
+				runs = append(runs, c.makeTextRun(seg, stdFont, nil, style))
+			}
+			start = i
+			startNeedsFallback = needsFallback
+		}
+	}
+
+	return runs
+}
+
+// makeTextRun creates a TextRun with all styling fields from the computed style.
+func (c *converter) makeTextRun(text string, std *font.Standard, emb *font.EmbeddedFont, style computedStyle) layout.TextRun {
+	return layout.TextRun{
+		Text:            text,
+		Font:            std,
+		Embedded:        emb,
+		FontSize:        style.FontSize,
+		Color:           style.Color,
+		Decoration:      style.TextDecoration,
+		DecorationColor: style.TextDecorationColor,
+		DecorationStyle: style.TextDecorationStyle,
+		LetterSpacing:   style.LetterSpacing,
+		WordSpacing:     style.WordSpacing,
+		BaselineShift:   baselineShiftFromStyle(style),
+		TextShadow:      textShadowFromStyle(style),
+		BackgroundColor: style.BackgroundColor,
+	}
+}
+
 // walkChildren processes all child nodes and collects layout elements.
 // It applies CSS margin collapsing between adjacent block-level elements:
 // when one element's margin-bottom is followed by the next element's margin-top,
