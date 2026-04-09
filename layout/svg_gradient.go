@@ -83,11 +83,13 @@ func rasterizeSVGGradient(node *svg.Node, bbox svg.BBox) *folioimage.Image {
 // parseSVGGradientStops converts svg.Stop values into layout.GradientStop
 // values. Returns nil if the gradient has fewer than two usable stops.
 //
-// stop-opacity is currently dropped: layout.GradientStop carries only RGB
-// and the downstream rasterizer hardcodes full alpha. Supporting
-// translucent stops would require widening layout.GradientStop and is a
-// documented known gap tied to CSS gradients (which have the same
-// limitation).
+// stop-opacity is honored via GradientStop.Alpha, which the rasterizer
+// interpolates alongside RGB. svg.Stop.Color.A is the resolved value
+// after stop-opacity is applied in the svg parser, so it can be passed
+// through directly. Alpha = 0 in GradientStop means "opaque default"
+// (see GradientStop doc comment), so a fully-transparent SVG stop is
+// represented as a very small but non-zero alpha to preserve the
+// interpolation behavior across the boundary.
 func parseSVGGradientStops(node *svg.Node) []GradientStop {
 	var rawStops []svg.Stop
 	if info := node.LinearGradient(); info != nil {
@@ -100,9 +102,20 @@ func parseSVGGradientStops(node *svg.Node) []GradientStop {
 	}
 	out := make([]GradientStop, 0, len(rawStops))
 	for _, s := range rawStops {
+		alpha := s.Color.A
+		if alpha >= 1 {
+			// Fully opaque — leave Alpha=0 so existing rasterizer fast
+			// paths stay active and downstream file size is minimal.
+			alpha = 0
+		} else if alpha <= 0 {
+			// Fully transparent — use a near-zero alpha so the stop is
+			// still distinguishable from "unset/opaque" (Alpha=0).
+			alpha = 1.0 / 255.0
+		}
 		out = append(out, GradientStop{
 			Color:    Color{R: s.Color.R, G: s.Color.G, B: s.Color.B},
 			Position: s.Offset,
+			Alpha:    alpha,
 		})
 	}
 	return out
