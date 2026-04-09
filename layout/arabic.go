@@ -236,7 +236,10 @@ func ShapeArabicWithFont(s string, face font.Face) string {
 	if face == nil {
 		return shapeArabicWithFont(s, nil)
 	}
-	return shapeArabicWithFont(s, face.GSUB())
+	if gp, ok := face.(font.GSUBProvider); ok {
+		return shapeArabicWithFont(s, gp.GSUB())
+	}
+	return shapeArabicWithFont(s, nil)
 }
 
 func shapeArabicWithFont(s string, gsub font.GSUBSubstitutions) string {
