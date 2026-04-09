@@ -21,8 +21,9 @@ to maintain.
    cryptography dependencies — ever.
 
 3. **Minimal external dependencies.** The only direct dependencies are
-   `golang.org/x/image` (font parsing via sfnt, TIFF decoding) and
-   `golang.org/x/net` (HTML parsing). A new external dependency
+   `golang.org/x/image` (font parsing via sfnt, TIFF decoding),
+   `golang.org/x/net` (HTML parsing), and `golang.org/x/text`
+   (Unicode bidi algorithm for RTL text). A new external dependency
    requires a compelling justification and must come from the
    `golang.org/x` ecosystem or be similarly vetted. Convenience is
    not a compelling justification.
@@ -181,10 +182,7 @@ introduce these should be redirected or declined.
 | `golang.org/x/image/font/sfnt` | TrueType/OpenType font parsing. Writing a full sfnt parser is substantial work with little upside. | The `font.Face` interface abstracts over sfnt. If we ever write our own parser, no calling code changes. |
 | `golang.org/x/image/tiff` | TIFF decoding. Rarely used but required for completeness. | Could drop if TIFF support is removed. |
 | `golang.org/x/net/html` | HTML tokenization and tree construction. Correct HTML parsing is hard and well-solved. | No replacement planned. |
-
-The transitive dependency `golang.org/x/text` is pulled in by
-`golang.org/x/image` and `golang.org/x/net`. It is not imported
-directly by any Folio package.
+| `golang.org/x/text/unicode/bidi` | Unicode Bidirectional Algorithm (UAX #9) for RTL text support. The bidi algorithm is complex (100+ pages of spec) and the Go team's implementation is well-tested against Unicode conformance vectors. | No replacement planned. `layout.resolveLineBidi` wraps the library; if we ever need a custom implementation, the wrapper isolates calling code. |
 
 All other functionality (PDF parsing, encryption, signing, content
 streams, subsetting, barcode generation, SVG rendering) is implemented
