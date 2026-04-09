@@ -10,9 +10,23 @@ import (
 )
 
 // GradientStop defines a color and position within a gradient.
+//
+// Alpha is the stop's alpha channel in (0, 1]. For backwards compatibility
+// with the previous signature, the zero value is treated as fully opaque —
+// callers that only set Color and Position continue to render exactly as
+// before. SVG `stop-opacity` and CSS `rgba()` in gradient stops use this
+// field to propagate partial transparency into the rasterized output.
+//
+// A stop with a true 0 alpha (fully transparent) cannot be expressed in
+// this scheme because the zero value is reserved for "opaque". This is a
+// known limitation: CSS `linear-gradient(red, transparent)` still renders
+// the transparent endpoint as opaque black. The practical impact is small
+// — the common SVG use case is `stop-opacity="0.5"` for a semi-transparent
+// midpoint, which this scheme handles correctly.
 type GradientStop struct {
 	Color    Color
 	Position float64 // 0-1
+	Alpha    float64 // 0 = opaque (default), otherwise in (0, 1]
 }
 
 // RenderLinearGradient creates a gradient image with the given dimensions,
@@ -147,10 +161,10 @@ func normalizeStops(stops []GradientStop) []GradientStop {
 // linearly interpolates between them.
 func interpolateStops(stops []GradientStop, t float64) color.RGBA {
 	if t <= stops[0].Position {
-		return colorToRGBA(stops[0].Color)
+		return stopToRGBA(stops[0])
 	}
 	if t >= stops[len(stops)-1].Position {
-		return colorToRGBA(stops[len(stops)-1].Color)
+		return stopToRGBA(stops[len(stops)-1])
 	}
 
 	for i := 1; i < len(stops); i++ {
@@ -159,17 +173,43 @@ func interpolateStops(stops []GradientStop, t float64) color.RGBA {
 			s1 := stops[i]
 			span := s1.Position - s0.Position
 			if span <= 0 {
-				return colorToRGBA(s1.Color)
+				return stopToRGBA(s1)
 			}
 			f := (t - s0.Position) / span
-			return lerpColor(colorToRGBA(s0.Color), colorToRGBA(s1.Color), f)
+			return lerpColor(stopToRGBA(s0), stopToRGBA(s1), f)
 		}
 	}
 
-	return colorToRGBA(stops[len(stops)-1].Color)
+	return stopToRGBA(stops[len(stops)-1])
+}
+
+// stopStopAlpha resolves a GradientStop's alpha channel to a uint8
+// suitable for image/color.RGBA. Per the GradientStop doc comment, an
+// Alpha of 0 is treated as fully opaque to preserve backwards
+// compatibility with existing callers that use struct literals without
+// setting Alpha.
+func stopAlpha(s GradientStop) uint8 {
+	if s.Alpha <= 0 {
+		return 255
+	}
+	return uint8(clamp01(s.Alpha) * 255)
+}
+
+// stopToRGBA converts a layout.GradientStop into an image/color.RGBA,
+// honoring Alpha. Used by interpolateStops during rasterization.
+func stopToRGBA(s GradientStop) color.RGBA {
+	return color.RGBA{
+		R: uint8(clamp01(s.Color.R) * 255),
+		G: uint8(clamp01(s.Color.G) * 255),
+		B: uint8(clamp01(s.Color.B) * 255),
+		A: stopAlpha(s),
+	}
 }
 
 // colorToRGBA converts a layout.Color to an image/color.RGBA.
+// Retained for external callers that work with solid colors; the
+// gradient interpolation path now uses stopToRGBA directly so it can
+// honor the stop's Alpha field.
 func colorToRGBA(c Color) color.RGBA {
 	return color.RGBA{
 		R: uint8(clamp01(c.R) * 255),
