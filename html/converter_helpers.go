@@ -270,14 +270,30 @@ func splitDeclarations(style string) []string {
 }
 
 // splitDeclaration splits "property: value" into (property, value).
+// Strips any trailing "!important" from the value side; callers that need
+// to distinguish important from normal should use splitDeclarationWithImportant.
 func splitDeclaration(decl string) (string, string) {
+	prop, val, _ := splitDeclarationWithImportant(decl)
+	return prop, val
+}
+
+// splitDeclarationWithImportant splits "property: value" into
+// (property, value, important). The "!important" suffix is recognized
+// case-insensitively and stripped from the returned value so downstream
+// property parsers never see it.
+func splitDeclarationWithImportant(decl string) (string, string, bool) {
 	idx := strings.IndexByte(decl, ':')
 	if idx < 0 {
-		return "", ""
+		return "", "", false
 	}
 	prop := strings.TrimSpace(decl[:idx])
 	val := strings.TrimSpace(decl[idx+1:])
-	return strings.ToLower(prop), val
+	important := false
+	if strings.HasSuffix(strings.ToLower(val), "!important") {
+		important = true
+		val = strings.TrimSpace(val[:len(val)-len("!important")])
+	}
+	return strings.ToLower(prop), val, important
 }
 
 // parseInt parses a string to int, returning 0 on failure.

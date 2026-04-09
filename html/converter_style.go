@@ -4,6 +4,7 @@
 package html
 
 import (
+	"sort"
 	"strconv"
 	"strings"
 
@@ -21,39 +22,78 @@ func (c *converter) computeElementStyle(n *html.Node, parent computedStyle) comp
 	c.applyTagDefaults(n, &style)
 
 	// Collect all CSS declarations from the matched stylesheet rules and
-	// the element's inline style, in cascade order (lowest specificity
-	// first, inline last). We then apply them in two passes so that
-	// var() references resolve against the fully cascaded custom
-	// properties — matching CSS spec behavior where var() substitution
-	// happens at computed-value time, after the cascade has determined
-	// the final value of each --custom-property.
+	// the element's inline style, then apply them in cascade tier order.
+	// Per CSS Cascading Level 4 §6.4.4, the origin-and-importance tiers
+	// for author-level declarations are, from lowest to highest precedence:
 	//
-	// Without the two-pass split, a stylesheet rule like
+	//   tier 0: author-normal (stylesheet normal)
+	//   tier 1: author-inline-normal (inline normal — style="..." attribute)
+	//   tier 2: author-important (stylesheet !important)
+	//   tier 3: author-inline-important (inline !important)
+	//
+	// A stylesheet rule marked `!important` therefore beats a non-important
+	// inline declaration, which is the opposite of the naive "inline always
+	// wins" rule the converter used before #137. Within each tier, stylesheet
+	// decls stay in the selector-specificity order matchingDeclarations
+	// already produced, and inline decls stay in source order.
+	//
+	// Declarations are applied in two passes so that var() references
+	// resolve against the fully-cascaded custom properties (CSS spec:
+	// var() substitution happens at computed-value time). Without the
+	// two-pass split, a stylesheet rule like
 	//   .row { align-items: var(--ai); }
 	// would resolve var(--ai) at apply-time using only the variables
-	// known so far. An inline `style="--ai: center"` declared on the
-	// same element wouldn't have been applied yet, so var(--ai) would
-	// resolve to nothing and align-items would fall through to its
-	// default — silently ignoring the inline override.
+	// known so far, silently ignoring a later inline --ai override.
 	type pendingDecl struct {
-		property string
-		value    string
+		property  string
+		value     string
+		important bool
+		inline    bool
 	}
 	var decls []pendingDecl
 	if c.sheet != nil {
 		for _, decl := range c.sheet.matchingDeclarations(n) {
-			decls = append(decls, pendingDecl{decl.property, decl.value})
+			decls = append(decls, pendingDecl{
+				property:  decl.property,
+				value:     decl.value,
+				important: decl.important,
+				inline:    false,
+			})
 		}
 	}
 	if attr := getAttr(n, "style"); attr != "" {
 		for _, decl := range splitDeclarations(attr) {
-			prop, val := splitDeclaration(decl)
+			prop, val, imp := splitDeclarationWithImportant(decl)
 			if prop == "" || val == "" {
 				continue
 			}
-			decls = append(decls, pendingDecl{prop, val})
+			decls = append(decls, pendingDecl{
+				property:  prop,
+				value:     val,
+				important: imp,
+				inline:    true,
+			})
 		}
 	}
+
+	// Partition into the four cascade tiers. sort.SliceStable keeps the
+	// within-tier order intact, so stylesheet specificity and inline
+	// source order are preserved.
+	tier := func(d pendingDecl) int {
+		switch {
+		case !d.important && !d.inline:
+			return 0
+		case !d.important && d.inline:
+			return 1
+		case d.important && !d.inline:
+			return 2
+		default:
+			return 3
+		}
+	}
+	sort.SliceStable(decls, func(i, j int) bool {
+		return tier(decls[i]) < tier(decls[j])
+	})
 
 	// Pass 1: custom property declarations only. Their values populate
 	// style.CustomProperties so subsequent var() lookups in pass 2 can
