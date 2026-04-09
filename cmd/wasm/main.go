@@ -206,7 +206,19 @@ func renderHTML(_ js.Value, args []js.Value) any {
 	}
 }
 
+// version is set at build time via -ldflags:
+//
+//	GOOS=js GOARCH=wasm go build -ldflags="-X main.version=0.6.2" -o folio.wasm ./cmd/wasm/
+//
+// If not set, defaults to "dev".
+var version = "dev"
+
+func getVersion(_ js.Value, _ []js.Value) any {
+	return version
+}
+
 func main() {
 	js.Global().Set("folioRender", js.FuncOf(renderHTML))
+	js.Global().Set("folioVersion", js.FuncOf(getVersion))
 	select {}
 }
