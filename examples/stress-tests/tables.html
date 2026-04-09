@@ -143,5 +143,67 @@
     <tr><td>Constrained table</td><td>min-width: 400px, max-width: 500px</td></tr>
     <tr><td>Should center</td><td>with auto margins</td></tr>
   </table>
+
+  <!-- Test 7: Rowspan crossing page boundary -->
+  <h2>Test 7 — Rowspan at page boundary</h2>
+  <div class="label">50-row table with rowspans on rows 25-30 that deliberately cross the likely page boundary.</div>
+  <table>
+    <thead>
+      <tr><th>#</th><th>Category</th><th>Item</th><th>Value</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>1</td><td>A</td><td>Item 1</td><td>100</td></tr>
+      <tr><td>2</td><td>A</td><td>Item 2</td><td>200</td></tr>
+      <tr><td>3</td><td>A</td><td>Item 3</td><td>300</td></tr>
+      <tr><td>4</td><td>B</td><td>Item 4</td><td>400</td></tr>
+      <tr><td>5</td><td>B</td><td>Item 5</td><td>500</td></tr>
+      <tr><td>6</td><td>B</td><td>Item 6</td><td>600</td></tr>
+      <tr><td>7</td><td>C</td><td>Item 7</td><td>700</td></tr>
+      <tr><td>8</td><td>C</td><td>Item 8</td><td>800</td></tr>
+      <tr><td>9</td><td>C</td><td>Item 9</td><td>900</td></tr>
+      <tr><td>10</td><td>D</td><td>Item 10</td><td>1000</td></tr>
+      <tr><td>11</td><td>D</td><td>Item 11</td><td>1100</td></tr>
+      <tr><td>12</td><td>D</td><td>Item 12</td><td>1200</td></tr>
+      <tr><td>13</td><td>E</td><td>Item 13</td><td>1300</td></tr>
+      <tr><td>14</td><td>E</td><td>Item 14</td><td>1400</td></tr>
+      <tr><td>15</td><td>E</td><td>Item 15</td><td>1500</td></tr>
+      <tr><td>16</td><td>F</td><td>Item 16</td><td>1600</td></tr>
+      <tr><td>17</td><td>F</td><td>Item 17</td><td>1700</td></tr>
+      <tr><td>18</td><td>F</td><td>Item 18</td><td>1800</td></tr>
+      <tr><td>19</td><td>G</td><td>Item 19</td><td>1900</td></tr>
+      <tr><td>20</td><td>G</td><td>Item 20</td><td>2000</td></tr>
+      <tr><td>21</td><td>G</td><td>Item 21</td><td>2100</td></tr>
+      <tr><td>22</td><td>H</td><td>Item 22</td><td>2200</td></tr>
+      <tr><td>23</td><td>H</td><td>Item 23</td><td>2300</td></tr>
+      <tr><td>24</td><td>H</td><td>Item 24</td><td>2400</td></tr>
+      <!-- Rows 25-30: rowspans designed to cross the page boundary -->
+      <tr><td>25</td><td rowspan="4" style="background: #fef3c7;">Span-I (rows 25-28)</td><td>Item 25</td><td>2500</td></tr>
+      <tr><td>26</td><td>Item 26</td><td>2600</td></tr>
+      <tr><td>27</td><td rowspan="3" style="background: #dbeafe;">Span-val (rows 27-29)</td></tr>
+      <tr><td>28</td></tr>
+      <tr><td>29</td><td rowspan="4" style="background: #dcfce7;">Span-J (rows 29-32)</td></tr>
+      <tr><td>30</td><td>3000</td></tr>
+      <tr><td>31</td><td>Item 31</td><td>3100</td></tr>
+      <tr><td>32</td><td>Item 32</td><td>3200</td></tr>
+      <tr><td>33</td><td>K</td><td>Item 33</td><td>3300</td></tr>
+      <tr><td>34</td><td>K</td><td>Item 34</td><td>3400</td></tr>
+      <tr><td>35</td><td>K</td><td>Item 35</td><td>3500</td></tr>
+      <tr><td>36</td><td>L</td><td>Item 36</td><td>3600</td></tr>
+      <tr><td>37</td><td>L</td><td>Item 37</td><td>3700</td></tr>
+      <tr><td>38</td><td>L</td><td>Item 38</td><td>3800</td></tr>
+      <tr><td>39</td><td>M</td><td>Item 39</td><td>3900</td></tr>
+      <tr><td>40</td><td>M</td><td>Item 40</td><td>4000</td></tr>
+      <tr><td>41</td><td>M</td><td>Item 41</td><td>4100</td></tr>
+      <tr><td>42</td><td>N</td><td>Item 42</td><td>4200</td></tr>
+      <tr><td>43</td><td>N</td><td>Item 43</td><td>4300</td></tr>
+      <tr><td>44</td><td>N</td><td>Item 44</td><td>4400</td></tr>
+      <tr><td>45</td><td>O</td><td>Item 45</td><td>4500</td></tr>
+      <tr><td>46</td><td>O</td><td>Item 46</td><td>4600</td></tr>
+      <tr><td>47</td><td>O</td><td>Item 47</td><td>4700</td></tr>
+      <tr><td>48</td><td>P</td><td>Item 48</td><td>4800</td></tr>
+      <tr><td>49</td><td>P</td><td>Item 49</td><td>4900</td></tr>
+      <tr><td>50</td><td>P</td><td>Item 50</td><td>5000</td></tr>
+    </tbody>
+  </table>
 </body>
 </html>

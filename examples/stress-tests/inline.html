@@ -31,10 +31,10 @@
 <body>
 <h1>Inline Flow</h1>
 
-<h2>1. Inline Image (data-URI PNG)</h2>
-<div class="desc">A 1x1 red PNG scaled to 20x20, inline with text.</div>
+<h2>1. Inline Image (data-URI SVG)</h2>
+<div class="desc">An 80x60 four-quadrant SVG displayed inline with text, large enough to cause reflow.</div>
 <div class="sample">
-  <p>Text before the image <img src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==" width="20" height="20" alt="red pixel" style="vertical-align: middle;"> and text after the image, continuing on the same line.</p>
+  <p>Text before the image <img src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='80' height='60'%3E%3Crect width='40' height='30' fill='%23ef4444'/%3E%3Crect x='40' width='40' height='30' fill='%233b82f6'/%3E%3Crect y='30' width='40' height='30' fill='%2322c55e'/%3E%3Crect x='40' y='30' width='40' height='30' fill='%23eab308'/%3E%3C/svg%3E" width="80" height="60" alt="quadrant" style="vertical-align: middle;"> and text after the image, continuing on the same line. The image is large enough to displace surrounding text and test reflow behavior.</p>
 </div>
 
 <h2>2. Inline SVG</h2>

@@ -31,6 +31,26 @@
   @page :first {
     margin-top: 5cm;
   }
+  @page :left {
+    margin-left: 3cm;
+    margin-right: 2cm;
+    @top-left {
+      content: string(chapter-title);
+      font-family: Helvetica, Arial, sans-serif;
+      font-size: 8pt;
+      color: #64748b;
+    }
+  }
+  @page :right {
+    margin-left: 2cm;
+    margin-right: 3cm;
+    @top-right {
+      content: string(chapter-title);
+      font-family: Helvetica, Arial, sans-serif;
+      font-size: 8pt;
+      color: #64748b;
+    }
+  }
   @page landscape-section {
     size: A4 landscape;
   }
@@ -41,6 +61,7 @@
   .desc { color: #64748b; font-size: 9pt; margin-bottom: 12px; }
   p { line-height: 1.6; margin: 8px 0; }
   .landscape { page: landscape-section; }
+  h2.string-set { string-set: chapter-title content(); }
   table { border-collapse: collapse; width: 100%; margin: 12px 0; }
   th, td { border: 1px solid #cbd5e1; padding: 6px 10px; }
   th { background: #f1f5f9; }
@@ -49,15 +70,15 @@
 <body>
 
 <h1>Print CSS Stress Test</h1>
-<div class="desc">This file tests @page margins, :first page overrides, @top-center and @bottom-right margin boxes, and named page for landscape. Print or use a PDF renderer to verify.</div>
+<div class="desc">This file tests @page margins, :first page overrides, @top-center and @bottom-right margin boxes, @page :left/:right alternating margins, string-set with string() retrieval in margin boxes, and named page for landscape. Print or use a PDF renderer to verify.</div>
 
-<h2>Section 1: First Page Content</h2>
+<h2 class="string-set">Section 1: First Page Content</h2>
 <p>This content appears on the first page, which has a larger top margin (5cm) defined by @page :first. The running header should read "Page 1" in the top-center margin box, and "Company Confidential" should appear at the bottom-right.</p>
 <p>Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat.</p>
 <p>Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur. Excepteur sint occaecat cupidatat non proident, sunt in culpa qui officia deserunt mollit anim id est laborum.</p>
 <p>Curabitur pretium tincidunt lacus. Nulla gravida orci a odio. Nullam varius, turpis et commodo pharetra, est eros bibendum elit, nec luctus magna felis sollicitudin mauris. Integer in mauris eu nibh euismod gravida.</p>
 
-<h2>Section 2: Continuation</h2>
+<h2 class="string-set">Section 2: Continuation</h2>
 <p>This section should flow onto subsequent pages. Each page after the first uses the standard @page margins (3cm top, 2cm sides, 2.5cm bottom). The page counter increments in the header.</p>
 <p>Pellentesque habitant morbi tristique senectus et netus et malesuada fames ac turpis egestas. Proin pharetra nonummy pede. Mauris et orci. Aenean nec lorem.</p>
 <p>In porttitor, justo sed blandit rhoncus, dui urna rutrum lectus, nec vehicula lectus neque eget sapien. Fusce suscipit, wisi nec facilisis facilisis, est dui fermentum leo.</p>
@@ -65,7 +86,7 @@
 <p>Suspendisse potenti. Nunc feugiat mi a tellus consequat imperdiet. Vestibulum sapien. Proin quam. Etiam ultrices. Suspendisse in justo eu magna luctus suscipit.</p>
 <p>Sed lacinia, urna non tincidunt mattis, tortor neque adipiscing diam, a cursus ipsum ante quis turpis. Nulla facilisi. Ut fringilla. Suspendisse potenti.</p>
 
-<h2>Section 3: Data Table</h2>
+<h2 class="string-set">Section 3: Data Table</h2>
 <p>A table to add vertical content and push toward additional pages.</p>
 <table>
   <thead><tr><th>Item</th><th>Description</th><th>Status</th><th>Priority</th></tr></thead>
@@ -78,7 +99,7 @@
   </tbody>
 </table>
 
-<h2>Section 4: More Content for Page Overflow</h2>
+<h2 class="string-set">Section 4: More Content for Page Overflow</h2>
 <p>Praesent dapibus, neque id cursus faucibus, tortor neque egestas augue, eu vulputate magna eros eu erat. Aliquam erat volutpat. Nam dui mi, tincidunt quis, accumsan porttitor.</p>
 <p>Phasellus ultrices nulla quis nibh. Quisque a lectus. Donec consectetuer ligula vulputate sem tristique cursus. Nam nulla quam, gravida non, commodo a, sodales sit amet, nisi.</p>
 <p>Pellentesque fermentum dolor. Aliquam quam lectus, facilisis auctor, ultrices ut, elementum vulputate, nunc. Sed velit. Sed libero. Morbi tempus. Cras viverra posuere magna.</p>

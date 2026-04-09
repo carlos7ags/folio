@@ -36,26 +36,26 @@
 <h1>Images and Object-fit</h1>
 
 <h2>1. object-fit Modes</h2>
-<div class="desc">A 1x1 red PNG in a 100x80 container with each object-fit value.</div>
+<div class="desc">An 80x60 four-quadrant SVG in a 100x80 container with each object-fit value.</div>
 <div class="row">
   <div class="card">
-    <div class="fit-box"><img src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==" alt="red" style="object-fit: cover;"></div>
+    <div class="fit-box"><img src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='80' height='60'%3E%3Crect width='40' height='30' fill='%23ef4444'/%3E%3Crect x='40' width='40' height='30' fill='%233b82f6'/%3E%3Crect y='30' width='40' height='30' fill='%2322c55e'/%3E%3Crect x='40' y='30' width='40' height='30' fill='%23eab308'/%3E%3C/svg%3E" alt="quadrant" style="object-fit: cover;"></div>
     <div class="label">cover</div>
   </div>
   <div class="card">
-    <div class="fit-box"><img src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==" alt="red" style="object-fit: contain;"></div>
+    <div class="fit-box"><img src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='80' height='60'%3E%3Crect width='40' height='30' fill='%23ef4444'/%3E%3Crect x='40' width='40' height='30' fill='%233b82f6'/%3E%3Crect y='30' width='40' height='30' fill='%2322c55e'/%3E%3Crect x='40' y='30' width='40' height='30' fill='%23eab308'/%3E%3C/svg%3E" alt="quadrant" style="object-fit: contain;"></div>
     <div class="label">contain</div>
   </div>
   <div class="card">
-    <div class="fit-box"><img src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==" alt="red" style="object-fit: fill;"></div>
+    <div class="fit-box"><img src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='80' height='60'%3E%3Crect width='40' height='30' fill='%23ef4444'/%3E%3Crect x='40' width='40' height='30' fill='%233b82f6'/%3E%3Crect y='30' width='40' height='30' fill='%2322c55e'/%3E%3Crect x='40' y='30' width='40' height='30' fill='%23eab308'/%3E%3C/svg%3E" alt="quadrant" style="object-fit: fill;"></div>
     <div class="label">fill</div>
   </div>
   <div class="card">
-    <div class="fit-box"><img src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==" alt="red" style="object-fit: none;"></div>
+    <div class="fit-box"><img src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='80' height='60'%3E%3Crect width='40' height='30' fill='%23ef4444'/%3E%3Crect x='40' width='40' height='30' fill='%233b82f6'/%3E%3Crect y='30' width='40' height='30' fill='%2322c55e'/%3E%3Crect x='40' y='30' width='40' height='30' fill='%23eab308'/%3E%3C/svg%3E" alt="quadrant" style="object-fit: none;"></div>
     <div class="label">none</div>
   </div>
   <div class="card">
-    <div class="fit-box"><img src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==" alt="red" style="object-fit: scale-down;"></div>
+    <div class="fit-box"><img src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='80' height='60'%3E%3Crect width='40' height='30' fill='%23ef4444'/%3E%3Crect x='40' width='40' height='30' fill='%233b82f6'/%3E%3Crect y='30' width='40' height='30' fill='%2322c55e'/%3E%3Crect x='40' y='30' width='40' height='30' fill='%23eab308'/%3E%3C/svg%3E" alt="quadrant" style="object-fit: scale-down;"></div>
     <div class="label">scale-down</div>
   </div>
 </div>
@@ -68,11 +68,11 @@
   </div>
 </div>
 
-<h2>3. Data-URI PNG and JPEG Inline</h2>
-<div class="desc">A PNG (red) and a JPEG (minimal gray) displayed inline.</div>
+<h2>3. Data-URI PNG/JPEG/SVG Inline</h2>
+<div class="desc">A quadrant SVG, a JPEG (minimal gray), and the original 1x1 PNG displayed inline.</div>
 <div class="sample">
   <p>
-    PNG: <img src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==" width="30" height="30" alt="red PNG" style="vertical-align: middle; border: 1px solid #cbd5e1;">
+    SVG: <img src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='80' height='60'%3E%3Crect width='40' height='30' fill='%23ef4444'/%3E%3Crect x='40' width='40' height='30' fill='%233b82f6'/%3E%3Crect y='30' width='40' height='30' fill='%2322c55e'/%3E%3Crect x='40' y='30' width='40' height='30' fill='%23eab308'/%3E%3C/svg%3E" width="30" height="23" alt="quadrant SVG" style="vertical-align: middle; border: 1px solid #cbd5e1;">
     JPEG: <img src="data:image/jpeg;base64,/9j/4AAQSkZJRgABAQEASABIAAD/2wBDAAgGBgcGBQgHBwcJCQgKDBQNDAsLDBkSEw8UHRofHh0aHBwgJC4nICIsIxwcKDcpLDAxNDQ0Hyc5PTgyPC4zNDL/2wBDAQkJCQwLDBgNDRgyIRwhMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjL/wAARCAABAAEDASIAAhEBAxEB/8QAHwAAAQUBAQEBAQEAAAAAAAAAAAECAwQFBgcICQoL/8QAFBABAAAAAAAAAAAAAAAAAAAACf/EABQRAQAAAAAAAAAAAAAAAAAAAAD/2gAMAwEAAhEDEQA/AKgA/9k=" width="30" height="30" alt="gray JPEG" style="vertical-align: middle; border: 1px solid #cbd5e1;">
   </p>
 </div>
@@ -82,7 +82,7 @@
 <div class="sample">
   <svg xmlns="http://www.w3.org/2000/svg" width="80" height="80" style="border: 1px solid #cbd5e1;">
     <rect width="80" height="80" fill="#f1f5f9"/>
-    <image href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==" x="10" y="10" width="60" height="60"/>
+    <image href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='80' height='60'%3E%3Crect width='40' height='30' fill='%23ef4444'/%3E%3Crect x='40' width='40' height='30' fill='%233b82f6'/%3E%3Crect y='30' width='40' height='30' fill='%2322c55e'/%3E%3Crect x='40' y='30' width='40' height='30' fill='%23eab308'/%3E%3C/svg%3E" x="10" y="10" width="60" height="45"/>
     <text x="40" y="76" text-anchor="middle" font-size="7" fill="#64748b">raster in SVG</text>
   </svg>
 </div>
@@ -104,6 +104,35 @@
     <div class="bg-box" style="background-image: linear-gradient(to right, #dc2626, #f59e0b); background-size: contain; background-repeat: no-repeat;"></div>
     <div class="label">background-size: contain</div>
   </div>
+</div>
+
+<h2>7. background-position</h2>
+<div class="desc">Same gradient with different background-position values.</div>
+<div class="row">
+  <div class="card">
+    <div class="bg-box" style="background: url(&quot;data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='80' height='60'%3E%3Crect width='40' height='30' fill='%23ef4444'/%3E%3Crect x='40' width='40' height='30' fill='%233b82f6'/%3E%3Crect y='30' width='40' height='30' fill='%2322c55e'/%3E%3Crect x='40' y='30' width='40' height='30' fill='%23eab308'/%3E%3C/svg%3E&quot;) no-repeat left top;"></div>
+    <div class="label">left top</div>
+  </div>
+  <div class="card">
+    <div class="bg-box" style="background: url(&quot;data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='80' height='60'%3E%3Crect width='40' height='30' fill='%23ef4444'/%3E%3Crect x='40' width='40' height='30' fill='%233b82f6'/%3E%3Crect y='30' width='40' height='30' fill='%2322c55e'/%3E%3Crect x='40' y='30' width='40' height='30' fill='%23eab308'/%3E%3C/svg%3E&quot;) no-repeat center center;"></div>
+    <div class="label">center center</div>
+  </div>
+  <div class="card">
+    <div class="bg-box" style="background: url(&quot;data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='80' height='60'%3E%3Crect width='40' height='30' fill='%23ef4444'/%3E%3Crect x='40' width='40' height='30' fill='%233b82f6'/%3E%3Crect y='30' width='40' height='30' fill='%2322c55e'/%3E%3Crect x='40' y='30' width='40' height='30' fill='%23eab308'/%3E%3C/svg%3E&quot;) no-repeat right bottom;"></div>
+    <div class="label">right bottom</div>
+  </div>
+  <div class="card">
+    <div class="bg-box" style="background: url(&quot;data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='80' height='60'%3E%3Crect width='40' height='30' fill='%23ef4444'/%3E%3Crect x='40' width='40' height='30' fill='%233b82f6'/%3E%3Crect y='30' width='40' height='30' fill='%2322c55e'/%3E%3Crect x='40' y='30' width='40' height='30' fill='%23eab308'/%3E%3C/svg%3E&quot;) no-repeat 25% 75%;"></div>
+    <div class="label">25% 75%</div>
+  </div>
+</div>
+
+<h2>8. WebP Support</h2>
+<div class="desc">Known gap: WebP images cannot be easily embedded as data URIs without a binary encoder. If WebP support is added, a test image should be placed here. For now, this placeholder verifies graceful fallback when the format is unsupported.</div>
+<div class="sample">
+  <p>WebP placeholder (invalid data, should show alt text or broken image):
+    <img src="data:image/webp;base64,AAAA" width="40" height="40" alt="[WebP unsupported]" style="vertical-align: middle; border: 1px solid #cbd5e1;">
+  </p>
 </div>
 
 </body>

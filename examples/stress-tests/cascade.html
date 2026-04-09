@@ -18,6 +18,18 @@
     font-weight: normal;
     font-style: normal;
   }
+  @font-face {
+    font-family: "StressTestFont";
+    src: local("Helvetica Bold"), local("Helvetica-Bold");
+    font-weight: bold;
+    font-style: normal;
+  }
+  @font-face {
+    font-family: "StressTestFont";
+    src: local("Helvetica Oblique"), local("Helvetica-Oblique");
+    font-weight: normal;
+    font-style: italic;
+  }
 
   :root {
     --color-primary: #2563eb;
@@ -50,6 +62,11 @@
   .spec-class { color: #f59e0b; }
   /* Specificity: ID selector (highest) */
   #spec-id { color: #2563eb; }
+
+  /* Multi-class specificity: .a.b (0,2,0) vs #id (0,1,0,0) */
+  .specificity-a { color: #dc2626; }
+  .specificity-a.specificity-b { color: #059669; }
+  #specificity-id-test { color: #2563eb; }
 
   /* Var with fallback */
   .var-fallback { color: var(--color-undefined, #dc2626); }
@@ -97,6 +114,24 @@
 <div class="desc">A custom @font-face is declared pointing to local Helvetica. The body uses it with generic fallbacks.</div>
 <div class="sample">
   <p>This paragraph is rendered with the "StressTestFont" face, which resolves to Helvetica via local(). If unavailable, Arial and sans-serif are fallbacks.</p>
+</div>
+
+
+<h2>6. Multi-class Specificity: .a.b vs #id</h2>
+<div class="desc">Two classes (.a.b = specificity 0,2,0) vs one ID (#id = 1,0,0). The ID selector should win.</div>
+<div class="sample">
+  <p class="specificity-a">Single class .a: red #dc2626</p>
+  <p class="specificity-a specificity-b">Two classes .a.b: green #059669</p>
+  <p class="specificity-a specificity-b" id="specificity-id-test">Two classes + ID — ID wins: blue #2563eb</p>
+</div>
+
+<h2>7. @font-face Bold and Italic Variants</h2>
+<div class="desc">The StressTestFont has separate @font-face declarations for normal, bold, and italic. The browser should select the correct source for each weight/style combination.</div>
+<div class="sample">
+  <p style="font-weight: normal; font-style: normal;">Normal weight, normal style — uses base StressTestFont.</p>
+  <p style="font-weight: bold; font-style: normal;">Bold weight, normal style — uses bold StressTestFont variant.</p>
+  <p style="font-weight: normal; font-style: italic;">Normal weight, italic style — uses italic StressTestFont variant.</p>
+  <p style="font-weight: bold; font-style: italic;">Bold weight, italic style — should synthesize or combine bold+italic.</p>
 </div>
 
 </body>
