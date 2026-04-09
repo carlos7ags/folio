@@ -1,0 +1,240 @@
+<!DOCTYPE html>
+<!--
+Created 2026-03-21, David Richardson
+Copyright © 2026 David Richardson. All rights reserved.
+Licensed under the Apache License, Version 2.0.
+See http://www.apache.org/licenses/LICENSE-2.0
+-->
+<html>
+<head>
+  <title>CSS Grid Layout Test</title>
+  <style>
+    @page { size: A4; margin: 2cm; }
+    body { font-family: Helvetica, Arial, sans-serif; font-size: 9pt; color: #2d3748; line-height: 1.5; }
+
+    h1 { font-size: 14pt; font-weight: 700; color: #0f172a; margin: 0 0 4px; }
+    h2 { font-size: 10pt; font-weight: 700; color: #0f172a; margin: 20px 0 8px; border-bottom: 1px solid #e2e8f0; padding-bottom: 4px; }
+    .subtitle { font-size: 8pt; color: #64748b; margin-bottom: 20px; padding-bottom: 12px; border-bottom: 2px solid #0f172a; }
+    p { margin: 0 0 6px; font-size: 8.5pt; color: #4a5568; }
+
+    .test { margin-bottom: 20px; padding: 10px; border: 1px solid #e2e8f0; background: #fafafa; }
+    .test-label { font-size: 6.5pt; text-transform: uppercase; letter-spacing: 1px; color: #94a3b8; margin-bottom: 8px; }
+
+    /* Box utilities */
+    .box   { border: 1px solid #94a3b8; background: white; padding: 8px; font-size: 8pt; color: #2d3748; }
+    .box-a { border: 1px solid #0d9488; background: #f0fdfa; padding: 8px; font-size: 8pt; color: #0d9488; font-weight: 600; }
+    .box-b { border: 1px solid #334155; background: #f8fafc; padding: 8px; font-size: 8pt; color: #334155; font-weight: 600; }
+    .box-c { border: 1px solid #b85c4a; background: #fdf8f7; padding: 8px; font-size: 8pt; color: #b85c4a; font-weight: 600; }
+    .box-d { border: 1px solid #7c3aed; background: #faf5ff; padding: 8px; font-size: 8pt; color: #7c3aed; font-weight: 600; }
+
+    /* ── TEST 1: Basic 3-column equal grid ── */
+    .grid-3col { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; }
+
+    /* ── TEST 2: Mixed column widths ── */
+    .grid-mixed { display: grid; grid-template-columns: 2fr 1fr 1fr; gap: 10px; }
+
+    /* ── TEST 3: Explicit pixel and fr mix ── */
+    .grid-px-fr { display: grid; grid-template-columns: 120px 1fr 80px; gap: 10px; }
+
+    /* ── TEST 4: grid-column span ── */
+    .grid-span { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+    .span-2 { grid-column: span 2; }
+    .span-3 { grid-column: span 3; }
+    .span-4 { grid-column: span 4; }
+
+    /* ── TEST 5: Named template areas ── */
+    .grid-areas {
+      display: grid;
+      grid-template-columns: 1fr 2fr 1fr;
+      grid-template-rows: auto auto auto;
+      grid-template-areas:
+        "header header header"
+        "sidebar main aside"
+        "footer footer footer";
+      gap: 8px;
+    }
+    .area-header  { grid-area: header;  }
+    .area-sidebar { grid-area: sidebar; }
+    .area-main    { grid-area: main;    }
+    .area-aside   { grid-area: aside;   }
+    .area-footer  { grid-area: footer;  }
+
+    /* ── TEST 6: Explicit row placement ── */
+    .grid-rows { display: grid; grid-template-columns: 1fr 1fr; grid-template-rows: 40px 60px 40px; gap: 8px; }
+    .row-1-col-1 { grid-row: 1; grid-column: 1; }
+    .row-1-col-2 { grid-row: 1; grid-column: 2; }
+    .row-2-col-1 { grid-row: 2; grid-column: 1; }
+    .row-2-col-2 { grid-row: 2; grid-column: 2; }
+    .row-3-span  { grid-row: 3; grid-column: 1 / span 2; }
+
+    /* ── TEST 7: Auto-placement with dense packing ── */
+    .grid-auto { display: grid; grid-template-columns: repeat(4, 1fr); grid-auto-flow: dense; gap: 8px; }
+    .auto-span2 { grid-column: span 2; }
+
+    /* ── TEST 8: justify-items and align-items ── */
+    .grid-align { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; height: 120px; justify-items: center; align-items: center; border: 1px dashed #cbd5e1; padding: 8px; }
+    .align-item { border: 1px solid #94a3b8; background: white; padding: 4px 8px; font-size: 8pt; }
+
+    /* ── TEST 9: Nested grid ── */
+    .grid-outer { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+    .grid-inner { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+
+    /* ── TEST 10: repeat() with minmax ── */
+    .grid-minmax { display: grid; grid-template-columns: repeat(3, minmax(80px, 1fr)); gap: 8px; }
+  </style>
+</head>
+<body>
+
+  <h1>CSS Grid Layout</h1>
+  <div class="subtitle">Folio rendering test — template columns, row/column spans, named areas, explicit placement, auto-flow, alignment, nesting, minmax</div>
+
+  <!-- TEST 1 -->
+  <h2>Test 1 — repeat(3, 1fr) equal columns</h2>
+  <div class="test">
+    <div class="test-label">Three equal columns. All cells should be the same width. Heights determined by content.</div>
+    <div class="grid-3col">
+      <div class="box">Alpha — Lorem ipsum dolor sit amet consectetur adipiscing elit sed do eiusmod.</div>
+      <div class="box">Beta — Short.</div>
+      <div class="box">Gamma — Duis aute irure dolor in reprehenderit in voluptate velit esse cillum.</div>
+    </div>
+  </div>
+
+  <!-- TEST 2 -->
+  <h2>Test 2 — grid-template-columns: 2fr 1fr 1fr</h2>
+  <div class="test">
+    <div class="test-label">First column twice the width of the other two. All three should sum to full width.</div>
+    <div class="grid-mixed">
+      <div class="box-a">Wide column (2fr) — Lorem ipsum dolor sit amet consectetur adipiscing elit.</div>
+      <div class="box">Narrow (1fr)</div>
+      <div class="box">Narrow (1fr)</div>
+    </div>
+  </div>
+
+  <!-- TEST 3 -->
+  <h2>Test 3 — 120px, 1fr, 80px mixed units</h2>
+  <div class="test">
+    <div class="test-label">Left column fixed 120px. Right column fixed 80px. Centre takes remaining space.</div>
+    <div class="grid-px-fr">
+      <div class="box-b">Fixed<br>120px</div>
+      <div class="box">Flexible — takes all remaining width between the two fixed columns.</div>
+      <div class="box-c">Fixed<br>80px</div>
+    </div>
+  </div>
+
+  <!-- TEST 4 -->
+  <h2>Test 4 — grid-column: span</h2>
+  <div class="test">
+    <div class="test-label">4-column grid. Items span 1, 2, 3, and 4 columns respectively. Layout should wrap correctly.</div>
+    <div class="grid-span">
+      <div class="box">1 col</div>
+      <div class="box">1 col</div>
+      <div class="box">1 col</div>
+      <div class="box">1 col</div>
+      <div class="box span-2 box-a">span 2</div>
+      <div class="box">1 col</div>
+      <div class="box">1 col</div>
+      <div class="box span-3 box-b">span 3</div>
+      <div class="box">1 col</div>
+      <div class="box span-4 box-c">span 4 — full width</div>
+    </div>
+  </div>
+
+  <!-- TEST 5 -->
+  <h2>Test 5 — grid-template-areas (named areas)</h2>
+  <div class="test">
+    <div class="test-label">Header spans all 3 columns. Sidebar left, main centre (2fr), aside right. Footer spans all.</div>
+    <div class="grid-areas">
+      <div class="box-a area-header">header — spans all columns</div>
+      <div class="box-b area-sidebar">sidebar</div>
+      <div class="box area-main">main — Lorem ipsum dolor sit amet consectetur adipiscing elit sed do eiusmod tempor incididunt.</div>
+      <div class="box-c area-aside">aside</div>
+      <div class="box-d area-footer">footer — spans all columns</div>
+    </div>
+  </div>
+
+  <!-- TEST 6 -->
+  <h2>Test 6 — Explicit grid-row and grid-column placement</h2>
+  <div class="test">
+    <div class="test-label">Items placed explicitly by row and column index. Last item spans both columns on row 3.</div>
+    <div class="grid-rows">
+      <div class="box row-1-col-1">row:1 col:1</div>
+      <div class="box-a row-1-col-2">row:1 col:2</div>
+      <div class="box-b row-2-col-1">row:2 col:1<br><span style="font-size:7pt;font-weight:normal">taller row</span></div>
+      <div class="box-c row-2-col-2">row:2 col:2</div>
+      <div class="box-d row-3-span">row:3 col:1/span 2 — spans both columns</div>
+    </div>
+  </div>
+
+  <!-- TEST 7 -->
+  <h2>Test 7 — grid-auto-flow: dense</h2>
+  <div class="test">
+    <div class="test-label">4-column grid with dense auto-placement. Smaller items should fill gaps left by spanning items.</div>
+    <div class="grid-auto">
+      <div class="box auto-span2 box-a">span 2</div>
+      <div class="box">1</div>
+      <div class="box">2</div>
+      <div class="box auto-span2 box-b">span 2</div>
+      <div class="box">3</div>
+      <div class="box">4</div>
+      <div class="box">5</div>
+      <div class="box auto-span2 box-c">span 2</div>
+      <div class="box">6</div>
+    </div>
+  </div>
+
+  <!-- TEST 8 -->
+  <h2>Test 8 — justify-items: center, align-items: center</h2>
+  <div class="test">
+    <div class="test-label">Fixed-height grid container. All items should be centred both horizontally and vertically within their cells.</div>
+    <div class="grid-align">
+      <div class="align-item">Alpha</div>
+      <div class="align-item">Beta — longer</div>
+      <div class="align-item">Gamma</div>
+      <div class="align-item">Delta</div>
+      <div class="align-item">Epsilon — longest item</div>
+      <div class="align-item">Zeta</div>
+    </div>
+  </div>
+
+  <!-- TEST 9 -->
+  <h2>Test 9 — Nested grid</h2>
+  <div class="test">
+    <div class="test-label">Outer 2-column grid. Each cell contains an inner 2-column grid. Tests grid context isolation.</div>
+    <div class="grid-outer">
+      <div class="box">
+        <strong style="font-size:8pt;display:block;margin-bottom:6px">Left outer cell</strong>
+        <div class="grid-inner">
+          <div class="box-a">Inner A</div>
+          <div class="box-b">Inner B</div>
+          <div class="box-c">Inner C</div>
+          <div class="box-d">Inner D</div>
+        </div>
+      </div>
+      <div class="box">
+        <strong style="font-size:8pt;display:block;margin-bottom:6px">Right outer cell</strong>
+        <div class="grid-inner">
+          <div class="box-b">Inner W</div>
+          <div class="box-c">Inner X</div>
+          <div class="box-a">Inner Y</div>
+          <div class="box-d">Inner Z</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- TEST 10 -->
+  <h2>Test 10 — repeat(3, minmax(80px, 1fr))</h2>
+  <div class="test">
+    <div class="test-label">Three columns each with minimum 80px and maximum 1fr. Tests minmax() track sizing.</div>
+    <div class="grid-minmax">
+      <div class="box">Alpha — Lorem ipsum dolor sit amet consectetur.</div>
+      <div class="box-a">Beta — Short content.</div>
+      <div class="box-b">Gamma — Duis aute irure dolor in reprehenderit voluptate.</div>
+      <div class="box-c">Delta</div>
+      <div class="box-d">Epsilon — moderately long content here.</div>
+      <div class="box">Zeta — Lorem ipsum dolor.</div>
+    </div>
+  </div>
+
+</body>
+</html>

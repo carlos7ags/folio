@@ -1,0 +1,222 @@
+<!DOCTYPE html>
+<!--
+Created 2026-03-21, David Richardson
+Copyright © 2026 David Richardson. All rights reserved.
+Licensed under the Apache License, Version 2.0.
+See http://www.apache.org/licenses/LICENSE-2.0
+-->
+<html>
+<head>
+  <title>Flexbox Layout Test</title>
+  <style>
+    @page { size: A4; margin: 2cm; }
+    body { font-family: Helvetica, Arial, sans-serif; font-size: 9pt; color: #2d3748; line-height: 1.5; }
+
+    h1 { font-size: 14pt; font-weight: 700; color: #0f172a; margin: 0 0 4px; }
+    h2 { font-size: 10pt; font-weight: 700; color: #0f172a; margin: 20px 0 8px; border-bottom: 1px solid #e2e8f0; padding-bottom: 4px; }
+    .subtitle { font-size: 8pt; color: #64748b; margin-bottom: 20px; padding-bottom: 12px; border-bottom: 2px solid #0f172a; }
+    p { margin: 0 0 6px; font-size: 8.5pt; color: #4a5568; }
+
+    .test { margin-bottom: 20px; padding: 10px; border: 1px solid #e2e8f0; background: #fafafa; }
+    .test-label { font-size: 6.5pt; text-transform: uppercase; letter-spacing: 1px; color: #94a3b8; margin-bottom: 8px; }
+
+    /* Outlined box utility */
+    .box { border: 1px solid #94a3b8; background: white; padding: 8px; font-size: 8pt; color: #2d3748; }
+    .box-accent { border: 1px solid #0d9488; background: #f0fdfa; padding: 8px; font-size: 8pt; color: #0d9488; font-weight: 600; }
+    .box-dark { border: 1px solid #334155; background: #f8fafc; padding: 8px; font-size: 8pt; color: #334155; }
+
+    /* ── TEST 1: row, default align (stretch) ── */
+    .flex-row { display: flex; gap: 12px; }
+    .flex-row > * { flex: 1; }
+
+    /* ── TEST 2: row, justify-content variants ── */
+    .flex-start  { display: flex; gap: 8px; justify-content: flex-start;    margin-bottom: 6px; }
+    .flex-center { display: flex; gap: 8px; justify-content: center;        margin-bottom: 6px; }
+    .flex-end    { display: flex; gap: 8px; justify-content: flex-end;      margin-bottom: 6px; }
+    .flex-between{ display: flex; gap: 8px; justify-content: space-between; margin-bottom: 6px; }
+    .flex-around { display: flex; gap: 8px; justify-content: space-around;  margin-bottom: 6px; }
+    .jc-label { font-size: 7pt; color: #94a3b8; width: 90px; flex-shrink: 0; line-height: 28px; }
+    .fixed-box { border: 1px solid #94a3b8; background: white; padding: 4px 10px; font-size: 8pt; white-space: nowrap; }
+
+    /* ── TEST 3: align-items variants ── */
+    .ai-row { display: flex; gap: 12px; align-items: var(--ai); height: 60px; border: 1px dashed #cbd5e1; padding: 4px; margin-bottom: 6px; }
+    .ai-label { font-size: 7pt; color: #94a3b8; width: 80px; flex-shrink: 0; }
+
+    /* ── TEST 4: flex-wrap ── */
+    .flex-wrap { display: flex; flex-wrap: wrap; gap: 8px; }
+    .wrap-item { border: 1px solid #94a3b8; background: white; padding: 6px 12px; font-size: 8pt; }
+
+    /* ── TEST 5: flex-direction column ── */
+    .flex-col { display: flex; flex-direction: column; gap: 6px; }
+
+    /* ── TEST 6: flex-grow variants ── */
+    .flex-grow-test { display: flex; gap: 8px; }
+    .grow-0 { flex-grow: 0; flex-basis: 60px; border: 1px solid #94a3b8; background: white; padding: 6px; font-size: 7.5pt; text-align: center; }
+    .grow-1 { flex-grow: 1; border: 1px solid #0d9488; background: #f0fdfa; padding: 6px; font-size: 7.5pt; text-align: center; }
+    .grow-2 { flex-grow: 2; border: 1px solid #334155; background: #f8fafc; padding: 6px; font-size: 7.5pt; text-align: center; }
+    .grow-3 { flex-grow: 3; border: 1px solid #b85c4a; background: #fdf8f7; padding: 6px; font-size: 7.5pt; text-align: center; }
+
+    /* ── TEST 7: flex-shrink ── */
+    .flex-shrink-test { display: flex; gap: 8px; width: 100%; }
+    .shrink-0 { flex-shrink: 0; flex-basis: 200px; border: 1px solid #94a3b8; background: white; padding: 6px; font-size: 7.5pt; }
+    .shrink-1 { flex-shrink: 1; flex-basis: 200px; border: 1px solid #0d9488; background: #f0fdfa; padding: 6px; font-size: 7.5pt; }
+    .shrink-3 { flex-shrink: 3; flex-basis: 200px; border: 1px solid #b85c4a; background: #fdf8f7; padding: 6px; font-size: 7.5pt; }
+
+    /* ── TEST 8: nested flex ── */
+    .outer-flex { display: flex; gap: 12px; }
+    .outer-flex > div { flex: 1; border: 1px solid #94a3b8; padding: 8px; }
+    .inner-flex { display: flex; flex-direction: column; gap: 6px; margin-top: 6px; }
+    .inner-item { border: 1px solid #cbd5e1; background: #f8fafc; padding: 4px 6px; font-size: 7.5pt; }
+
+    /* ── TEST 9: order property ── */
+    .order-test { display: flex; gap: 8px; }
+    .order-test > div { flex: 1; padding: 6px; font-size: 8pt; text-align: center; }
+    .o1 { order: 3; border: 1px solid #94a3b8; background: #f8fafc; }
+    .o2 { order: 1; border: 1px solid #0d9488; background: #f0fdfa; }
+    .o3 { order: 2; border: 1px solid #b85c4a; background: #fdf8f7; }
+
+    /* ── TEST 10: align-self ── */
+    .align-self-test { display: flex; gap: 8px; height: 80px; border: 1px dashed #cbd5e1; padding: 4px; }
+    .as-start  { align-self: flex-start;  flex: 1; border: 1px solid #94a3b8; background: white; padding: 4px; font-size: 7.5pt; text-align: center; }
+    .as-center { align-self: center;      flex: 1; border: 1px solid #0d9488; background: #f0fdfa; padding: 4px; font-size: 7.5pt; text-align: center; }
+    .as-end    { align-self: flex-end;    flex: 1; border: 1px solid #b85c4a; background: #fdf8f7; padding: 4px; font-size: 7.5pt; text-align: center; }
+    .as-stretch{ align-self: stretch;     flex: 1; border: 1px solid #334155; background: #f8fafc; padding: 4px; font-size: 7.5pt; text-align: center; }
+  </style>
+</head>
+<body>
+
+  <h1>CSS Flexbox Layout</h1>
+  <div class="subtitle">Folio rendering test — direction, wrap, justify-content, align-items, align-self, flex-grow, flex-shrink, order, nesting</div>
+
+  <!-- TEST 1 -->
+  <h2>Test 1 — flex-direction: row, flex: 1 (equal width, stretch height)</h2>
+  <div class="test">
+    <div class="test-label">Three equal-width flex children. All should stretch to the height of the tallest.</div>
+    <div class="flex-row">
+      <div class="box">Alpha — Lorem ipsum dolor sit amet consectetur adipiscing elit sed do eiusmod tempor.</div>
+      <div class="box">Beta — Short content.</div>
+      <div class="box">Gamma — Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur excepteur sint.</div>
+    </div>
+  </div>
+
+  <!-- TEST 2 -->
+  <h2>Test 2 — justify-content variants</h2>
+  <div class="test">
+    <div class="test-label">Fixed-width children positioned by five justify-content values. Distribution should be visually distinct.</div>
+    <div class="flex-start">  <span class="jc-label">flex-start</span>  <div class="fixed-box">A</div><div class="fixed-box">B</div><div class="fixed-box">C</div></div>
+    <div class="flex-center">  <span class="jc-label">center</span>      <div class="fixed-box">A</div><div class="fixed-box">B</div><div class="fixed-box">C</div></div>
+    <div class="flex-end">    <span class="jc-label">flex-end</span>    <div class="fixed-box">A</div><div class="fixed-box">B</div><div class="fixed-box">C</div></div>
+    <div class="flex-between"> <span class="jc-label">space-between</span><div class="fixed-box">A</div><div class="fixed-box">B</div><div class="fixed-box">C</div></div>
+    <div class="flex-around">  <span class="jc-label">space-around</span><div class="fixed-box">A</div><div class="fixed-box">B</div><div class="fixed-box">C</div></div>
+  </div>
+
+  <!-- TEST 3 -->
+  <h2>Test 3 — align-items variants</h2>
+  <div class="test">
+    <div class="test-label">Fixed-height container. Children should align per the align-items value. Dashed border shows container boundary.</div>
+    <div class="ai-row" style="--ai:flex-start">  <span class="ai-label">flex-start</span>  <div class="box">A</div><div class="box">B</div><div class="box">C</div></div>
+    <div class="ai-row" style="--ai:center">       <span class="ai-label">center</span>      <div class="box">A</div><div class="box">B</div><div class="box">C</div></div>
+    <div class="ai-row" style="--ai:flex-end">    <span class="ai-label">flex-end</span>    <div class="box">A</div><div class="box">B</div><div class="box">C</div></div>
+    <div class="ai-row" style="--ai:stretch">      <span class="ai-label">stretch</span>     <div class="box">A</div><div class="box">B</div><div class="box">C</div></div>
+  </div>
+
+  <!-- TEST 4 -->
+  <h2>Test 4 — flex-wrap: wrap</h2>
+  <div class="test">
+    <div class="test-label">Eight items with fixed widths in a wrapping container. Items that don't fit should wrap to next line.</div>
+    <div class="flex-wrap">
+      <div class="wrap-item">Alpha</div>
+      <div class="wrap-item">Beta — slightly longer</div>
+      <div class="wrap-item">Gamma</div>
+      <div class="wrap-item">Delta — longer content here</div>
+      <div class="wrap-item">Epsilon</div>
+      <div class="wrap-item">Zeta — moderately long</div>
+      <div class="wrap-item">Eta</div>
+      <div class="wrap-item">Theta — the longest item in this set</div>
+    </div>
+  </div>
+
+  <!-- TEST 5 -->
+  <h2>Test 5 — flex-direction: column</h2>
+  <div class="test">
+    <div class="test-label">Column direction. Children stack vertically, full width.</div>
+    <div class="flex-col">
+      <div class="box">First item — Lorem ipsum dolor sit amet consectetur.</div>
+      <div class="box-accent">Second item — highlighted.</div>
+      <div class="box">Third item — Duis aute irure dolor in reprehenderit.</div>
+      <div class="box-dark">Fourth item — dark variant.</div>
+    </div>
+  </div>
+
+  <!-- TEST 6 -->
+  <h2>Test 6 — flex-grow ratios (0:1:2:3)</h2>
+  <div class="test">
+    <div class="test-label">Fixed base item (grow:0) plus three growing items with ratios 1:2:3. Remaining space should distribute proportionally.</div>
+    <div class="flex-grow-test">
+      <div class="grow-0">grow:0<br>fixed 60px</div>
+      <div class="grow-1">grow:1<br>1 share</div>
+      <div class="grow-2">grow:2<br>2 shares</div>
+      <div class="grow-3">grow:3<br>3 shares</div>
+    </div>
+  </div>
+
+  <!-- TEST 7 -->
+  <h2>Test 7 — flex-shrink (0:1:3)</h2>
+  <div class="test">
+    <div class="test-label">Three items each with flex-basis: 200px in a container narrower than 600px. Shrink ratios 0:1:3 — first stays fixed, last shrinks most.</div>
+    <div class="flex-shrink-test">
+      <div class="shrink-0">shrink:0 — will not shrink below 200px basis</div>
+      <div class="shrink-1">shrink:1 — shrinks normally</div>
+      <div class="shrink-3">shrink:3 — shrinks three times as fast</div>
+    </div>
+  </div>
+
+  <!-- TEST 8 -->
+  <h2>Test 8 — nested flex containers</h2>
+  <div class="test">
+    <div class="test-label">Outer row flex with two children, each containing an inner column flex. Tests flex context isolation.</div>
+    <div class="outer-flex">
+      <div>
+        <strong style="font-size:8pt">Left Panel</strong>
+        <div class="inner-flex">
+          <div class="inner-item">Item A</div>
+          <div class="inner-item">Item B — slightly longer content</div>
+          <div class="inner-item">Item C</div>
+        </div>
+      </div>
+      <div>
+        <strong style="font-size:8pt">Right Panel</strong>
+        <div class="inner-flex">
+          <div class="inner-item">Item X — Lorem ipsum dolor sit</div>
+          <div class="inner-item">Item Y</div>
+          <div class="inner-item">Item Z — Duis aute irure dolor</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- TEST 9 -->
+  <h2>Test 9 — order property</h2>
+  <div class="test">
+    <div class="test-label">Three items in DOM order A(order:3), B(order:1), C(order:2). Visual order should be B, C, A.</div>
+    <div class="order-test">
+      <div class="o1">A<br><span style="font-size:7pt;color:#94a3b8">DOM:1 order:3</span></div>
+      <div class="o2">B<br><span style="font-size:7pt;color:#94a3b8">DOM:2 order:1</span></div>
+      <div class="o3">C<br><span style="font-size:7pt;color:#94a3b8">DOM:3 order:2</span></div>
+    </div>
+  </div>
+
+  <!-- TEST 10 -->
+  <h2>Test 10 — align-self per child</h2>
+  <div class="test">
+    <div class="test-label">Fixed-height container. Each child overrides alignment independently via align-self.</div>
+    <div class="align-self-test">
+      <div class="as-start">flex-start</div>
+      <div class="as-center">center</div>
+      <div class="as-end">flex-end</div>
+      <div class="as-stretch">stretch</div>
+    </div>
+  </div>
+
+</body>
+</html>
