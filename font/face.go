@@ -62,4 +62,10 @@ type Face interface {
 
 	// NumGlyphs returns the total number of glyphs in the font.
 	NumGlyphs() int
+
+	// GSUB returns the parsed OpenType GSUB substitution tables for
+	// Arabic positional shaping features (init, medi, fina, isol).
+	// Returns nil if the font has no GSUB table or no Arabic features.
+	// The result is cached after the first call.
+	GSUB() GSUBSubstitutions
 }
