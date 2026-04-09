@@ -317,17 +317,34 @@ func (c *converter) getFallbackFont() *font.EmbeddedFont {
 	}
 
 	// Search common system font locations for a Unicode-capable font.
+	// CJK-specific fonts are listed first since they provide the widest
+	// coverage for East Asian scripts while also covering Latin.
 	candidates := []string{
-		// macOS
+		// macOS — CJK fonts
+		"/Library/Fonts/Arial Unicode.ttf",
 		"/System/Library/Fonts/Supplemental/Arial Unicode.ttf",
+		"/System/Library/Fonts/STHeiti Light.ttc",
+		"/System/Library/Fonts/PingFang.ttc",
+		"/System/Library/Fonts/Hiragino Sans GB.ttc",
+		// macOS — general Unicode
 		"/System/Library/Fonts/Supplemental/Arial.ttf",
 		"/System/Library/Fonts/Helvetica.ttc",
-		// Linux — Noto Sans has excellent Unicode coverage
+		// Linux — CJK fonts
+		"/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
+		"/usr/share/fonts/noto-cjk/NotoSansCJK-Regular.ttc",
+		"/usr/share/fonts/google-noto-cjk/NotoSansCJK-Regular.ttc",
+		"/usr/share/fonts/truetype/noto/NotoSansCJK-Regular.ttc",
+		// Linux — general Unicode
 		"/usr/share/fonts/truetype/noto/NotoSans-Regular.ttf",
 		"/usr/share/fonts/noto/NotoSans-Regular.ttf",
 		"/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
 		"/usr/share/fonts/dejavu/DejaVuSans.ttf",
-		// Windows
+		// Windows — CJK fonts
+		`C:\Windows\Fonts\msyh.ttc`,
+		`C:\Windows\Fonts\msgothic.ttc`,
+		`C:\Windows\Fonts\malgun.ttf`,
+		`C:\Windows\Fonts\simsun.ttc`,
+		// Windows — general Unicode
 		`C:\Windows\Fonts\arial.ttf`,
 		`C:\Windows\Fonts\segoeui.ttf`,
 	}

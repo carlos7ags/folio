@@ -185,7 +185,7 @@ func TestToUnicodeCMap(t *testing.T) {
 	}
 }
 
-func TestBuildToUnicodeCMapFiltersNonBMP(t *testing.T) {
+func TestBuildToUnicodeCMapNonBMPSurrogates(t *testing.T) {
 	face := loadTestFace(t)
 	ef := NewEmbeddedFont(face)
 
@@ -199,15 +199,38 @@ func TestBuildToUnicodeCMapFiltersNonBMP(t *testing.T) {
 
 	cmap := ef.buildToUnicodeCMap()
 
-	// The CMap should NOT contain an entry for the non-BMP glyph ID.
-	needle := fmt.Sprintf("<%04X>", nonBMPGID)
-	if strings.Contains(cmap, needle) {
-		t.Errorf("CMap should not contain entry for non-BMP glyph %s, but it does", needle)
+	// The CMap SHOULD contain an entry for the non-BMP glyph ID,
+	// encoded as a UTF-16 surrogate pair.
+	// U+1F600: high surrogate = 0xD83D, low surrogate = 0xDE00
+	needle := fmt.Sprintf("<%04X> <D83DDE00>", nonBMPGID)
+	if !strings.Contains(cmap, needle) {
+		t.Errorf("CMap should contain surrogate pair entry %s, but it doesn't.\nCMap:\n%s", needle, cmap)
 	}
 
 	// The CMap should still contain the BMP entry for 'A'.
 	if !strings.Contains(cmap, "<0041>") {
 		t.Error("CMap missing expected BMP mapping for 'A'")
+	}
+}
+
+func TestUtf16Surrogates(t *testing.T) {
+	tests := []struct {
+		r      rune
+		wantHi uint16
+		wantLo uint16
+		name   string
+	}{
+		{0x10000, 0xD800, 0xDC00, "first non-BMP"},
+		{0x1F600, 0xD83D, 0xDE00, "grinning face emoji"},
+		{0x20000, 0xD840, 0xDC00, "CJK Extension B start"},
+		{0x2A6DF, 0xD869, 0xDEDF, "CJK Extension B end"},
+	}
+	for _, tt := range tests {
+		hi, lo := utf16Surrogates(tt.r)
+		if hi != tt.wantHi || lo != tt.wantLo {
+			t.Errorf("utf16Surrogates(%U) [%s] = (%04X, %04X), want (%04X, %04X)",
+				tt.r, tt.name, hi, lo, tt.wantHi, tt.wantLo)
+		}
 	}
 }
 

@@ -25,7 +25,7 @@ type Paragraph struct {
 	orphans          int               // min lines at bottom of page before break (0 = disabled)
 	widows           int               // min lines at top of page after break (0 = disabled)
 	ellipsis         bool              // if true, truncate overflowing text with "..."
-	wordBreak        string            // "normal" (default), "break-all" (allow break within words)
+	wordBreak        string            // "normal" (default), "break-all", "keep-all"
 	hyphens          string            // "none", "manual" (default), "auto" (automatic hyphenation)
 	textAlignLast    Align             // alignment for the last line (0 = use default)
 	textAlignLastSet bool              // true if textAlignLast was explicitly set
@@ -149,7 +149,9 @@ func (p *Paragraph) SetOrphans(n int) *Paragraph {
 }
 
 // SetWordBreak sets the word-break behavior. "break-all" allows breaking
-// within any word at character boundaries. Default is "normal" (break at spaces only).
+// within any word at character boundaries. "keep-all" prevents CJK characters
+// from breaking individually (breaks only at spaces). Default is "normal"
+// (CJK breaks at character boundaries, Latin breaks at spaces only).
 func (p *Paragraph) SetWordBreak(wb string) *Paragraph {
 	p.wordBreak = wb
 	return p
@@ -287,6 +289,13 @@ func (p *Paragraph) Layout(maxWidth float64) []Line {
 			}}
 		}
 		return nil
+	}
+
+	// CJK break: split words containing CJK characters at character
+	// boundaries so the wrap algorithm can break between them. Skipped
+	// for keep-all (CJK words stay intact, break only at spaces).
+	if p.wordBreak != "keep-all" {
+		measured = breakCJKWords(measured)
 	}
 
 	// Break words that don't fit. With word-break:break-all, break ALL words
@@ -559,6 +568,53 @@ func buildLine(words []Word, width, height float64, align Align, isLast bool) Li
 	}
 }
 
+// breakCJKWords splits words containing CJK characters at break opportunities
+// so the word-wrap algorithm can break between CJK characters. Each CJK
+// sub-token gets SpaceAfter=0 (no inter-word spacing in CJK text), except
+// the last sub-token which inherits the original word's SpaceAfter. Kinsoku
+// rules are respected: opening punctuation groups with the following character,
+// closing punctuation groups with the preceding character.
+func breakCJKWords(words []Word) []Word {
+	var result []Word
+	for _, w := range words {
+		tokens := splitCJKToken(w.Text)
+		if len(tokens) <= 1 {
+			result = append(result, w)
+			continue
+		}
+		// Determine the measure function for re-measuring sub-tokens.
+		var measure func(string) float64
+		if w.Embedded != nil {
+			emb := w.Embedded
+			measure = func(s string) float64 { return emb.MeasureString(s, w.FontSize) }
+		} else if w.Font != nil {
+			f := w.Font
+			measure = func(s string) float64 { return f.MeasureString(s, w.FontSize) }
+		} else {
+			result = append(result, w)
+			continue
+		}
+
+		for j, tok := range tokens {
+			sub := w
+			sub.Text = tok
+			sub.Width = measure(tok)
+			if sub.LetterSpacing != 0 && len([]rune(tok)) > 1 {
+				sub.Width += sub.LetterSpacing * float64(len([]rune(tok))-1)
+			}
+			if j < len(tokens)-1 {
+				sub.SpaceAfter = 0 // no inter-word space within CJK run
+			}
+			// Only the first sub-token inherits LineBreak from the original word.
+			if j > 0 {
+				sub.LineBreak = false
+			}
+			result = append(result, sub)
+		}
+	}
+	return result
+}
+
 // breakLongWords splits any word exceeding maxWidth into character-level chunks
 // so that the word-wrap algorithm can handle them. Words that fit are unchanged.
 func breakLongWords(words []Word, maxWidth float64) []Word {
@@ -779,10 +835,11 @@ func (p *Paragraph) MaxWidth() float64 {
 	return total
 }
 
-// splitWords splits text on whitespace, collapsing consecutive whitespace.
-// Newlines are treated as word separators (same as HTML/CSS normal whitespace).
 // splitWords splits text into words, preserving \n as a lineBreakMarker
-// sentinel that forces a line break during word-wrapping.
+// sentinel that forces a line break during word-wrapping. CJK character
+// splitting is NOT done here; it happens in breakCJKWords after word
+// measurement, so that SpaceAfter values are correctly set to 0 for
+// characters within a CJK run (CJK text has no inter-word spacing).
 func splitWords(text string) []string {
 	// Normalize \r\n and bare \r to \n, then split on newlines.
 	text = strings.ReplaceAll(text, "\r\n", "\n")
@@ -1093,6 +1150,9 @@ func (p *Paragraph) measureWords(maxWidth float64) ([]Word, float64) {
 		}
 	}
 
+	if p.wordBreak != "keep-all" {
+		measured = breakCJKWords(measured)
+	}
 	measured = breakLongWords(measured, maxWidth)
 	return measured, maxFontSize
 }
