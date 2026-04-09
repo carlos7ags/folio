@@ -101,9 +101,9 @@ func TestCanEncodeWinAnsiRune(t *testing.T) {
 		{'z', true},
 		{' ', true},
 		{0x00E9, true},  // e-acute — in WinAnsi
-		{0x05D0, false},  // Hebrew alef — not in WinAnsi
-		{0x0628, false},  // Arabic beh — not in WinAnsi
-		{0x4E2D, false},  // CJK character — not in WinAnsi
+		{0x05D0, false}, // Hebrew alef — not in WinAnsi
+		{0x0628, false}, // Arabic beh — not in WinAnsi
+		{0x4E2D, false}, // CJK character — not in WinAnsi
 	}
 	for _, tt := range tests {
 		got := font.CanEncodeWinAnsiRune(tt.r)

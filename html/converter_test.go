@@ -5867,8 +5867,8 @@ func TestConvertInlineContainerWithBr(t *testing.T) {
 	// Regression: <br> tags inside an inline container (e.g. a <div> with
 	// inline children like <span>) used to panic with:
 	//   "layout.NewStyledParagraph: run 2 has nil Font and nil Embedded"
-	// because collectRuns inserts font-less TextRun{Text:"\n"} sentinels for
-	// <br> elements, which were passed unsanitised to NewStyledParagraph.
+	// because collectRuns inserts IsLineBreak marker runs for <br> elements,
+	// which were passed unsanitised to NewStyledParagraph.
 	htmlInput := `<div>
 			<br>
 			<span><b>Title</b></span><br><br>

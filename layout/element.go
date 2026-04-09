@@ -128,6 +128,13 @@ type TextRun struct {
 	// fields are ignored and the element is measured and rendered as an
 	// inline-block word during paragraph layout.
 	InlineElement Element
+
+	// IsLineBreak marks this run as a forced line break (from <br>).
+	// When set, Text, Font, and other text fields are ignored. The run
+	// is consumed by splitRunsAtBr to split a paragraph at the break
+	// point. This field replaces the previous magic-string convention
+	// of TextRun{Text: "\n"} with nil Font.
+	IsLineBreak bool
 }
 
 // NewRun creates a TextRun with a standard font.

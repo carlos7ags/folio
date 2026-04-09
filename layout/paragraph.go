@@ -67,15 +67,12 @@ func NewParagraphEmbedded(text string, ef *font.EmbeddedFont, fontSize float64) 
 // NewStyledParagraph creates a paragraph from multiple styled runs.
 // Runs are concatenated and word-wrapped as a single flowing text.
 // Panics if any text run has both Font and Embedded nil.
-// Runs with InlineElement set or whose Text is a line-break marker
-// ("\n") are exempt from the font requirement.
+// Runs with InlineElement or IsLineBreak set are exempt from the font
+// requirement.
 func NewStyledParagraph(runs ...TextRun) *Paragraph {
 	for i, r := range runs {
-		if r.InlineElement != nil {
-			continue // inline elements don't need fonts
-		}
-		if r.Text == "\n" && r.Font == nil && r.Embedded == nil {
-			continue // line-break markers from <br> don't need fonts
+		if r.InlineElement != nil || r.IsLineBreak {
+			continue
 		}
 		if r.Font == nil && r.Embedded == nil {
 			panic(fmt.Sprintf("layout.NewStyledParagraph: run %d has nil Font and nil Embedded", i))
@@ -90,9 +87,9 @@ func NewStyledParagraph(runs ...TextRun) *Paragraph {
 
 // AddRun appends a styled run to the paragraph.
 // Panics if the run has both Font and Embedded nil (unless InlineElement
-// is set or the run is a line-break marker).
+// or IsLineBreak is set).
 func (p *Paragraph) AddRun(r TextRun) *Paragraph {
-	if r.InlineElement == nil && r.Font == nil && r.Embedded == nil && r.Text != "\n" {
+	if r.InlineElement == nil && !r.IsLineBreak && r.Font == nil && r.Embedded == nil {
 		panic("layout.Paragraph.AddRun: run has nil Font and nil Embedded")
 	}
 	p.runs = append(p.runs, r)
@@ -210,10 +207,16 @@ func (p *Paragraph) Layout(maxWidth float64) []Line {
 	var measured []Word
 	var maxFontSize float64
 
+	nextLineBreakFromBr := false // tracks <br> line breaks across runs
 	for i, run := range p.runs {
 		if run.InlineElement != nil {
 			glueAdjacentRuns(measured, p.runs, i)
 			measured = append(measured, measureInlineElement(run, maxWidth, measured, p.runs, i))
+			continue
+		}
+		if run.IsLineBreak {
+			// <br> marker: the next word on the next run gets LineBreak=true.
+			nextLineBreakFromBr = true
 			continue
 		}
 
@@ -225,7 +228,8 @@ func (p *Paragraph) Layout(maxWidth float64) []Line {
 		spaceW := measurer.MeasureString(" ", run.FontSize) + run.WordSpacing
 		words := splitWords(run.Text)
 
-		nextLineBreak := false
+		nextLineBreak := nextLineBreakFromBr
+		nextLineBreakFromBr = false
 		for _, w := range words {
 			if w == lineBreakMarker {
 				if nextLineBreak {
@@ -997,10 +1001,15 @@ func (p *Paragraph) measureWords(maxWidth float64) ([]Word, float64) {
 	var measured []Word
 	var maxFontSize float64
 
+	nextLineBreakFromBr := false
 	for i, run := range p.runs {
 		if run.InlineElement != nil {
 			glueAdjacentRuns(measured, p.runs, i)
 			measured = append(measured, measureInlineElement(run, maxWidth, measured, p.runs, i))
+			continue
+		}
+		if run.IsLineBreak {
+			nextLineBreakFromBr = true
 			continue
 		}
 
@@ -1039,7 +1048,8 @@ func (p *Paragraph) measureWords(maxWidth float64) ([]Word, float64) {
 		}
 
 		words := splitWords(text)
-		nextLineBreak := false
+		nextLineBreak := nextLineBreakFromBr
+		nextLineBreakFromBr = false
 		for _, w := range words {
 			if w == lineBreakMarker {
 				if nextLineBreak {
