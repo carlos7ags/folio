@@ -4,6 +4,7 @@
 package html
 
 import (
+	"fmt"
 	"math"
 	"path/filepath"
 	"strings"
@@ -184,19 +185,7 @@ func ConvertFull(htmlStr string, opts *Options) (*ConvertResult, error) {
 	}
 
 	// Load @font-face fonts.
-	for _, ff := range ss.fontFaces {
-		path := ff.src
-		if !filepath.IsAbs(path) && o.BasePath != "" {
-			path = filepath.Join(o.BasePath, path)
-		}
-		face, err := font.LoadFont(path)
-		if err != nil {
-			continue
-		}
-		ef := font.NewEmbeddedFont(face)
-		key := ff.family + "|" + ff.weight + "|" + ff.style
-		c.embeddedFonts[key] = ef
-	}
+	c.loadFontFaces(ss.fontFaces, o.BasePath)
 
 	elems := c.walkChildren(doc, style)
 	result := &ConvertResult{Elements: elems, Absolutes: c.absolutes, Metadata: c.metadata}
@@ -241,19 +230,7 @@ func Convert(htmlStr string, opts *Options) ([]layout.Element, error) {
 	}
 
 	// Load @font-face fonts.
-	for _, ff := range ss.fontFaces {
-		path := ff.src
-		if !filepath.IsAbs(path) && o.BasePath != "" {
-			path = filepath.Join(o.BasePath, path)
-		}
-		face, err := font.LoadFont(path)
-		if err != nil {
-			continue // silently skip unloadable fonts
-		}
-		ef := font.NewEmbeddedFont(face)
-		key := ff.family + "|" + ff.weight + "|" + ff.style
-		c.embeddedFonts[key] = ef
-	}
+	c.loadFontFaces(ss.fontFaces, o.BasePath)
 
 	return c.walkChildren(doc, style), nil
 }
@@ -297,6 +274,65 @@ type pendingOverlay struct {
 	width        float64
 	rightAligned bool
 	zIndex       int
+}
+
+// loadFontFaces loads @font-face fonts into the converter's embeddedFonts map.
+// Supports both file paths and base64-encoded data URIs (data:font/truetype;base64,...).
+// Data URI support enables fully self-contained HTML templates without external
+// font file dependencies.
+func (c *converter) loadFontFaces(faces []fontFaceRule, basePath string) {
+	for _, ff := range faces {
+		src := ff.src
+		if src == "" {
+			continue
+		}
+
+		var face font.Face
+		var err error
+
+		if strings.HasPrefix(src, "data:") {
+			// Data URI: decode base64 font data inline.
+			face, err = decodeFontDataURI(src)
+		} else {
+			// File path: resolve relative to basePath.
+			path := src
+			if !filepath.IsAbs(path) && basePath != "" {
+				path = filepath.Join(basePath, path)
+			}
+			face, err = font.LoadFont(path)
+		}
+
+		if err != nil {
+			continue // silently skip unloadable fonts
+		}
+		ef := font.NewEmbeddedFont(face)
+		key := ff.family + "|" + ff.weight + "|" + ff.style
+		c.embeddedFonts[key] = ef
+	}
+}
+
+// decodeFontDataURI decodes a base64-encoded font from a data: URI.
+// Supports data:font/truetype;base64,..., data:font/opentype;base64,...,
+// data:application/x-font-ttf;base64,..., and similar media types.
+func decodeFontDataURI(uri string) (font.Face, error) {
+	rest := strings.TrimPrefix(uri, "data:")
+	commaIdx := strings.IndexByte(rest, ',')
+	if commaIdx < 0 {
+		return nil, fmt.Errorf("invalid data URI: no comma")
+	}
+	meta := rest[:commaIdx]
+	encoded := rest[commaIdx+1:]
+
+	if !strings.Contains(meta, ";base64") {
+		return nil, fmt.Errorf("font data URI must be base64-encoded")
+	}
+
+	data, err := base64Decode(encoded)
+	if err != nil {
+		return nil, fmt.Errorf("font data URI base64: %w", err)
+	}
+
+	return font.ParseTTF(data)
 }
 
 // getFallbackFont returns a Unicode-capable embedded font for text that

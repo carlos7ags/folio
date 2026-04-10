@@ -634,7 +634,7 @@ func parseAttrSelector(content string) attrSelector {
 // parseDeclarations parses "color: red; font-size: 12px" into key-value pairs.
 func parseDeclarations(s string) []cssDecl {
 	var decls []cssDecl
-	for _, part := range strings.Split(s, ";") {
+	for _, part := range splitDeclarationsCSS(s) {
 		part = strings.TrimSpace(part)
 		if part == "" {
 			continue
@@ -658,6 +658,47 @@ func parseDeclarations(s string) []cssDecl {
 		}
 	}
 	return decls
+}
+
+// splitDeclarationsCSS splits a CSS declaration block on semicolons, but
+// skips semicolons that appear inside url(...) or quoted strings. This
+// prevents data URIs like url(data:font/truetype;base64,...) from being
+// split at the ";base64" semicolon.
+func splitDeclarationsCSS(s string) []string {
+	var parts []string
+	start := 0
+	parenDepth := 0
+	inSingle := false
+	inDouble := false
+
+	for i := 0; i < len(s); i++ {
+		ch := s[i]
+		// Skip backslash-escaped characters inside strings so that
+		// \" and \' don't toggle the quote state.
+		if ch == '\\' && (inSingle || inDouble) && i+1 < len(s) {
+			i++ // skip the escaped character
+			continue
+		}
+		switch {
+		case ch == '\'' && !inDouble:
+			inSingle = !inSingle
+		case ch == '"' && !inSingle:
+			inDouble = !inDouble
+		case ch == '(' && !inSingle && !inDouble:
+			parenDepth++
+		case ch == ')' && !inSingle && !inDouble:
+			if parenDepth > 0 {
+				parenDepth--
+			}
+		case ch == ';' && !inSingle && !inDouble && parenDepth == 0:
+			parts = append(parts, s[start:i])
+			start = i + 1
+		}
+	}
+	if start < len(s) {
+		parts = append(parts, s[start:])
+	}
+	return parts
 }
 
 // parseFontFaceSrc extracts the font file path from a CSS src value.
