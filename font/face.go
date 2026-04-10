@@ -75,4 +75,9 @@ type Face interface {
 // indirection adds no value once the API is stable.
 type GSUBProvider interface {
 	GSUB() GSUBSubstitutions
+	// GIDToUnicode returns a reverse mapping from glyph ID to Unicode
+	// codepoint, built from the font's cmap table. Used to convert
+	// GSUB-substituted GIDs back to codepoints for the text pipeline.
+	// The result is cached after the first call.
+	GIDToUnicode() map[uint16]rune
 }
