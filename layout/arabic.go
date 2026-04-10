@@ -222,7 +222,7 @@ var lamAlefFinalLigatures = map[rune]rune{
 // Spaces break the joining context, so word-by-word shaping produces correct
 // results for whitespace-delimited Arabic text.
 func ShapeArabic(s string) string {
-	return shapeArabicWithFont(s, nil)
+	return shapeArabicWithFont(s, nil, nil, nil)
 }
 
 // ShapeArabicWithFont applies Arabic contextual shaping using the font's
@@ -234,15 +234,21 @@ func ShapeArabic(s string) string {
 // use the Presentation Forms-B table unconditionally.
 func ShapeArabicWithFont(s string, face font.Face) string {
 	if face == nil {
-		return shapeArabicWithFont(s, nil)
+		return shapeArabicWithFont(s, nil, nil, nil)
 	}
-	if gp, ok := face.(font.GSUBProvider); ok {
-		return shapeArabicWithFont(s, gp.GSUB())
+	gp, ok := face.(font.GSUBProvider)
+	if !ok {
+		return shapeArabicWithFont(s, nil, nil, nil)
 	}
-	return shapeArabicWithFont(s, nil)
+	gsub := gp.GSUB()
+	var gidReverse map[uint16]rune
+	if gsub != nil {
+		gidReverse = gp.GIDToUnicode()
+	}
+	return shapeArabicWithFont(s, gsub, face, gidReverse)
 }
 
-func shapeArabicWithFont(s string, gsub font.GSUBSubstitutions) string {
+func shapeArabicWithFont(s string, gsub font.GSUBSubstitutions, face font.Face, gidReverse map[uint16]rune) string {
 	runes := []rune(s)
 	if len(runes) == 0 {
 		return s
@@ -293,24 +299,26 @@ func shapeArabicWithFont(s string, gsub font.GSUBSubstitutions) string {
 			targetFeature = font.GSUBIsol
 		}
 
-		// Try GSUB font-driven substitution first.
-		if gsub != nil {
+		// Try GSUB font-driven substitution first. This uses the font's
+		// own glyph substitution tables instead of the hardcoded PFB map.
+		// The pipeline: rune → GID (via cmap) → GSUB substitution →
+		// replacement GID → rune (via reverse cmap). Falls through to
+		// PFB if any step fails.
+		if gsub != nil && face != nil && gidReverse != nil {
 			if table, ok := gsub[targetFeature]; ok {
-				// GSUB operates on glyph IDs, but we're working with
-				// Unicode codepoints here. For the GSUB path to work
-				// correctly, we'd need the font's cmap to map r → GID,
-				// then look up GID in the substitution table, then map
-				// the result GID back to a codepoint. Without the
-				// reverse GID→codepoint map readily available, we store
-				// the fact that GSUB exists and fall through to PFB.
-				// Full GSUB integration (GID-based pipeline) is a
-				// follow-up that changes the rendering path to use GIDs
-				// throughout instead of codepoints.
-				_ = table
+				gid := face.GlyphIndex(r)
+				if gid != 0 {
+					if subGID, found := table[gid]; found {
+						if subRune, hasRune := gidReverse[subGID]; hasRune {
+							result = append(result, subRune)
+							continue
+						}
+					}
+				}
 			}
 		}
 
-		// Presentation Forms-B substitution (codepoint-based).
+		// Presentation Forms-B substitution (codepoint-based fallback).
 		forms, hasForms := arabicFormsTable[r]
 		if !hasForms {
 			result = append(result, r)

@@ -28,6 +28,10 @@ type sfntFace struct {
 
 	// Cached GSUB substitution tables (nil = not yet parsed).
 	gsubResult GSUBSubstitutions
+
+	// Cached GID→Unicode reverse map (nil = not yet built).
+	gidToUnicodeMap   map[uint16]rune
+	gidToUnicodeBuilt bool
 }
 
 // ParseTTF parses a TrueType (.ttf) or OpenType (.otf) font from raw bytes.
@@ -422,6 +426,18 @@ func (f *sfntFace) GSUB() GSUBSubstitutions {
 	}
 	f.gsubResult = result
 	return result
+}
+
+// GIDToUnicode returns a reverse mapping from glyph ID to Unicode codepoint.
+// Built lazily from the font's cmap table. Used to convert GSUB-substituted
+// GIDs back to codepoints for the text rendering pipeline.
+func (f *sfntFace) GIDToUnicode() map[uint16]rune {
+	if f.gidToUnicodeBuilt {
+		return f.gidToUnicodeMap
+	}
+	f.gidToUnicodeBuilt = true
+	f.gidToUnicodeMap = BuildGIDToUnicode(f.rawData)
+	return f.gidToUnicodeMap
 }
 
 // BuildGIDToUnicode parses a TrueType/OpenType font and builds a map
