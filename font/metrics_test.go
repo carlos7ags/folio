@@ -380,6 +380,140 @@ func TestMeasureStringEmbeddedFontAppliesKerning(t *testing.T) {
 	}
 }
 
+// --- Cluster-aware measurement tests (UAX #29 §3.1.1) ---
+
+// TestMeasureStringClusterExtendZeroAdvance verifies that a combining
+// mark in the Extend class contributes zero advance: "e\u0301f" must
+// have the same measured width as "ef".
+func TestMeasureStringClusterExtendZeroAdvance(t *testing.T) {
+	decomposed := Helvetica.MeasureString("e\u0301f", 12)
+	plain := Helvetica.MeasureString("ef", 12)
+	if math.Abs(decomposed-plain) > 0.0001 {
+		t.Errorf("Extend combining mark should not add advance: "+
+			"decomposed %.6f != plain %.6f", decomposed, plain)
+	}
+}
+
+// TestMeasureStringClusterPrecomposedMatchesDecomposed verifies that
+// "\u00E9" (precomposed e-acute) and "e\u0301" (decomposed) measure
+// the same: the precomposed form is a single rune and always has been
+// cluster-safe; the decomposed form needs cluster-aware measurement
+// to reach the same result. Helvetica has U+00E9 in its width table so
+// both should yield its width.
+func TestMeasureStringClusterPrecomposedMatchesDecomposed(t *testing.T) {
+	pre := Helvetica.MeasureString("\u00E9", 12)
+	dec := Helvetica.MeasureString("e\u0301", 12)
+	if math.Abs(pre-dec) > 0.0001 {
+		t.Errorf("precomposed %.6f != decomposed %.6f", pre, dec)
+	}
+}
+
+// TestMeasureStringClusterSpacingMarkTakesAdvance verifies that
+// SpacingMark codepoints (GB9a, e.g. Devanagari vowel signs) still
+// contribute their advance, unlike Extend marks. Helvetica does not
+// map Devanagari codepoints, so both characters fall back to the
+// .notdef width (278 for Helvetica); the cluster must therefore
+// measure as 2 * 278, not 1 * 278.
+func TestMeasureStringClusterSpacingMarkTakesAdvance(t *testing.T) {
+	// U+0915 (Devanagari ka) + U+093E (vowel sign aa, SpacingMark).
+	got := Helvetica.MeasureString("\u0915\u093E", 12)
+	// Both runes miss the Helvetica table; fallback width = helveticaWidths[0] or 278.
+	defaultW, ok := helveticaWidths[0]
+	if !ok || defaultW == 0 {
+		defaultW = 500
+	}
+	want := 2 * float64(defaultW) / 1000.0 * 12
+	if math.Abs(got-want) > 0.0001 {
+		t.Errorf("SpacingMark should contribute advance: got %.6f, want %.6f", got, want)
+	}
+}
+
+// TestMeasureStringClusterASCIIUnchanged verifies that ASCII-only
+// strings still produce the same per-glyph sum as before (regression
+// guard for the cluster rewrite).
+func TestMeasureStringClusterASCIIUnchanged(t *testing.T) {
+	// Manually compute expected width for "Hello" as a per-rune sum
+	// (no kern pairs in this string for Helvetica).
+	var expectedUnits int
+	for _, r := range "Hello" {
+		expectedUnits += helveticaWidths[r]
+	}
+	want := float64(expectedUnits) / 1000.0 * 12
+	got := Helvetica.MeasureString("Hello", 12)
+	if math.Abs(got-want) > 0.0001 {
+		t.Errorf("ASCII regression: got %.6f, want %.6f", got, want)
+	}
+}
+
+// TestMeasureStringClusterPreservesKerning verifies that kerning still
+// applies between clusters after the rewrite. "AV" has a documented
+// kern pair and must measure tighter than the unkerned sum.
+func TestMeasureStringClusterPreservesKerning(t *testing.T) {
+	unKerned := float64(helveticaWidths['A']+helveticaWidths['V']) / 1000.0 * 12
+	kerned := Helvetica.MeasureString("AV", 12)
+	if kerned >= unKerned {
+		t.Errorf("cluster walk must still kern: kerned %.6f >= unkerned %.6f", kerned, unKerned)
+	}
+	wantDelta := Helvetica.Kern('A', 'V') / 1000.0 * 12
+	if gotDelta := kerned - unKerned; math.Abs(gotDelta-wantDelta) > 0.001 {
+		t.Errorf("kern delta %.6f, want %.6f", gotDelta, wantDelta)
+	}
+}
+
+// TestMeasureStringClusterEmptyString ensures the cluster walk handles
+// the empty-string base case: Breaks("") returns [0] which yields no
+// cluster iterations, hence width 0.
+func TestMeasureStringClusterEmptyString(t *testing.T) {
+	if got := Helvetica.MeasureString("", 12); got != 0 {
+		t.Errorf("empty string should measure 0, got %f", got)
+	}
+}
+
+// TestMeasureStringEmbeddedClusterExtendZeroAdvance mirrors the
+// standard-font Extend test on the embedded-font path: a decomposed
+// e-acute must measure the same as plain "e".
+func TestMeasureStringEmbeddedClusterExtendZeroAdvance(t *testing.T) {
+	ttfPath := "/System/Library/Fonts/Supplemental/Arial.ttf"
+	data, err := os.ReadFile(ttfPath)
+	if err != nil {
+		t.Skipf("Arial TTF not available: %v", err)
+	}
+	face, err := ParseTTF(data)
+	if err != nil {
+		t.Fatalf("ParseTTF: %v", err)
+	}
+	ef := NewEmbeddedFont(face)
+
+	decomposed := ef.MeasureString("e\u0301f", 12)
+	plain := ef.MeasureString("ef", 12)
+	if math.Abs(decomposed-plain) > 0.0001 {
+		t.Errorf("embedded Extend should not add advance: "+
+			"decomposed %.6f != plain %.6f", decomposed, plain)
+	}
+}
+
+// TestMeasureStringEmbeddedClusterPrecomposedMatchesDecomposed verifies
+// the embedded-font path matches precomposed and decomposed forms
+// after the cluster rewrite.
+func TestMeasureStringEmbeddedClusterPrecomposedMatchesDecomposed(t *testing.T) {
+	ttfPath := "/System/Library/Fonts/Supplemental/Arial.ttf"
+	data, err := os.ReadFile(ttfPath)
+	if err != nil {
+		t.Skipf("Arial TTF not available: %v", err)
+	}
+	face, err := ParseTTF(data)
+	if err != nil {
+		t.Fatalf("ParseTTF: %v", err)
+	}
+	ef := NewEmbeddedFont(face)
+
+	pre := ef.MeasureString("\u00E9", 12)
+	dec := ef.MeasureString("e\u0301", 12)
+	if math.Abs(pre-dec) > 0.0001 {
+		t.Errorf("embedded precomposed %.6f != decomposed %.6f", pre, dec)
+	}
+}
+
 func TestKernEmbeddedFont(t *testing.T) {
 	ttfPath := "/System/Library/Fonts/Supplemental/Arial.ttf"
 	data, err := os.ReadFile(ttfPath)
