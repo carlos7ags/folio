@@ -322,6 +322,61 @@ func TestSplitMixedBidiWordAccentedLatin(t *testing.T) {
 	}
 }
 
+// TestSplitMixedBidiWordClusterSnap verifies that a script transition
+// that would otherwise land inside a grapheme cluster is suppressed,
+// so every emitted sub-word starts on a UAX #29 cluster boundary.
+//
+// Input: Latin "test" followed by a Devanagari vowel sign (U+093E).
+// U+093E is classified as ScriptDevanagari, so the per-rune walker
+// would normally split between 't' and the vowel sign. But the vowel
+// sign is a SpacingMark (GB9a): it must cluster with the preceding
+// base. The splitter has to suppress that split and keep the whole
+// word as one sub-word.
+//
+// Adding a Devanagari base afterward ("test\u093E\u0915") reinstates
+// a real cluster-aligned transition: the vowel sign absorbs into the
+// preceding Latin sub-word and the split lands at \u0915, which is a
+// cluster boundary.
+func TestSplitMixedBidiWordClusterSnap(t *testing.T) {
+	// Case 1: orphan SpacingMark should suppress the split entirely.
+	w := Word{Text: "test\u093E", Width: 30}
+	if subs := splitMixedBidiWord(w); subs != nil {
+		t.Errorf("orphan SpacingMark should not split, got %d sub-words: %v", len(subs), subs)
+	}
+
+	// Case 2: split must land at the real cluster boundary (\u0915),
+	// not mid-cluster at \u093E. Every sub-word's text must begin at
+	// a grapheme cluster boundary of the original word.
+	w2 := Word{Text: "test\u093E\u0915", Width: 30}
+	subs := splitMixedBidiWord(w2)
+	if subs == nil {
+		t.Fatal("expected split at cluster-aligned transition, got nil")
+	}
+	if len(subs) != 2 {
+		t.Fatalf("expected 2 sub-words, got %d: %v", len(subs), subs)
+	}
+	if subs[0].Text != "test\u093E" {
+		t.Errorf("sub[0]: got %q, want \"test\u093E\"", subs[0].Text)
+	}
+	if subs[1].Text != "\u0915" {
+		t.Errorf("sub[1]: got %q, want \"\u0915\"", subs[1].Text)
+	}
+	// Verify every sub-word boundary aligns with a grapheme cluster
+	// break in the original string.
+	breaks := GraphemeBreaks(w2.Text)
+	breakSet := make(map[int]bool, len(breaks))
+	for _, b := range breaks {
+		breakSet[b] = true
+	}
+	offset := 0
+	for _, s := range subs {
+		if !breakSet[offset] {
+			t.Errorf("sub-word boundary at byte %d is not a cluster break (%v)", offset, breaks)
+		}
+		offset += len(s.Text)
+	}
+}
+
 func TestBidiNumbersInRTL(t *testing.T) {
 	// "שלום 42 עולם" — numbers in an RTL paragraph stay LTR.
 	// Visual order (left-to-right): עולם 42 שלום
