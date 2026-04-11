@@ -1,7 +1,6 @@
 // Copyright 2026 Carlos Munoz and the Folio Authors
 // SPDX-License-Identifier: Apache-2.0
 
-// Package image provides JPEG, PNG, and TIFF image embedding for PDF documents.
 package image
 
 import (
@@ -37,11 +36,15 @@ func (img *Image) AspectRatio() float64 {
 	return float64(img.width) / float64(img.height)
 }
 
-// NewFromGoImage creates an Image from a Go image.RGBA.
-// The pixel data is extracted as raw RGB bytes for FlateDecode embedding.
-// If the image has any non-opaque pixels, an SMask is generated.
-// NewFromGoImage returns nil if src is nil, has non-positive dimensions,
-// or has an invalid stride.
+// NewFromGoImage creates an Image from a Go image.RGBA. Pixel data is
+// extracted as raw RGB bytes for FlateDecode embedding; if any pixel is
+// non-opaque, a soft mask is generated.
+//
+// NewFromGoImage returns nil when:
+//   - src is nil
+//   - dimensions are non-positive
+//   - the stride is smaller than width*4 (would read past the pixel buffer)
+//   - dimensions exceed [MaxDimension] or the pixel count exceeds [MaxPixels]
 func NewFromGoImage(src *goimage.RGBA) *Image {
 	if src == nil {
 		return nil
@@ -50,7 +53,7 @@ func NewFromGoImage(src *goimage.RGBA) *Image {
 	w := bounds.Dx()
 	h := bounds.Dy()
 
-	if w <= 0 || h <= 0 {
+	if err := checkDimensions(w, h); err != nil {
 		return nil
 	}
 

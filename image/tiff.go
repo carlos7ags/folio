@@ -6,15 +6,15 @@ package image
 import (
 	"bytes"
 	"fmt"
-	"os"
 
 	"golang.org/x/image/tiff"
 )
 
-// NewTIFF creates an Image from raw TIFF data.
-// It decodes the TIFF to extract pixel data, then uses FlateDecode for PDF
-// embedding. Grayscale images are preserved as DeviceGray. Alpha channels
-// are discarded because TIFF alpha is uncommon in PDF workflows.
+// NewTIFF creates an Image from raw TIFF data. It decodes the TIFF and
+// re-encodes pixels as FlateDecode. Grayscale images are preserved as
+// DeviceGray. Alpha channels are discarded because TIFF alpha is
+// uncommon in PDF workflows. Dimensions are validated against
+// [MaxDimension] and [MaxPixels] before the pixel buffer is allocated.
 func NewTIFF(data []byte) (*Image, error) {
 	img, err := tiff.Decode(bytes.NewReader(data))
 	if err != nil {
@@ -24,13 +24,20 @@ func NewTIFF(data []byte) (*Image, error) {
 	bounds := img.Bounds()
 	w := bounds.Dx()
 	h := bounds.Dy()
+	if err := checkDimensions(w, h); err != nil {
+		return nil, fmt.Errorf("tiff: %w", err)
+	}
 
-	return buildRGB(img, w, h)
+	if isGrayscale(img) {
+		return buildGray(img, w, h)
+	}
+	return buildRGBOnly(img, w, h)
 }
 
-// LoadTIFF reads a TIFF file and creates an Image.
+// LoadTIFF reads a TIFF file from disk and creates an Image. Files
+// larger than [MaxFileSize] are rejected with [ErrFileTooLarge].
 func LoadTIFF(path string) (*Image, error) {
-	data, err := os.ReadFile(path)
+	data, err := readLimited(path)
 	if err != nil {
 		return nil, err
 	}
