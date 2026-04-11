@@ -5,10 +5,12 @@ package layout
 
 import (
 	"fmt"
+	"unicode/utf8"
 
 	"github.com/carlos7ags/folio/content"
 	"github.com/carlos7ags/folio/font"
 	folioimage "github.com/carlos7ags/folio/image"
+	"github.com/carlos7ags/folio/unicode/grapheme"
 )
 
 // setFillColor emits the correct fill color operator based on color space.
@@ -261,8 +263,18 @@ func drawWordStandard(stream *content.Stream, word Word) {
 }
 
 // drawWordEmbedded emits an embedded-font word with optional TJ kerning.
+// When the word contains any Extend / ZWJ combining marks and the font's
+// GPOS table provides mark-to-base anchors, the emission path switches to
+// cluster-at-a-time rendering so each mark can be Td-positioned on its
+// base glyph's anchor (ISO 14496-22 §6.3 LookupType 4). Eligible words
+// are Arabic with harakat, Hebrew with niqqud, and similar scripts.
+// Latin and un-marked words take the original fast path.
 func drawWordEmbedded(stream *content.Stream, word Word) {
 	if word.Embedded == nil {
+		return
+	}
+	if markPositioningEligible(word) {
+		drawWordEmbeddedWithMarks(stream, word)
 		return
 	}
 	runes := []rune(word.Text)
@@ -294,6 +306,147 @@ func drawWordEmbedded(stream *content.Stream, word Word) {
 		elements = append(elements, content.TextArrayElement{HexData: word.Embedded.EncodeString(string(runes[start:]))})
 	}
 	stream.ShowTextArrayHex(elements)
+}
+
+// markPositioningEligible reports whether drawWordEmbedded should switch
+// to the cluster-by-cluster mark-attachment path. Eligibility requires
+// an embedded font whose Face exposes GPOS mark-to-base data, a word
+// containing at least one Extend or ZWJ codepoint, and no letter
+// spacing override (Tc complicates the text-matrix arithmetic).
+func markPositioningEligible(word Word) bool {
+	if word.Embedded == nil || word.LetterSpacing != 0 {
+		return false
+	}
+	provider, ok := word.Embedded.Face().(font.GPOSProvider)
+	if !ok {
+		return false
+	}
+	gpos := provider.GPOS()
+	if gpos == nil || len(gpos.Marks[font.GPOSMark]) == 0 || len(gpos.Bases[font.GPOSMark]) == 0 {
+		return false
+	}
+	for _, r := range word.Text {
+		p := grapheme.PropertyOf(r)
+		if p == grapheme.PropExtend || p == grapheme.PropZWJ {
+			return true
+		}
+	}
+	return false
+}
+
+// drawWordEmbeddedWithMarks walks the word cluster-by-cluster (UAX #29
+// §3.1.1 extended grapheme clusters) and emits each cluster's base
+// glyph followed by GPOS-anchored marks. The text matrix ends at the
+// same position as the fast path (one natural advance per cluster,
+// plus inter-cluster kerning), so MeasureString and the post-emit
+// matrix agree. Callers must be inside a BT...ET block with the text
+// matrix already positioned at the word origin via MoveText.
+//
+// For each cluster the base rune contributes its full advance. Any
+// SpacingMark runes (Indic vowel signs) are appended into the cluster's
+// Tj hex string — they take their own advance, matching MeasureString.
+// Extend and ZWJ runes look up a MarkOffset(base, mark, GPOSMark) on
+// the font; on success the mark is drawn at the base anchor via a Td
+// pair that bookends its Tj so the text matrix returns to the cluster's
+// natural advance position. When MarkOffset returns ok=false the mark
+// is emitted at the current text origin (zero advance from SpacingMark
+// absence), which matches the no-GPOS fallback behaviour.
+func drawWordEmbeddedWithMarks(stream *content.Stream, word Word) {
+	ef := word.Embedded
+	face := ef.Face()
+	upem := face.UnitsPerEm()
+	if upem == 0 {
+		stream.ShowTextHex(ef.EncodeString(word.Text))
+		return
+	}
+	provider, _ := face.(font.GPOSProvider)
+	gpos := provider.GPOS()
+	fontSize := word.FontSize
+	scale := fontSize / float64(upem)
+
+	text := word.Text
+	breaks := grapheme.Breaks(text)
+	var prevTail uint16
+	havePrev := false
+
+	for ci := 0; ci+1 < len(breaks); ci++ {
+		cluster := text[breaks[ci]:breaks[ci+1]]
+		if cluster == "" {
+			continue
+		}
+		baseRune, baseSize := utf8.DecodeRuneInString(cluster)
+		baseGID := face.GlyphIndex(baseRune)
+
+		// Kerning between the tail of the previous cluster and this
+		// cluster's base. Emit as a Td shift so TJ and mark-Td handling
+		// do not have to be interleaved in a single TJ array.
+		if havePrev {
+			kernUnits := face.Kern(prevTail, baseGID)
+			if kernUnits != 0 {
+				stream.MoveText(float64(kernUnits)*scale, 0)
+			}
+		}
+
+		// Collect the base plus any SpacingMarks into a single hex
+		// string. SpacingMarks take their own advance and do not
+		// participate in GPOS mark-to-base anchoring here.
+		baseAndSpacing := cluster[:baseSize]
+		clusterAdvance := float64(face.GlyphAdvance(baseGID)) * scale
+		tail := baseGID
+		type markRune struct {
+			r    rune
+			size int
+		}
+		var extendMarks []markRune
+		for off := baseSize; off < len(cluster); {
+			r, size := utf8.DecodeRuneInString(cluster[off:])
+			p := grapheme.PropertyOf(r)
+			switch p {
+			case grapheme.PropExtend, grapheme.PropZWJ:
+				extendMarks = append(extendMarks, markRune{r: r, size: size})
+			case grapheme.PropSpacingMark:
+				// Append to the Tj hex string so its advance is
+				// consumed by the Tj operator itself, matching
+				// MeasureString's cluster width contribution.
+				baseAndSpacing += cluster[off : off+size]
+				spGID := face.GlyphIndex(r)
+				clusterAdvance += float64(face.GlyphAdvance(spGID)) * scale
+				tail = spGID
+			}
+			off += size
+		}
+
+		stream.ShowTextHex(ef.EncodeString(baseAndSpacing))
+
+		// Emit each Extend/ZWJ mark bracketed by Td moves that shift
+		// the text matrix from the cluster-end position back to the
+		// base origin plus the GPOS offset, and then back to the
+		// cluster-end position for the next mark or next cluster.
+		//
+		// After Tj of the base (plus SpacingMarks), the text matrix is
+		// at clusterEnd = (clusterAdvance, 0) relative to the cluster
+		// start. A mark's origin must sit at (markDx, markDy) relative
+		// to the base's origin (the cluster start), so the first Td
+		// moves by (markDx - clusterAdvance, markDy) and the closing
+		// Td moves by (clusterAdvance - markDx, -markDy). Marks have
+		// zero advance, so Tj of the mark does not shift the matrix.
+		for _, m := range extendMarks {
+			markGID := face.GlyphIndex(m.r)
+			dx, dy, ok := gpos.MarkOffset(baseGID, markGID, font.GPOSMark)
+			if ok {
+				dxPts := float64(dx) * scale
+				dyPts := float64(dy) * scale
+				stream.MoveText(dxPts-clusterAdvance, dyPts)
+				stream.ShowTextHex(ef.EncodeString(string(m.r)))
+				stream.MoveText(clusterAdvance-dxPts, -dyPts)
+			} else {
+				stream.ShowTextHex(ef.EncodeString(string(m.r)))
+			}
+		}
+
+		prevTail = tail
+		havePrev = true
+	}
 }
 
 // drawDecorations draws underline and/or strikethrough for a word.
