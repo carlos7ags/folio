@@ -208,13 +208,22 @@ func resolveLineBidi(words []Word, base Direction) ([]Word, Direction) {
 
 // splitMixedBidiWord checks if a word contains characters at different
 // bidi embedding levels (e.g. Hebrew letters mixed with digits or Latin
-// characters in a single whitespace-delimited token). If level transitions
-// are found, it splits the word into sub-words at the transition points.
-// Each sub-word inherits all styling from the original word; only Text and
-// Width differ. The caller must re-measure the sub-words' widths.
+// characters in a single whitespace-delimited token) OR characters from
+// different Unicode scripts per UAX #24 (e.g. Arabic mixed with
+// Devanagari). If either kind of transition is found, it splits the word
+// into sub-words at the transition points so each emitted sub-word is
+// uniform in both bidi bucket and script. Each sub-word inherits all
+// styling from the original word; only Text and Width differ. The caller
+// must re-measure the sub-words' widths.
 //
-// Returns nil if the word has uniform bidi level (no split needed) or if
-// it has no text content (inline block, empty).
+// Script inheritance follows the left-neighbour rule: Common and
+// Inherited runes (including digits, punctuation, combining marks) attach
+// to the preceding real script, matching how bidi-neutral runes attach
+// to the preceding strong bidi bucket. Leading Common runs attach to the
+// first following real script.
+//
+// Returns nil if the word has uniform bidi level AND uniform script (no
+// split needed) or if it has no text content (inline block, empty).
 func splitMixedBidiWord(w Word) []Word {
 	if w.Text == "" || w.InlineBlock != nil {
 		return nil
@@ -226,14 +235,14 @@ func splitMixedBidiWord(w Word) []Word {
 
 	// Classify each rune's bidi class quickly. We only care about the
 	// distinction between strong-RTL (R, AL, AN) and everything else.
-	// If all runes have the same "directionality bucket", no split.
+	// If all runes have the same "directionality bucket", no bidi split.
 	type bucket int
 	const (
 		bucketLTR bucket = iota
 		bucketRTL
 		bucketNeutral
 	)
-	classify := func(r rune) bucket {
+	classifyBidi := func(r rune) bucket {
 		props, _ := bidi.LookupRune(r)
 		switch props.Class() {
 		case bidi.R, bidi.AL, bidi.AN:
@@ -245,44 +254,79 @@ func splitMixedBidiWord(w Word) []Word {
 		}
 	}
 
-	// Walk runes, detect transitions between LTR and RTL (ignoring neutrals).
+	// Walk runes once to detect any transition that would force a split:
+	// a change in the strong bidi bucket, or a change in the resolved
+	// script. Neutrals / Common runes never trigger a transition on
+	// their own — they inherit from the left.
 	prevStrong := bucketNeutral
+	prevScript := ScriptCommon
 	hasTransition := false
 	for _, r := range runes {
-		b := classify(r)
-		if b == bucketNeutral {
-			continue
+		b := classifyBidi(r)
+		if b != bucketNeutral {
+			if prevStrong != bucketNeutral && b != prevStrong {
+				hasTransition = true
+				break
+			}
+			prevStrong = b
 		}
-		if prevStrong != bucketNeutral && b != prevStrong {
-			hasTransition = true
-			break
+		sc := ScriptOf(r)
+		if sc != ScriptCommon {
+			if prevScript != ScriptCommon && sc != prevScript {
+				hasTransition = true
+				break
+			}
+			prevScript = sc
 		}
-		prevStrong = b
 	}
 	if !hasTransition {
 		return nil
 	}
 
-	// Split at strong-direction transitions. Neutral characters attach to
-	// the preceding strong direction run (or the first strong run if they
-	// lead). This produces the smallest number of sub-words while keeping
-	// each sub-word directionally uniform.
+	// Split at strong-direction or script transitions. Neutral / Common
+	// characters attach to the preceding strong run (or the first strong
+	// run if they lead). This produces the smallest number of sub-words
+	// while keeping each sub-word uniform in both bidi and script.
 	var parts []string
 	start := 0
 	currentStrong := bucketNeutral
+	currentScript := ScriptCommon
 	for i, r := range runes {
-		b := classify(r)
-		if b == bucketNeutral {
-			continue
+		b := classifyBidi(r)
+		sc := ScriptOf(r)
+		bidiChange := false
+		scriptChange := false
+		if b != bucketNeutral {
+			if currentStrong == bucketNeutral {
+				currentStrong = b
+			} else if b != currentStrong {
+				bidiChange = true
+			}
 		}
-		if currentStrong == bucketNeutral {
-			currentStrong = b
-			continue
+		if sc != ScriptCommon {
+			if currentScript == ScriptCommon {
+				currentScript = sc
+			} else if sc != currentScript {
+				scriptChange = true
+			}
 		}
-		if b != currentStrong {
+		if bidiChange || scriptChange {
 			parts = append(parts, string(runes[start:i]))
 			start = i
-			currentStrong = b
+			// The current rune begins the next sub-word: reset the
+			// tracked strong direction and script to its values so the
+			// next iteration compares against this rune, not the old
+			// sub-word.
+			if b != bucketNeutral {
+				currentStrong = b
+			} else {
+				currentStrong = bucketNeutral
+			}
+			if sc != ScriptCommon {
+				currentScript = sc
+			} else {
+				currentScript = ScriptCommon
+			}
 		}
 	}
 	parts = append(parts, string(runes[start:]))
