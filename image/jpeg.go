@@ -100,10 +100,11 @@ func parseJPEGHeader(data []byte) (width, height, numComponents int, err error) 
 
 		// SOF markers contain the image dimensions.
 		if marker == markerSOF0 || marker == markerSOF1 || marker == markerSOF2 {
-			if pos+7 > len(data) {
+			// SOF layout: length(2) + precision(1) + height(2) + width(2) + ncomp(1)
+			// The ncomp byte lives at data[pos+7], so we need pos+8 ≤ len(data).
+			if pos+8 > len(data) {
 				return 0, 0, 0, fmt.Errorf("truncated SOF segment")
 			}
-			// SOF layout: length(2) + precision(1) + height(2) + width(2) + ncomp(1)
 			height = int(binary.BigEndian.Uint16(data[pos+3 : pos+5]))
 			width = int(binary.BigEndian.Uint16(data[pos+5 : pos+7]))
 			numComponents = int(data[pos+7])
