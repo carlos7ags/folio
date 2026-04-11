@@ -44,6 +44,12 @@ type sfntFace struct {
 	// guards re-parsing.
 	kernPairs       map[[2]uint16]int16
 	kernPairsParsed bool
+
+	// Cached GPOS adjustments. gposParsed distinguishes "not yet parsed"
+	// (false) from "parsed and empty" (true, gposResult nil). Populated
+	// on the first GPOS() call.
+	gposResult *GPOSAdjustments
+	gposParsed bool
 }
 
 // ParseTTF parses a TrueType (.ttf) or OpenType (.otf) font from raw bytes.
@@ -210,11 +216,17 @@ func (f *sfntFace) StemV() int {
 	return max(stemV, 10)
 }
 
-// Kern returns the kerning adjustment between two glyphs by consulting
-// the cached parsed kern table. Returns 0 if the font has no kern table,
-// no supported subtables, or no entry for the pair. The cache is built
-// on the first call.
+// Kern returns the kerning adjustment between two glyphs. GPOS
+// LookupType 2 ("kern" feature) takes precedence over the legacy kern
+// table when a pair is present in both, per Microsoft OpenType guidance
+// on GPOS being the canonical source of pair positioning in modern
+// fonts. Returns 0 when neither source carries an adjustment.
 func (f *sfntFace) Kern(left, right uint16) int {
+	if g := f.GPOS(); g != nil {
+		if v := g.PairAdjust(left, right); v != 0 {
+			return int(v)
+		}
+	}
 	if !f.kernPairsParsed {
 		if tables := f.rawTables(); tables != nil {
 			if kern, ok := tables["kern"]; ok {
@@ -323,6 +335,19 @@ func (f *sfntFace) GSUB() *GSUBSubstitutions {
 	f.gsubResult = ParseGSUB(f.rawData)
 	f.gsubParsed = true
 	return f.gsubResult
+}
+
+// GPOS returns the parsed GPOS positioning tables. The result is cached
+// after the first call; a nil return means the font has no recognized
+// GPOS data (no "kern"/"mark" features, or only unsupported lookup
+// types).
+func (f *sfntFace) GPOS() *GPOSAdjustments {
+	if f.gposParsed {
+		return f.gposResult
+	}
+	f.gposResult = ParseGPOS(f.rawData)
+	f.gposParsed = true
+	return f.gposResult
 }
 
 // GIDToUnicode returns a reverse mapping from glyph ID to Unicode codepoint.

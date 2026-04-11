@@ -92,3 +92,13 @@ type GSUBProvider interface {
 	// The result is cached after the first call.
 	GIDToUnicode() map[uint16]rune
 }
+
+// GPOSProvider is an optional interface that a Face may implement to
+// expose parsed OpenType GPOS positioning tables. GPOS() returns nil
+// when the font has no recognized positioning data. See GSUBProvider
+// for the rationale behind the optional-interface pattern during v0.x.
+//
+// TODO: at v1.0, merge GPOS() back into Face.
+type GPOSProvider interface {
+	GPOS() *GPOSAdjustments
+}
