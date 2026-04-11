@@ -491,6 +491,598 @@ func buildLigatureGSUB(opt ligOptions) []byte {
 	return out
 }
 
+// --- LookupType 6 (Chaining Contextual Substitution) unit tests ---
+
+// TestParseClassDefFormat1 verifies that a Format 1 ClassDef (consecutive
+// glyph range starting at startGlyphID) is decoded correctly.
+func TestParseClassDefFormat1(t *testing.T) {
+	// format(2)=1, startGID(2)=10, count(2)=4, classes=[1,2,0,1]
+	data := []byte{
+		0, 1,
+		0, 10,
+		0, 4,
+		0, 1,
+		0, 2,
+		0, 0,
+		0, 1,
+	}
+	m := parseClassDef(data, 0)
+	if m[10] != 1 || m[11] != 2 || m[13] != 1 {
+		t.Errorf("Format 1 ClassDef wrong: %v", m)
+	}
+	if _, ok := m[12]; ok {
+		t.Errorf("class 0 entry should be absent, got %v", m[12])
+	}
+}
+
+// TestParseClassDefFormat2 verifies that a Format 2 ClassDef (range
+// records) is decoded correctly.
+func TestParseClassDefFormat2(t *testing.T) {
+	// format=2, rangeCount=2, {start=5,end=7,cls=3}, {start=20,end=20,cls=9}
+	data := []byte{
+		0, 2,
+		0, 2,
+		0, 5, 0, 7, 0, 3,
+		0, 20, 0, 20, 0, 9,
+	}
+	m := parseClassDef(data, 0)
+	if m[5] != 3 || m[6] != 3 || m[7] != 3 || m[20] != 9 {
+		t.Errorf("Format 2 ClassDef wrong: %v", m)
+	}
+}
+
+// chainOptions controls buildChainContextGSUB.
+type chainOptions struct {
+	// Format is 1, 2, or 3. Defaults to 1.
+	Format int
+	// Extension wraps the chain context subtable in a LookupType 7.
+	Extension bool
+}
+
+// TestChainContextFormat1Basic builds a synthetic GSUB with a Format 1
+// chain rule "if backtrack=[5], input=[10,20], lookahead=[30], substitute
+// glyph at sequenceIndex 0 via a single-sub lookup [10->99]" and verifies
+// that ApplyChainContext substitutes 10 to 99 only when the full chain
+// matches.
+func TestChainContextFormat1Basic(t *testing.T) {
+	gsub := buildChainContextGSUB(chainOptions{Format: 1})
+	ttf := buildTTFWithGSUB(gsub)
+	subs := ParseGSUB(ttf)
+	if subs == nil {
+		t.Fatalf("ParseGSUB returned nil")
+	}
+	got := subs.ApplyChainContext([]uint16{5, 10, 20, 30}, GSUBCalt)
+	if !uint16SliceEq(got, []uint16{5, 99, 20, 30}) {
+		t.Errorf("matching chain: got %v, want [5 99 20 30]", got)
+	}
+	// Backtrack doesn't match (6 instead of 5).
+	got2 := subs.ApplyChainContext([]uint16{6, 10, 20, 30}, GSUBCalt)
+	if !uint16SliceEq(got2, []uint16{6, 10, 20, 30}) {
+		t.Errorf("non-matching backtrack: got %v, want [6 10 20 30]", got2)
+	}
+}
+
+// TestChainContextFormat1Extension wraps the Format 1 chain subtable
+// inside a LookupType 7 and confirms ParseGSUB follows the extension.
+func TestChainContextFormat1Extension(t *testing.T) {
+	gsub := buildChainContextGSUB(chainOptions{Format: 1, Extension: true})
+	ttf := buildTTFWithGSUB(gsub)
+	subs := ParseGSUB(ttf)
+	if subs == nil {
+		t.Fatalf("ParseGSUB returned nil for extension-wrapped chain")
+	}
+	got := subs.ApplyChainContext([]uint16{5, 10, 20, 30}, GSUBCalt)
+	if !uint16SliceEq(got, []uint16{5, 99, 20, 30}) {
+		t.Errorf("extension-wrapped chain: got %v, want [5 99 20 30]", got)
+	}
+}
+
+// TestChainContextFormat2ClassBased verifies a class-based chain rule
+// fires correctly for two different GIDs in the same input class.
+func TestChainContextFormat2ClassBased(t *testing.T) {
+	gsub := buildChainContextGSUB(chainOptions{Format: 2})
+	ttf := buildTTFWithGSUB(gsub)
+	subs := ParseGSUB(ttf)
+	if subs == nil {
+		t.Fatalf("ParseGSUB returned nil for Format 2 chain")
+	}
+	// Input class 1 = {10, 11}. Both should trigger the same rule,
+	// which substitutes via lookup [10->99, 11->98].
+	got1 := subs.ApplyChainContext([]uint16{5, 10, 20, 30}, GSUBCalt)
+	if !uint16SliceEq(got1, []uint16{5, 99, 20, 30}) {
+		t.Errorf("Format 2 trigger 10: got %v, want [5 99 20 30]", got1)
+	}
+	got2 := subs.ApplyChainContext([]uint16{5, 11, 20, 30}, GSUBCalt)
+	if !uint16SliceEq(got2, []uint16{5, 98, 20, 30}) {
+		t.Errorf("Format 2 trigger 11: got %v, want [5 98 20 30]", got2)
+	}
+}
+
+// TestChainContextFormat3CoverageBased verifies a rule whose backtrack
+// uses a coverage of three GIDs accepts any of those three.
+func TestChainContextFormat3CoverageBased(t *testing.T) {
+	gsub := buildChainContextGSUB(chainOptions{Format: 3})
+	ttf := buildTTFWithGSUB(gsub)
+	subs := ParseGSUB(ttf)
+	if subs == nil {
+		t.Fatalf("ParseGSUB returned nil for Format 3 chain")
+	}
+	for _, back := range []uint16{4, 5, 6} {
+		got := subs.ApplyChainContext([]uint16{back, 10, 20, 30}, GSUBCalt)
+		want := []uint16{back, 99, 20, 30}
+		if !uint16SliceEq(got, want) {
+			t.Errorf("Format 3 backtrack %d: got %v, want %v", back, got, want)
+		}
+	}
+	// A backtrack GID not in the coverage must not trigger.
+	got := subs.ApplyChainContext([]uint16{7, 10, 20, 30}, GSUBCalt)
+	if !uint16SliceEq(got, []uint16{7, 10, 20, 30}) {
+		t.Errorf("Format 3 non-matching backtrack: got %v", got)
+	}
+}
+
+// TestChainContextSequenceIndexOne confirms that when the action's
+// SequenceIndex is 1, the second glyph (not the trigger) is substituted.
+func TestChainContextSequenceIndexOne(t *testing.T) {
+	// Input=[10,20], action targets sequenceIndex=1, lookup is [20->77].
+	gsub := buildChainContextGSUBSeqOne()
+	ttf := buildTTFWithGSUB(gsub)
+	subs := ParseGSUB(ttf)
+	if subs == nil {
+		t.Fatalf("ParseGSUB returned nil")
+	}
+	got := subs.ApplyChainContext([]uint16{5, 10, 20, 30}, GSUBCalt)
+	if !uint16SliceEq(got, []uint16{5, 10, 77, 30}) {
+		t.Errorf("seqIndex 1: got %v, want [5 10 77 30]", got)
+	}
+}
+
+// TestChainContextNoMatchPreserves verifies that glyph runs that don't
+// match any rule pass through unchanged.
+func TestChainContextNoMatchPreserves(t *testing.T) {
+	gsub := buildChainContextGSUB(chainOptions{Format: 1})
+	ttf := buildTTFWithGSUB(gsub)
+	subs := ParseGSUB(ttf)
+	if subs == nil {
+		t.Fatalf("ParseGSUB returned nil")
+	}
+	// No trigger glyph (10) present.
+	in := []uint16{1, 2, 3, 4, 5}
+	got := subs.ApplyChainContext(in, GSUBCalt)
+	if !uint16SliceEq(got, in) {
+		t.Errorf("no-match: got %v, want %v", got, in)
+	}
+}
+
+// TestApplyChainContextEmptyCases verifies nil receivers and missing
+// features no-op cleanly.
+func TestApplyChainContextEmptyCases(t *testing.T) {
+	var g *GSUBSubstitutions
+	if got := g.ApplyChainContext([]uint16{1, 2}, GSUBCalt); !uint16SliceEq(got, []uint16{1, 2}) {
+		t.Errorf("nil receiver: got %v", got)
+	}
+	empty := &GSUBSubstitutions{}
+	if got := empty.ApplyChainContext([]uint16{1, 2}, GSUBCalt); !uint16SliceEq(got, []uint16{1, 2}) {
+		t.Errorf("empty chain map: got %v", got)
+	}
+}
+
+// put16 is a tiny helper used by the chain-context GSUB builders.
+func put16(buf []byte, v uint16) { buf[0] = byte(v >> 8); buf[1] = byte(v) }
+
+// put32 is a tiny helper used by the chain-context GSUB builders.
+func put32(buf []byte, v uint32) {
+	buf[0] = byte(v >> 24)
+	buf[1] = byte(v >> 16)
+	buf[2] = byte(v >> 8)
+	buf[3] = byte(v)
+}
+
+// buildChainContextGSUB constructs a synthetic GSUB blob for chain context
+// testing. The layout uses a single "latn" script with a "calt" feature
+// that references TWO lookups in the LookupList:
+//
+//	lookup 0: LookupType 1 Single [10->99, 11->98, 20->77]
+//	lookup 1: LookupType 6 Chain Context (format per opt)
+//
+// The calt feature lists lookup 1 only (the ChainContext). The ChainContext
+// rule's action dispatches to lookup 0 with sequenceIndex 0. The extra
+// Single lookup is intentionally NOT directly wired into the feature so
+// that we exercise the action-dispatch path (not just feature-level single
+// substitution).
+func buildChainContextGSUB(opt chainOptions) []byte {
+	// ---- Single lookup (lookup index 0) ----
+	// SingleSubstFormat2: format(2)=2, coverageOff(2), substCount(2),
+	// substitute[substCount](2 each). Coverage is format 1 with GIDs
+	// [10, 11, 20] in order; substitutes are [99, 98, 77].
+	singleCoverage := make([]byte, 4+3*2)
+	put16(singleCoverage[0:2], 1)
+	put16(singleCoverage[2:4], 3)
+	put16(singleCoverage[4:6], 10)
+	put16(singleCoverage[6:8], 11)
+	put16(singleCoverage[8:10], 20)
+	singleSub := make([]byte, 6+3*2)
+	put16(singleSub[0:2], 2) // format
+	put16(singleSub[2:4], 6) // coverageOff relative to subtable
+	put16(singleSub[4:6], 3) // substCount
+	put16(singleSub[6:8], 99)
+	put16(singleSub[8:10], 98)
+	put16(singleSub[10:12], 77)
+	singleSub = append(singleSub, singleCoverage...)
+	// Correct the coverage offset to point AFTER the header.
+	put16(singleSub[2:4], 12)
+
+	// ---- Chain context subtable (lookup index 1) ----
+	var chainSub []byte
+	switch opt.Format {
+	case 2:
+		chainSub = buildChainContextFormat2Subtable()
+	case 3:
+		chainSub = buildChainContextFormat3Subtable()
+	default:
+		chainSub = buildChainContextFormat1Subtable()
+	}
+
+	// Optional LookupType 7 wrapping for the chain subtable.
+	if opt.Extension {
+		ext := make([]byte, 8+len(chainSub))
+		put16(ext[0:2], 1)
+		put16(ext[2:4], 6)
+		put32(ext[4:8], 8)
+		copy(ext[8:], chainSub)
+		chainSub = ext
+	}
+
+	return assembleTwoLookupGSUB(singleSub, chainSub, opt.Extension)
+}
+
+// buildChainContextFormat1Subtable constructs a ChainContextSubstFormat1
+// subtable: one covered trigger GID (10), one ChainSubRuleSet, one rule
+// with backtrack=[5], input=[10,20] (on-disk omits the first), lookahead=[30],
+// and a single SubstLookupRecord (sequenceIndex=0, lookupListIndex=0).
+func buildChainContextFormat1Subtable() []byte {
+	// Rule: backCount(2)=1, back[0](2)=5,
+	//       inputCount(2)=2, input[0](2)=20 (input[0] in on-disk is second glyph),
+	//       lookCount(2)=1, look[0](2)=30,
+	//       substCount(2)=1, substLookupRecord(4): seqIndex=0, lookupIndex=0.
+	rule := make([]byte, 0)
+	rule = append(rule, 0, 1, 0, 5)
+	rule = append(rule, 0, 2, 0, 20)
+	rule = append(rule, 0, 1, 0, 30)
+	rule = append(rule, 0, 1, 0, 0, 0, 0)
+
+	// ChainSubRuleSet: ruleCount(2)=1, ruleOff(2)=4, then rule bytes.
+	ruleSet := make([]byte, 4+len(rule))
+	put16(ruleSet[0:2], 1)
+	put16(ruleSet[2:4], 4)
+	copy(ruleSet[4:], rule)
+
+	// Coverage for trigger GID 10 (format 1).
+	cov := make([]byte, 6)
+	put16(cov[0:2], 1)
+	put16(cov[2:4], 1)
+	put16(cov[4:6], 10)
+
+	// Subtable: format(2)=1, coverageOff(2), setCount(2)=1, setOff[0](2),
+	// then coverage, then ruleSet.
+	hdr := 8
+	sub := make([]byte, hdr+len(cov)+len(ruleSet))
+	put16(sub[0:2], 1)
+	put16(sub[2:4], uint16(hdr))
+	put16(sub[4:6], 1)
+	put16(sub[6:8], uint16(hdr+len(cov)))
+	copy(sub[hdr:], cov)
+	copy(sub[hdr+len(cov):], ruleSet)
+	return sub
+}
+
+// buildChainContextFormat2Subtable constructs a Format 2 subtable where:
+//
+//	coverage = {10, 11}
+//	inputClassDef: 10->1, 11->1 (both in class 1)
+//	backtrackClassDef: 5->1
+//	lookaheadClassDef: 30->1
+//	one rule under class 1 with back=[1], input=[1,?], look=[1]
+//
+// The second input position in a class-based rule is a class number,
+// not a GID, so we use another class for GID 20. inputClass: 20->2.
+// The rule's inputSequence (class 2) therefore matches only GID 20.
+func buildChainContextFormat2Subtable() []byte {
+	// Rule: backCount(2)=1, back[0](2)=1 (class 1),
+	//       inputCount(2)=2, inputSeq[0](2)=2 (class 2),
+	//       lookCount(2)=1, look[0](2)=1 (class 1),
+	//       substCount(2)=1, substLookupRecord: seqIndex=0, lookupIndex=0
+	rule := make([]byte, 0)
+	rule = append(rule, 0, 1, 0, 1)
+	rule = append(rule, 0, 2, 0, 2)
+	rule = append(rule, 0, 1, 0, 1)
+	rule = append(rule, 0, 1, 0, 0, 0, 0)
+	set1 := make([]byte, 4+len(rule))
+	put16(set1[0:2], 1)
+	put16(set1[2:4], 4)
+	copy(set1[4:], rule)
+
+	// Coverage format 1 for {10, 11}.
+	cov := make([]byte, 8)
+	put16(cov[0:2], 1)
+	put16(cov[2:4], 2)
+	put16(cov[4:6], 10)
+	put16(cov[6:8], 11)
+
+	// Input ClassDef (format 1): startGID=10, count=11,
+	// classes covering GIDs 10..20. 10->1, 11->1, 12..19->0, 20->2.
+	inputClassDef := make([]byte, 6+11*2)
+	put16(inputClassDef[0:2], 1)
+	put16(inputClassDef[2:4], 10)
+	put16(inputClassDef[4:6], 11)
+	put16(inputClassDef[6:8], 1)  // 10
+	put16(inputClassDef[8:10], 1) // 11
+	// 12..19 already zero
+	put16(inputClassDef[6+10*2:6+10*2+2], 2) // 20
+
+	// Backtrack ClassDef (format 2): one range {5..5, class=1}.
+	backClassDef := make([]byte, 4+6)
+	put16(backClassDef[0:2], 2)
+	put16(backClassDef[2:4], 1)
+	put16(backClassDef[4:6], 5)
+	put16(backClassDef[6:8], 5)
+	put16(backClassDef[8:10], 1)
+
+	// Lookahead ClassDef (format 2): one range {30..30, class=1}.
+	lookClassDef := make([]byte, 4+6)
+	put16(lookClassDef[0:2], 2)
+	put16(lookClassDef[2:4], 1)
+	put16(lookClassDef[4:6], 30)
+	put16(lookClassDef[6:8], 30)
+	put16(lookClassDef[8:10], 1)
+
+	// Header layout: format(2)=2, covOff(2), backOff(2), inOff(2),
+	// lookOff(2), setCount(2), setOffs[setCount](2).
+	// setCount needs to cover class 1 — i.e. at least 2 entries (class 0, class 1).
+	setCount := 2
+	hdr := 12 + setCount*2
+
+	// Place coverage, classDefs, and set1 after the header.
+	body := make([]byte, 0)
+	cOff := hdr
+	body = append(body, cov...)
+	backOff := cOff + len(cov)
+	body = append(body, backClassDef...)
+	inOff := backOff + len(backClassDef)
+	body = append(body, inputClassDef...)
+	lookOff := inOff + len(inputClassDef)
+	body = append(body, lookClassDef...)
+	set1Off := lookOff + len(lookClassDef)
+	body = append(body, set1...)
+
+	sub := make([]byte, hdr+len(body))
+	put16(sub[0:2], 2)
+	put16(sub[2:4], uint16(cOff))
+	put16(sub[4:6], uint16(backOff))
+	put16(sub[6:8], uint16(inOff))
+	put16(sub[8:10], uint16(lookOff))
+	put16(sub[10:12], uint16(setCount))
+	put16(sub[12:14], 0)               // class 0 set offset = 0 (none)
+	put16(sub[14:16], uint16(set1Off)) // class 1 set offset
+	copy(sub[hdr:], body)
+	return sub
+}
+
+// buildChainContextFormat3Subtable constructs a Format 3 subtable:
+//
+//	backtrack coverage = {4, 5, 6}  (a 3-glyph set)
+//	input coverage     = {10}       (a 1-glyph set, single trigger)
+//	input coverage 2   = {20}
+//	lookahead coverage = {30}
+//	action: seqIndex=0, lookupIndex=0
+func buildChainContextFormat3Subtable() []byte {
+	// Construct each coverage format 1 independently.
+	back := make([]byte, 4+3*2)
+	put16(back[0:2], 1)
+	put16(back[2:4], 3)
+	put16(back[4:6], 4)
+	put16(back[6:8], 5)
+	put16(back[8:10], 6)
+
+	in1 := make([]byte, 6)
+	put16(in1[0:2], 1)
+	put16(in1[2:4], 1)
+	put16(in1[4:6], 10)
+
+	in2 := make([]byte, 6)
+	put16(in2[0:2], 1)
+	put16(in2[2:4], 1)
+	put16(in2[4:6], 20)
+
+	look := make([]byte, 6)
+	put16(look[0:2], 1)
+	put16(look[2:4], 1)
+	put16(look[4:6], 30)
+
+	// Header fields before the coverage blobs:
+	// format(2)=3, backCount(2)=1, backCovOff[1](2),
+	// inputCount(2)=2, inputCovOff[2](2 each),
+	// lookCount(2)=1, lookCovOff[1](2),
+	// substCount(2)=1, substLookupRecord(4).
+	hdr := 2 + 2 + 1*2 + 2 + 2*2 + 2 + 1*2 + 2 + 4
+
+	bodyOff := hdr
+	body := make([]byte, 0)
+	backOff := bodyOff
+	body = append(body, back...)
+	in1Off := bodyOff + len(back)
+	body = append(body, in1...)
+	in2Off := in1Off + len(in1)
+	body = append(body, in2...)
+	lookOff := in2Off + len(in2)
+	body = append(body, look...)
+
+	sub := make([]byte, hdr+len(body))
+	p := 0
+	put16(sub[p:p+2], 3)
+	p += 2
+	put16(sub[p:p+2], 1)
+	p += 2
+	put16(sub[p:p+2], uint16(backOff))
+	p += 2
+	put16(sub[p:p+2], 2)
+	p += 2
+	put16(sub[p:p+2], uint16(in1Off))
+	p += 2
+	put16(sub[p:p+2], uint16(in2Off))
+	p += 2
+	put16(sub[p:p+2], 1)
+	p += 2
+	put16(sub[p:p+2], uint16(lookOff))
+	p += 2
+	put16(sub[p:p+2], 1)
+	p += 2
+	put16(sub[p:p+2], 0)
+	p += 2
+	put16(sub[p:p+2], 0)
+	copy(sub[hdr:], body)
+	return sub
+}
+
+// buildChainContextGSUBSeqOne is a variant that builds a Format 1 chain
+// context rule whose action targets sequenceIndex=1 (the second input
+// glyph). The underlying Single lookup is [20->77].
+func buildChainContextGSUBSeqOne() []byte {
+	// Single lookup: format 2, coverage=[20], substitute=[77].
+	cov := make([]byte, 6)
+	put16(cov[0:2], 1)
+	put16(cov[2:4], 1)
+	put16(cov[4:6], 20)
+	singleSub := make([]byte, 6)
+	put16(singleSub[0:2], 2)
+	put16(singleSub[2:4], 0) // placeholder, patched below
+	put16(singleSub[4:6], 1) // substCount
+	singleSub = append(singleSub, 0, 77)
+	// Coverage lives after the substitute array: 6-byte header + 2 bytes
+	// per substitute = offset 8.
+	put16(singleSub[2:4], uint16(len(singleSub)))
+	singleSub = append(singleSub, cov...)
+
+	// Rule: back=[5], input=[10,20] (on-disk omits first), look=[30],
+	// action seqIndex=1 targeting lookup 0.
+	rule := make([]byte, 0)
+	rule = append(rule, 0, 1, 0, 5)
+	rule = append(rule, 0, 2, 0, 20)
+	rule = append(rule, 0, 1, 0, 30)
+	rule = append(rule, 0, 1, 0, 1, 0, 0)
+
+	ruleSet := make([]byte, 4+len(rule))
+	put16(ruleSet[0:2], 1)
+	put16(ruleSet[2:4], 4)
+	copy(ruleSet[4:], rule)
+
+	triggerCov := make([]byte, 6)
+	put16(triggerCov[0:2], 1)
+	put16(triggerCov[2:4], 1)
+	put16(triggerCov[4:6], 10)
+
+	hdr := 8
+	chainSub := make([]byte, hdr+len(triggerCov)+len(ruleSet))
+	put16(chainSub[0:2], 1)
+	put16(chainSub[2:4], uint16(hdr))
+	put16(chainSub[4:6], 1)
+	put16(chainSub[6:8], uint16(hdr+len(triggerCov)))
+	copy(chainSub[hdr:], triggerCov)
+	copy(chainSub[hdr+len(triggerCov):], ruleSet)
+
+	return assembleTwoLookupGSUB(singleSub, chainSub, false)
+}
+
+// assembleTwoLookupGSUB wires together a script/feature/lookup list for
+// a GSUB with two lookups: lookup 0 is a LookupType 1 single subtable,
+// lookup 1 is a LookupType 6 chain context subtable. Only the chain
+// lookup is referenced by the calt feature. If extension is true the
+// chain lookup is tagged as LookupType 7 (the subtable is assumed to
+// already carry its extension wrapper).
+func assembleTwoLookupGSUB(singleSub, chainSub []byte, extension bool) []byte {
+	// Lookup 0: type=1, flag=0, subCount=1, subOff[0]=8, then singleSub.
+	lookup0 := make([]byte, 8+len(singleSub))
+	put16(lookup0[0:2], 1)
+	put16(lookup0[2:4], 0)
+	put16(lookup0[4:6], 1)
+	put16(lookup0[6:8], 8)
+	copy(lookup0[8:], singleSub)
+
+	// Lookup 1: type=6 (or 7 if extension), flag=0, subCount=1,
+	// subOff[0]=8, then chainSub.
+	lookupType := uint16(6)
+	if extension {
+		lookupType = 7
+	}
+	lookup1 := make([]byte, 8+len(chainSub))
+	put16(lookup1[0:2], lookupType)
+	put16(lookup1[2:4], 0)
+	put16(lookup1[4:6], 1)
+	put16(lookup1[6:8], 8)
+	copy(lookup1[8:], chainSub)
+
+	// LookupList: lookupCount(2)=2, lookupOffs[2](2 each), then lookups.
+	lookupListHdr := 2 + 2*2
+	lookup0Off := lookupListHdr
+	lookup1Off := lookup0Off + len(lookup0)
+	lookupList := make([]byte, lookup1Off+len(lookup1))
+	put16(lookupList[0:2], 2)
+	put16(lookupList[2:4], uint16(lookup0Off))
+	put16(lookupList[4:6], uint16(lookup1Off))
+	copy(lookupList[lookup0Off:], lookup0)
+	copy(lookupList[lookup1Off:], lookup1)
+
+	// Feature references lookup index 1 only.
+	feature := make([]byte, 6)
+	put16(feature[0:2], 0)
+	put16(feature[2:4], 1)
+	put16(feature[4:6], 1) // lookupListIndex = 1 (the chain lookup)
+
+	featListHdr := 8
+	featList := make([]byte, featListHdr+len(feature))
+	put16(featList[0:2], 1)
+	copy(featList[2:6], []byte("calt"))
+	put16(featList[6:8], uint16(featListHdr))
+	copy(featList[featListHdr:], feature)
+
+	// LangSys: lookupOrder=0, reqFeature=0xFFFF, count=1, indices=[0].
+	langSys := make([]byte, 8)
+	put16(langSys[0:2], 0)
+	put16(langSys[2:4], 0xFFFF)
+	put16(langSys[4:6], 1)
+	put16(langSys[6:8], 0)
+
+	scriptHdr := 4
+	script := make([]byte, scriptHdr+len(langSys))
+	put16(script[0:2], uint16(scriptHdr))
+	put16(script[2:4], 0)
+	copy(script[scriptHdr:], langSys)
+
+	scriptListHdr := 8
+	scriptList := make([]byte, scriptListHdr+len(script))
+	put16(scriptList[0:2], 1)
+	copy(scriptList[2:6], []byte("latn"))
+	put16(scriptList[6:8], uint16(scriptListHdr))
+	copy(scriptList[scriptListHdr:], script)
+
+	header := make([]byte, 10)
+	scriptListOff := len(header)
+	featListOff := scriptListOff + len(scriptList)
+	lookupListOff := featListOff + len(featList)
+	put16(header[0:2], 1)
+	put16(header[2:4], 0)
+	put16(header[4:6], uint16(scriptListOff))
+	put16(header[6:8], uint16(featListOff))
+	put16(header[8:10], uint16(lookupListOff))
+
+	out := make([]byte, 0, lookupListOff+len(lookupList))
+	out = append(out, header...)
+	out = append(out, scriptList...)
+	out = append(out, featList...)
+	out = append(out, lookupList...)
+	return out
+}
+
 func arabicFontPath() string {
 	switch runtime.GOOS {
 	case "darwin":
