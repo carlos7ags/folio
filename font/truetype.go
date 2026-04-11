@@ -14,7 +14,9 @@ import (
 	"golang.org/x/image/math/fixed"
 )
 
-// sfntFace implements Face using golang.org/x/image/font/sfnt.
+// sfntFace is the Face implementation backed by golang.org/x/image/font/sfnt.
+// Lazy caches (tables, gsubResult, gidToUnicodeMap) are unsynchronized;
+// callers must not share a single sfntFace across goroutines.
 // This is an internal implementation — callers use the Face interface.
 type sfntFace struct {
 	font    *sfnt.Font

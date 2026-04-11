@@ -3,6 +3,17 @@
 
 package font
 
+// Face represents a parsed font file and provides metric, encoding, and
+// glyph-indexing operations used when embedding the font in a PDF.
+//
+// Concurrency: Face implementations are not safe for concurrent use by
+// multiple goroutines. Individual methods lazily populate internal caches
+// (table data, GSUB tables, GID-to-Unicode maps), and these caches are
+// not synchronized. A single Face may be reused across many pages in a
+// document so long as page rendering is sequential, which is how folio's
+// layout pipeline uses them. If you need a Face from multiple goroutines,
+// give each goroutine its own instance via ParseFont or LoadFont.
+//
 // Face is the abstraction over a parsed font file. It provides the
 // data needed to embed a font in a PDF: glyph metrics, character
 // mapping, and the raw font bytes.

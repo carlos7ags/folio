@@ -23,13 +23,13 @@ const woffHeaderSize = 44
 const woffTableDirEntrySize = 20
 
 // woffHeader represents the parsed WOFF1 file header.
+// Only the fields actually consumed by the decoder are kept;
+// length, reserved, and totalSfntSize are defined by the WOFF1 spec
+// but are not needed to assemble the output TTF.
 type woffHeader struct {
-	signature     uint32
-	flavor        uint32
-	length        uint32
-	numTables     uint16
-	reserved      uint16
-	totalSfntSize uint32
+	signature uint32
+	flavor    uint32
+	numTables uint16
 }
 
 // woffTableEntry represents a single table directory entry in a WOFF file.
@@ -44,29 +44,26 @@ type woffTableEntry struct {
 // decodeWOFF decodes a WOFF1 font file into raw TTF/OTF bytes.
 func decodeWOFF(data []byte) ([]byte, error) {
 	if len(data) < woffHeaderSize {
-		return nil, fmt.Errorf("woff: data too short for header")
+		return nil, fmt.Errorf("woff: data too short for header: %w", ErrTruncated)
 	}
 
 	// Parse header.
 	var hdr woffHeader
 	hdr.signature = binary.BigEndian.Uint32(data[0:4])
 	if hdr.signature != woffMagic {
-		return nil, fmt.Errorf("woff: invalid signature 0x%08X", hdr.signature)
+		return nil, fmt.Errorf("woff: invalid signature 0x%08X: %w", hdr.signature, ErrUnknownFormat)
 	}
 	hdr.flavor = binary.BigEndian.Uint32(data[4:8])
-	hdr.length = binary.BigEndian.Uint32(data[8:12])
 	hdr.numTables = binary.BigEndian.Uint16(data[12:14])
-	hdr.reserved = binary.BigEndian.Uint16(data[14:16])
-	hdr.totalSfntSize = binary.BigEndian.Uint32(data[16:20])
 
 	if hdr.numTables == 0 {
-		return nil, fmt.Errorf("woff: no tables")
+		return nil, fmt.Errorf("woff: no tables: %w", ErrCorruptTable)
 	}
 
 	// Parse table directory.
 	dirEnd := woffHeaderSize + int(hdr.numTables)*woffTableDirEntrySize
 	if len(data) < dirEnd {
-		return nil, fmt.Errorf("woff: data too short for table directory")
+		return nil, fmt.Errorf("woff: data too short for table directory: %w", ErrTruncated)
 	}
 
 	entries := make([]woffTableEntry, hdr.numTables)
@@ -85,7 +82,7 @@ func decodeWOFF(data []byte) ([]byte, error) {
 	tables := make([][]byte, len(entries))
 	for i, e := range entries {
 		if int(e.offset)+int(e.compLength) > len(data) {
-			return nil, fmt.Errorf("woff: table %d extends beyond file", i)
+			return nil, fmt.Errorf("woff: table %d extends beyond file: %w", i, ErrTruncated)
 		}
 		tableData := data[e.offset : e.offset+e.compLength]
 
@@ -93,15 +90,15 @@ func decodeWOFF(data []byte) ([]byte, error) {
 			// zlib-compressed table.
 			r, err := zlib.NewReader(bytes.NewReader(tableData))
 			if err != nil {
-				return nil, fmt.Errorf("woff: zlib init for table %d: %w", i, err)
+				return nil, fmt.Errorf("woff: zlib init for table %d: %v: %w", i, err, ErrCorruptTable)
 			}
 			decompressed, err := io.ReadAll(r)
 			_ = r.Close()
 			if err != nil {
-				return nil, fmt.Errorf("woff: zlib decompress table %d: %w", i, err)
+				return nil, fmt.Errorf("woff: zlib decompress table %d: %v: %w", i, err, ErrCorruptTable)
 			}
 			if uint32(len(decompressed)) != e.origLength {
-				return nil, fmt.Errorf("woff: table %d decompressed size mismatch: got %d, want %d", i, len(decompressed), e.origLength)
+				return nil, fmt.Errorf("woff: table %d decompressed size mismatch: got %d, want %d: %w", i, len(decompressed), e.origLength, ErrCorruptTable)
 			}
 			tables[i] = decompressed
 		} else {

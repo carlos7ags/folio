@@ -15,6 +15,10 @@ import (
 //
 // The subset includes tables: head, hhea, maxp, OS/2, name, cmap, post,
 // loca, glyf, hmtx. All other tables are omitted.
+//
+// Errors returned by this function wrap one of the sentinel errors
+// [ErrMissingTable], [ErrTruncated], or [ErrCorruptTable] so callers
+// can match failure modes with errors.Is.
 func Subset(raw []byte, usedGlyphs map[uint16]rune) ([]byte, error) {
 	tables, err := parseTTFTables(raw)
 	if err != nil {
@@ -31,33 +35,33 @@ func Subset(raw []byte, usedGlyphs map[uint16]rune) ([]byte, error) {
 	// Read numGlyphs from maxp.
 	maxpData, ok := tables["maxp"]
 	if !ok {
-		return nil, fmt.Errorf("subset: missing maxp table")
+		return nil, fmt.Errorf("subset: missing maxp table: %w", ErrMissingTable)
 	}
 	if len(maxpData) < 6 {
-		return nil, fmt.Errorf("subset: maxp table too short")
+		return nil, fmt.Errorf("subset: maxp table too short: %w", ErrTruncated)
 	}
 	numGlyphs := int(binary.BigEndian.Uint16(maxpData[4:6]))
 
 	// Read head to get loca format.
 	headData, ok := tables["head"]
 	if !ok {
-		return nil, fmt.Errorf("subset: missing head table")
+		return nil, fmt.Errorf("subset: missing head table: %w", ErrMissingTable)
 	}
 	if len(headData) < 54 {
-		return nil, fmt.Errorf("subset: head table too short")
+		return nil, fmt.Errorf("subset: head table too short: %w", ErrTruncated)
 	}
 	locaFormat := int16(binary.BigEndian.Uint16(headData[50:52]))
 
 	// Read loca table.
 	locaData, ok := tables["loca"]
 	if !ok {
-		return nil, fmt.Errorf("subset: missing loca table")
+		return nil, fmt.Errorf("subset: missing loca table: %w", ErrMissingTable)
 	}
 
 	// Read glyf table.
 	glyfData, ok := tables["glyf"]
 	if !ok {
-		return nil, fmt.Errorf("subset: missing glyf table")
+		return nil, fmt.Errorf("subset: missing glyf table: %w", ErrMissingTable)
 	}
 
 	// Parse loca to get glyph offsets.
@@ -75,11 +79,11 @@ func Subset(raw []byte, usedGlyphs map[uint16]rune) ([]byte, error) {
 	// Rebuild hmtx (zero unused entries).
 	hheaData, ok := tables["hhea"]
 	if !ok {
-		return nil, fmt.Errorf("subset: missing hhea table")
+		return nil, fmt.Errorf("subset: missing hhea table: %w", ErrMissingTable)
 	}
 	hmtxData, ok := tables["hmtx"]
 	if !ok {
-		return nil, fmt.Errorf("subset: missing hmtx table")
+		return nil, fmt.Errorf("subset: missing hmtx table: %w", ErrMissingTable)
 	}
 	numHMetrics := int(binary.BigEndian.Uint16(hheaData[34:36]))
 	newHmtx := rebuildHmtx(hmtxData, glyphSet, numGlyphs, numHMetrics)
@@ -129,12 +133,12 @@ func Subset(raw []byte, usedGlyphs map[uint16]rune) ([]byte, error) {
 // parseTTFTables extracts table data from a raw TTF file.
 func parseTTFTables(raw []byte) (map[string][]byte, error) {
 	if len(raw) < 12 {
-		return nil, fmt.Errorf("subset: file too short for TTF header")
+		return nil, fmt.Errorf("subset: file too short for TTF header: %w", ErrTruncated)
 	}
 
 	numTables := int(binary.BigEndian.Uint16(raw[4:6]))
 	if len(raw) < 12+numTables*16 {
-		return nil, fmt.Errorf("subset: file too short for table directory")
+		return nil, fmt.Errorf("subset: file too short for table directory: %w", ErrTruncated)
 	}
 
 	tables := make(map[string][]byte, numTables)
@@ -144,7 +148,7 @@ func parseTTFTables(raw []byte) (map[string][]byte, error) {
 		tblOffset := int(binary.BigEndian.Uint32(raw[offset+8 : offset+12]))
 		tblLength := int(binary.BigEndian.Uint32(raw[offset+12 : offset+16]))
 		if tblOffset+tblLength > len(raw) {
-			return nil, fmt.Errorf("subset: table %q extends beyond file", tag)
+			return nil, fmt.Errorf("subset: table %q extends beyond file: %w", tag, ErrTruncated)
 		}
 		tables[tag] = raw[tblOffset : tblOffset+tblLength]
 	}
@@ -159,7 +163,7 @@ func parseLoca(data []byte, format int16, numGlyphs int) ([]uint32, error) {
 		// Short format: uint16, multiply by 2.
 		need := (numGlyphs + 1) * 2
 		if len(data) < need {
-			return nil, fmt.Errorf("subset: loca table too short (short format)")
+			return nil, fmt.Errorf("subset: loca table too short (short format): %w", ErrTruncated)
 		}
 		for i := range numGlyphs + 1 {
 			offsets[i] = uint32(binary.BigEndian.Uint16(data[i*2:])) * 2
@@ -168,7 +172,7 @@ func parseLoca(data []byte, format int16, numGlyphs int) ([]uint32, error) {
 		// Long format: uint32.
 		need := (numGlyphs + 1) * 4
 		if len(data) < need {
-			return nil, fmt.Errorf("subset: loca table too short (long format)")
+			return nil, fmt.Errorf("subset: loca table too short (long format): %w", ErrTruncated)
 		}
 		for i := range numGlyphs + 1 {
 			offsets[i] = binary.BigEndian.Uint32(data[i*4:])
