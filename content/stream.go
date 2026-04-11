@@ -1,9 +1,6 @@
 // Copyright 2026 Carlos Munoz and the Folio Authors
 // SPDX-License-Identifier: Apache-2.0
 
-// Package content provides a builder for PDF content streams —
-// the sequences of operators that draw text, graphics, and images
-// on a page (ISO 32000 §7.8.2).
 package content
 
 import (
@@ -48,6 +45,14 @@ func (s *Stream) SetFont(fontName string, size float64) {
 // the start of the current line.
 func (s *Stream) MoveText(tx, ty float64) {
 	s.writeln(fmt.Sprintf("%s %s Td", formatNum(tx), formatNum(ty)))
+}
+
+// MoveTextWithLeading writes the TD operator: move to (tx, ty) relative
+// to the start of the current line and set the leading to -ty.
+// Equivalent to calling SetLeading(-ty) followed by MoveText(tx, ty),
+// but in a single operator.
+func (s *Stream) MoveTextWithLeading(tx, ty float64) {
+	s.writeln(fmt.Sprintf("%s %s TD", formatNum(tx), formatNum(ty)))
 }
 
 // ShowText writes the Tj operator: show a text string.
@@ -130,6 +135,13 @@ func (s *Stream) SetWordSpacing(wordSpace float64) {
 	s.writeln(fmt.Sprintf("%s Tw", formatNum(wordSpace)))
 }
 
+// SetHorizontalScaling writes the Tz operator: set the horizontal scaling,
+// as a percentage of normal width. 100 means normal width; 50 means half
+// width (condensed); 200 means double width (expanded).
+func (s *Stream) SetHorizontalScaling(scale float64) {
+	s.writeln(fmt.Sprintf("%s Tz", formatNum(scale)))
+}
+
 // SetTextRise writes the Ts operator: set text rise.
 // rise shifts text up (positive) or down (negative) from the baseline,
 // in text space units. Used for superscript and subscript.
@@ -173,6 +185,15 @@ func (s *Stream) ShowTextNextLine(text string) {
 	s.writeln(fmt.Sprintf("(%s) '", core.EscapeLiteralString(text)))
 }
 
+// ShowTextWithSpacing writes the " operator: set word spacing, set character
+// spacing, move to the next line, and show the given text. Equivalent to
+// SetWordSpacing(wordSpace) + SetCharSpacing(charSpace) + ShowTextNextLine(text).
+func (s *Stream) ShowTextWithSpacing(wordSpace, charSpace float64, text string) {
+	s.writeln(fmt.Sprintf("%s %s (%s) \"",
+		formatNum(wordSpace), formatNum(charSpace),
+		core.EscapeLiteralString(text)))
+}
+
 // --- Graphics state operators (ISO 32000 §8.4) ---
 
 // SaveState writes the q operator: save the current graphics state.
@@ -195,7 +216,12 @@ func (s *Stream) ConcatMatrix(a, b, c, d, e, f float64) {
 }
 
 // SetLineWidth writes the w operator: set the line width.
+// width must be >= 0; a value of 0 denotes the thinnest line the
+// output device can render.
 func (s *Stream) SetLineWidth(width float64) {
+	if width < 0 {
+		panic(fmt.Sprintf("content: SetLineWidth: invalid width %v (must be >= 0)", width))
+	}
 	s.writeln(fmt.Sprintf("%s w", formatNum(width)))
 }
 
@@ -230,7 +256,11 @@ func (s *Stream) SetLineJoin(style int) {
 }
 
 // SetMiterLimit writes the M operator: set miter limit for line joins.
+// limit must be >= 1 (ISO 32000 §8.4.3.5).
 func (s *Stream) SetMiterLimit(limit float64) {
+	if limit < 1 {
+		panic(fmt.Sprintf("content: SetMiterLimit: invalid limit %v (must be >= 1)", limit))
+	}
 	s.writeln(fmt.Sprintf("%s M", formatNum(limit)))
 }
 
@@ -256,6 +286,20 @@ func (s *Stream) SetDashPattern(dashArray []float64, phase float64) {
 // ExtGState resource dictionary. name is the resource name (e.g. "GS1").
 func (s *Stream) SetExtGState(name string) {
 	s.writeln(fmt.Sprintf("/%s gs", name))
+}
+
+// SetRenderingIntent writes the ri operator: set the color rendering intent.
+// Standard values are "AbsoluteColorimetric", "RelativeColorimetric",
+// "Saturation", and "Perceptual".
+func (s *Stream) SetRenderingIntent(name string) {
+	s.writeln(fmt.Sprintf("/%s ri", name))
+}
+
+// SetFlatness writes the i operator: set the flatness tolerance for curve
+// rendering. Valid range is 0 to 100; 0 uses the output device's default.
+// Higher values allow coarser curve approximation (faster but less accurate).
+func (s *Stream) SetFlatness(tolerance float64) {
+	s.writeln(fmt.Sprintf("%s i", formatNum(tolerance)))
 }
 
 // --- Path construction operators (ISO 32000 §8.5.2) ---
@@ -339,6 +383,12 @@ func (s *Stream) FillAndStroke() {
 	s.writeln("B")
 }
 
+// FillEvenOddAndStroke writes the B* operator: fill the current path using
+// the even-odd rule, then stroke it.
+func (s *Stream) FillEvenOddAndStroke() {
+	s.writeln("B*")
+}
+
 // ClosePathStroke writes the s operator: close path and stroke.
 func (s *Stream) ClosePathStroke() {
 	s.writeln("s")
@@ -349,12 +399,110 @@ func (s *Stream) ClosePathFillAndStroke() {
 	s.writeln("b")
 }
 
+// ClosePathFillEvenOddAndStroke writes the b* operator: close the path,
+// fill it using the even-odd rule, and stroke it.
+func (s *Stream) ClosePathFillEvenOddAndStroke() {
+	s.writeln("b*")
+}
+
 // ClosePath writes the h operator: close the current subpath.
 func (s *Stream) ClosePath() {
 	s.writeln("h")
 }
 
 // --- Color operators (ISO 32000 §8.6.8) ---
+
+// SetStrokeColorSpace writes the CS operator: set the current color space
+// for stroking. name is a device color space ("DeviceRGB", "DeviceGray",
+// "DeviceCMYK", "Pattern") or the resource name of a color space in the
+// current resource dictionary.
+func (s *Stream) SetStrokeColorSpace(name string) {
+	s.writeln(fmt.Sprintf("/%s CS", name))
+}
+
+// SetFillColorSpace writes the cs operator: set the current color space
+// for filling and non-stroking paint operations.
+func (s *Stream) SetFillColorSpace(name string) {
+	s.writeln(fmt.Sprintf("/%s cs", name))
+}
+
+// SetStrokeColor writes the SC operator: set the stroke color using the
+// current stroke color space. The number of components depends on the
+// color space (1 for Gray, 3 for RGB, 4 for CMYK). For ICCBased or
+// Pattern spaces use SetStrokeColorPattern.
+func (s *Stream) SetStrokeColor(components ...float64) {
+	var b strings.Builder
+	for i, c := range components {
+		if i > 0 {
+			b.WriteByte(' ')
+		}
+		b.WriteString(formatNum(c))
+	}
+	b.WriteString(" SC")
+	s.writeln(b.String())
+}
+
+// SetFillColor writes the sc operator: set the fill color using the
+// current fill color space. The number of components depends on the
+// color space (1 for Gray, 3 for RGB, 4 for CMYK). For ICCBased or
+// Pattern spaces use SetFillColorPattern.
+func (s *Stream) SetFillColor(components ...float64) {
+	var b strings.Builder
+	for i, c := range components {
+		if i > 0 {
+			b.WriteByte(' ')
+		}
+		b.WriteString(formatNum(c))
+	}
+	b.WriteString(" sc")
+	s.writeln(b.String())
+}
+
+// SetStrokeColorPattern writes the SCN operator: set the stroke color using
+// a pattern from a Pattern color space, optionally preceded by tint components
+// for uncolored patterns. Pass empty patternName to emit SCN with components only
+// (useful for DeviceN / ICCBased / Lab color spaces that SC does not support).
+func (s *Stream) SetStrokeColorPattern(patternName string, components ...float64) {
+	var b strings.Builder
+	for i, c := range components {
+		if i > 0 {
+			b.WriteByte(' ')
+		}
+		b.WriteString(formatNum(c))
+	}
+	if patternName != "" {
+		if len(components) > 0 {
+			b.WriteByte(' ')
+		}
+		b.WriteByte('/')
+		b.WriteString(patternName)
+	}
+	b.WriteString(" SCN")
+	s.writeln(b.String())
+}
+
+// SetFillColorPattern writes the scn operator: set the fill color using
+// a pattern from a Pattern color space, optionally preceded by tint components
+// for uncolored patterns. Pass empty patternName to emit scn with components only
+// (useful for DeviceN / ICCBased / Lab color spaces that sc does not support).
+func (s *Stream) SetFillColorPattern(patternName string, components ...float64) {
+	var b strings.Builder
+	for i, c := range components {
+		if i > 0 {
+			b.WriteByte(' ')
+		}
+		b.WriteString(formatNum(c))
+	}
+	if patternName != "" {
+		if len(components) > 0 {
+			b.WriteByte(' ')
+		}
+		b.WriteByte('/')
+		b.WriteString(patternName)
+	}
+	b.WriteString(" scn")
+	s.writeln(b.String())
+}
 
 // SetStrokeColorRGB writes the RG operator: set stroke color in DeviceRGB.
 // r, g, b are in [0, 1].
@@ -391,6 +539,15 @@ func (s *Stream) SetFillColorCMYK(c, m, y, k float64) {
 	s.writeln(fmt.Sprintf("%s %s %s %s k", formatNum(c), formatNum(m), formatNum(y), formatNum(k)))
 }
 
+// --- Shading operators (ISO 32000 §8.7.4) ---
+
+// ShadingFill writes the sh operator: paint the shape and color defined by
+// a shading dictionary within the current clipping region. name is the
+// resource name of a shading in the current Pattern resource dictionary.
+func (s *Stream) ShadingFill(name string) {
+	s.writeln(fmt.Sprintf("/%s sh", name))
+}
+
 // --- XObject operators (ISO 32000 §8.8) ---
 
 // Do writes the Do operator: paint the named XObject.
@@ -412,6 +569,18 @@ func (s *Stream) BeginMarkedContent(tag string) {
 // tag is the structure type; mcid links this content to the structure tree.
 func (s *Stream) BeginMarkedContentWithID(tag string, mcid int) {
 	s.writeln(fmt.Sprintf("/%s <</MCID %d>> BDC", tag, mcid))
+}
+
+// MarkedPoint writes the MP operator: designate a marked-content point.
+// tag is the marked-content tag (structure type).
+func (s *Stream) MarkedPoint(tag string) {
+	s.writeln(fmt.Sprintf("/%s MP", tag))
+}
+
+// MarkedPointWithID writes the DP operator: designate a marked-content
+// point with an MCID property that links to the structure tree.
+func (s *Stream) MarkedPointWithID(tag string, mcid int) {
+	s.writeln(fmt.Sprintf("/%s <</MCID %d>> DP", tag, mcid))
 }
 
 // EndMarkedContent writes the EMC operator: end the current marked content sequence.
@@ -473,14 +642,44 @@ func (s *Stream) RoundedRect(x, y, w, h, r float64) {
 }
 
 // RoundedRectPerCorner draws a rounded rectangle with different radii per corner.
-// The radii are: rTL (top-left), rTR (top-right), rBR (bottom-right), rBL (bottom-left).
-// In PDF coordinates, y increases upward: (x,y) is bottom-left of the rect.
+// The radii are rTL (top-left), rTR (top-right), rBR (bottom-right), rBL (bottom-left).
+// In PDF coordinates y increases upward, so (x, y) is the bottom-left of the rect.
+//
+// Radii are proportionally reduced so that no edge is over-subscribed by its
+// two adjacent corners (the CSS border-radius algorithm, CSS Backgrounds and
+// Borders Module Level 3 §5.5). Negative radii are treated as 0.
 func (s *Stream) RoundedRectPerCorner(x, y, w, h, rTL, rTR, rBR, rBL float64) {
-	maxR := min(w, h) / 2
-	rTL = min(rTL, maxR)
-	rTR = min(rTR, maxR)
-	rBR = min(rBR, maxR)
-	rBL = min(rBL, maxR)
+	if rTL < 0 {
+		rTL = 0
+	}
+	if rTR < 0 {
+		rTR = 0
+	}
+	if rBR < 0 {
+		rBR = 0
+	}
+	if rBL < 0 {
+		rBL = 0
+	}
+	f := 1.0
+	if s := rTL + rTR; s > 0 {
+		f = min(f, w/s)
+	}
+	if s := rTR + rBR; s > 0 {
+		f = min(f, h/s)
+	}
+	if s := rBL + rBR; s > 0 {
+		f = min(f, w/s)
+	}
+	if s := rTL + rBL; s > 0 {
+		f = min(f, h/s)
+	}
+	if f < 1 {
+		rTL *= f
+		rTR *= f
+		rBR *= f
+		rBL *= f
+	}
 	const k = 0.5522847498
 
 	// Start at bottom-left, just past the BL corner radius.
@@ -576,6 +775,10 @@ func (s *Stream) writeln(line string) {
 // formatNum formats a number for PDF content streams.
 // Integers are written without decimal points. NaN and Inf are
 // replaced with 0 to avoid producing invalid PDF tokens.
+// Fractional values are formatted with up to 6 decimal places,
+// so magnitudes smaller than 1e-6 round to 0. Values with
+// |v| >= 1e15 fall through to float formatting to avoid
+// int64 precision loss.
 func formatNum(v float64) string {
 	if math.IsNaN(v) || math.IsInf(v, 0) {
 		return "0"

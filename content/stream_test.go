@@ -737,3 +737,424 @@ func TestFormatNumPrecision(t *testing.T) {
 		}
 	}
 }
+
+// --- Audit: previously uncovered methods ---
+
+func TestBeginMarkedContent(t *testing.T) {
+	s := NewStream()
+	s.BeginMarkedContent("P")
+	got := string(s.Bytes())
+	if got != "/P BMC" {
+		t.Errorf("expected %q, got %q", "/P BMC", got)
+	}
+}
+
+func TestBeginMarkedContentWithID(t *testing.T) {
+	s := NewStream()
+	s.BeginMarkedContentWithID("Span", 42)
+	got := string(s.Bytes())
+	if got != "/Span <</MCID 42>> BDC" {
+		t.Errorf("expected %q, got %q", "/Span <</MCID 42>> BDC", got)
+	}
+}
+
+func TestEndMarkedContent(t *testing.T) {
+	s := NewStream()
+	s.EndMarkedContent()
+	got := string(s.Bytes())
+	if got != "EMC" {
+		t.Errorf("expected %q, got %q", "EMC", got)
+	}
+}
+
+func TestRoundedRectPerCorner(t *testing.T) {
+	s := NewStream()
+	s.RoundedRectPerCorner(0, 0, 100, 50, 10, 5, 3, 8)
+	got := string(s.Bytes())
+	if !strings.HasPrefix(got, "8 0 m") {
+		t.Errorf("expected path to start with %q, got %q", "8 0 m", got)
+	}
+	if !strings.HasSuffix(got, "h") {
+		t.Errorf("expected path to end with %q, got %q", "h", got)
+	}
+	if strings.Count(got, " c") != 4 {
+		t.Errorf("expected 4 curve operators, got %d in %q", strings.Count(got, " c"), got)
+	}
+	if !strings.Contains(got, " l") {
+		t.Errorf("expected line segments in path, got %q", got)
+	}
+}
+
+func TestRoundedRectPerCornerZeroRadii(t *testing.T) {
+	s := NewStream()
+	s.RoundedRectPerCorner(0, 0, 100, 50, 0, 0, 0, 0)
+	got := string(s.Bytes())
+	if strings.Contains(got, " c") {
+		t.Errorf("expected no curve operators with zero radii, got %q", got)
+	}
+	if !strings.HasPrefix(got, "0 0 m") {
+		t.Errorf("expected path to start with %q, got %q", "0 0 m", got)
+	}
+}
+
+func TestRoundedRectPerCornerClamping(t *testing.T) {
+	s := NewStream()
+	s.RoundedRectPerCorner(0, 0, 20, 10, 100, 100, 100, 100)
+	got := string(s.Bytes())
+	if !strings.HasPrefix(got, "5 0 m") {
+		t.Errorf("expected clamped path to start with %q, got %q", "5 0 m", got)
+	}
+}
+
+func TestPrependBytes(t *testing.T) {
+	s := NewStream()
+	s.AppendBytes([]byte("BT\nET"))
+	s.PrependBytes([]byte("q\nQ"))
+	got := string(s.Bytes())
+	if got != "q\nQ\nBT\nET" {
+		t.Errorf("expected %q, got %q", "q\nQ\nBT\nET", got)
+	}
+}
+
+func TestPrependBytesEmpty(t *testing.T) {
+	s := NewStream()
+	s.AppendBytes([]byte("BT\nET"))
+	s.PrependBytes([]byte{})
+	got := string(s.Bytes())
+	if got != "BT\nET" {
+		t.Errorf("expected %q, got %q", "BT\nET", got)
+	}
+}
+
+func TestPrependBytesToEmptyStream(t *testing.T) {
+	s := NewStream()
+	s.PrependBytes([]byte("q\nQ"))
+	got := string(s.Bytes())
+	if got != "q\nQ" {
+		t.Errorf("expected %q, got %q", "q\nQ", got)
+	}
+}
+
+func TestAppendBytes(t *testing.T) {
+	s := NewStream()
+	s.AppendBytes([]byte("BT\nET"))
+	s.AppendBytes([]byte("q\nQ"))
+	got := string(s.Bytes())
+	if got != "BT\nET\nq\nQ" {
+		t.Errorf("expected %q, got %q", "BT\nET\nq\nQ", got)
+	}
+}
+
+func TestAppendBytesEmpty(t *testing.T) {
+	s := NewStream()
+	s.AppendBytes([]byte("BT\nET"))
+	s.AppendBytes([]byte{})
+	got := string(s.Bytes())
+	if got != "BT\nET" {
+		t.Errorf("expected %q, got %q", "BT\nET", got)
+	}
+}
+
+func TestAppendBytesToEmptyStream(t *testing.T) {
+	s := NewStream()
+	s.AppendBytes([]byte("q\nQ"))
+	got := string(s.Bytes())
+	if got != "q\nQ" {
+		t.Errorf("expected %q, got %q", "q\nQ", got)
+	}
+}
+
+func TestReplaceInBytes(t *testing.T) {
+	s := NewStream()
+	s.AppendBytes([]byte("Page 1 of __TOTAL__"))
+	s.ReplaceInBytes("__TOTAL__", "10")
+	got := string(s.Bytes())
+	if got != "Page 1 of 10" {
+		t.Errorf("expected %q, got %q", "Page 1 of 10", got)
+	}
+}
+
+func TestReplaceInBytesNoMatch(t *testing.T) {
+	s := NewStream()
+	s.AppendBytes([]byte("Page 1"))
+	s.ReplaceInBytes("XYZ", "ABC")
+	got := string(s.Bytes())
+	if got != "Page 1" {
+		t.Errorf("expected %q, got %q", "Page 1", got)
+	}
+}
+
+// --- Validation tests for SetMiterLimit / SetLineWidth ---
+
+func TestSetMiterLimitInvalid(t *testing.T) {
+	s := NewStream()
+	// Valid values should not panic.
+	s.SetMiterLimit(1)
+	s.SetMiterLimit(10)
+	// Invalid values should panic.
+	assertPanics(t, "SetMiterLimit(0)", func() { s.SetMiterLimit(0) })
+	assertPanics(t, "SetMiterLimit(0.5)", func() { s.SetMiterLimit(0.5) })
+}
+
+func TestSetLineWidthInvalid(t *testing.T) {
+	s := NewStream()
+	// Valid values should not panic.
+	s.SetLineWidth(0)
+	s.SetLineWidth(2.5)
+	// Invalid values should panic.
+	assertPanics(t, "SetLineWidth(-0.1)", func() { s.SetLineWidth(-0.1) })
+	assertPanics(t, "SetLineWidth(-1)", func() { s.SetLineWidth(-1) })
+}
+
+// --- RoundedRectPerCorner CSS-style clamping tests ---
+
+func TestRoundedRectPerCornerAdjacentClamping(t *testing.T) {
+	// w=10, h=100, rTL=6, rBL=6, others 0.
+	// Old per-corner clamp: min(w,h)/2 = 5 → rTL=5, rBL=5 → "5 0 m".
+	// CSS clamp: left sum=12, f_left=100/12≈8.33; top sum=6, f_top=10/6≈1.67;
+	// bottom sum=6, f_bot=10/6≈1.67; right sum=0 skip. f=min(1, ...)=1, no reduction.
+	// rBL stays 6, so MoveTo is "6 0 m".
+	s := NewStream()
+	s.RoundedRectPerCorner(0, 0, 10, 100, 6, 0, 0, 6)
+	got := string(s.Bytes())
+	if !strings.HasPrefix(got, "6 0 m") {
+		t.Errorf("expected path to start with %q, got %q", "6 0 m", got)
+	}
+}
+
+func TestRoundedRectPerCornerProportionalReduction(t *testing.T) {
+	// w=20, h=100, rTL=30, rBL=30, rTR=0, rBR=0.
+	// Left sum=60, f_left=100/60≈1.67. Top sum=30, f_top=20/30=2/3.
+	// Bottom sum=30, f_bot=20/30=2/3. Right sum=0 skip.
+	// f=2/3 → rTL=rBL=20. MoveTo = "20 0 m".
+	s := NewStream()
+	s.RoundedRectPerCorner(0, 0, 20, 100, 30, 0, 0, 30)
+	got := string(s.Bytes())
+	if !strings.Contains(got, "20 0 m") {
+		t.Errorf("expected path to contain %q, got %q", "20 0 m", got)
+	}
+}
+
+func TestRoundedRectPerCornerNegativeRadius(t *testing.T) {
+	// Negative rTL should be treated as 0, producing a sharp top-left corner.
+	s := NewStream()
+	s.RoundedRectPerCorner(0, 0, 100, 50, -5, 0, 0, 0)
+	got := string(s.Bytes())
+	if !strings.HasPrefix(got, "0 0 m") {
+		t.Errorf("expected path to start with %q, got %q", "0 0 m", got)
+	}
+	// No curve operators since all effective radii are 0.
+	if strings.Contains(got, " c") {
+		t.Errorf("expected no curves with zero/negative radii, got %q", got)
+	}
+
+	// All four corners negative — each is independently clamped to 0.
+	s2 := NewStream()
+	s2.RoundedRectPerCorner(0, 0, 100, 50, -1, -2, -3, -4)
+	got2 := string(s2.Bytes())
+	if !strings.HasPrefix(got2, "0 0 m") {
+		t.Errorf("expected path to start with %q, got %q", "0 0 m", got2)
+	}
+	if strings.Contains(got2, " c") {
+		t.Errorf("expected no curves with all-negative radii, got %q", got2)
+	}
+}
+
+// --- ISO 32000 operator tests (Part B) ---
+
+func TestMoveTextWithLeading(t *testing.T) {
+	s := NewStream()
+	s.MoveTextWithLeading(10, -14)
+	got := string(s.Bytes())
+	if got != "10 -14 TD" {
+		t.Errorf("expected %q, got %q", "10 -14 TD", got)
+	}
+}
+
+func TestSetHorizontalScaling(t *testing.T) {
+	s := NewStream()
+	s.SetHorizontalScaling(150)
+	got := string(s.Bytes())
+	if got != "150 Tz" {
+		t.Errorf("expected %q, got %q", "150 Tz", got)
+	}
+}
+
+func TestShowTextWithSpacing(t *testing.T) {
+	s := NewStream()
+	s.ShowTextWithSpacing(2, 0.5, "Hello")
+	got := string(s.Bytes())
+	expected := `2 0.5 (Hello) "`
+	if got != expected {
+		t.Errorf("expected %q, got %q", expected, got)
+	}
+}
+
+func TestSetRenderingIntent(t *testing.T) {
+	s := NewStream()
+	s.SetRenderingIntent("RelativeColorimetric")
+	got := string(s.Bytes())
+	if got != "/RelativeColorimetric ri" {
+		t.Errorf("expected %q, got %q", "/RelativeColorimetric ri", got)
+	}
+}
+
+func TestSetFlatness(t *testing.T) {
+	s := NewStream()
+	s.SetFlatness(1)
+	got := string(s.Bytes())
+	if got != "1 i" {
+		t.Errorf("expected %q, got %q", "1 i", got)
+	}
+
+	s2 := NewStream()
+	s2.SetFlatness(0)
+	got2 := string(s2.Bytes())
+	if got2 != "0 i" {
+		t.Errorf("expected %q, got %q", "0 i", got2)
+	}
+}
+
+func TestFillEvenOddAndStroke(t *testing.T) {
+	s := NewStream()
+	s.FillEvenOddAndStroke()
+	got := string(s.Bytes())
+	if got != "B*" {
+		t.Errorf("expected %q, got %q", "B*", got)
+	}
+}
+
+func TestClosePathFillEvenOddAndStroke(t *testing.T) {
+	s := NewStream()
+	s.ClosePathFillEvenOddAndStroke()
+	got := string(s.Bytes())
+	if got != "b*" {
+		t.Errorf("expected %q, got %q", "b*", got)
+	}
+}
+
+func TestSetStrokeColorSpace(t *testing.T) {
+	s := NewStream()
+	s.SetStrokeColorSpace("DeviceRGB")
+	got := string(s.Bytes())
+	if got != "/DeviceRGB CS" {
+		t.Errorf("expected %q, got %q", "/DeviceRGB CS", got)
+	}
+}
+
+func TestSetFillColorSpace(t *testing.T) {
+	s := NewStream()
+	s.SetFillColorSpace("Pattern")
+	got := string(s.Bytes())
+	if got != "/Pattern cs" {
+		t.Errorf("expected %q, got %q", "/Pattern cs", got)
+	}
+}
+
+func TestSetStrokeColor(t *testing.T) {
+	s := NewStream()
+	s.SetStrokeColor(0.5, 0.25, 0.75)
+	got := string(s.Bytes())
+	if got != "0.5 0.25 0.75 SC" {
+		t.Errorf("expected %q, got %q", "0.5 0.25 0.75 SC", got)
+	}
+}
+
+func TestSetStrokeColorSingleComponent(t *testing.T) {
+	s := NewStream()
+	s.SetStrokeColor(0.5)
+	got := string(s.Bytes())
+	if got != "0.5 SC" {
+		t.Errorf("expected %q, got %q", "0.5 SC", got)
+	}
+}
+
+func TestSetFillColor(t *testing.T) {
+	s := NewStream()
+	s.SetFillColor(0, 1, 0)
+	got := string(s.Bytes())
+	if got != "0 1 0 sc" {
+		t.Errorf("expected %q, got %q", "0 1 0 sc", got)
+	}
+}
+
+func TestSetStrokeColorPattern(t *testing.T) {
+	s := NewStream()
+	s.SetStrokeColorPattern("P1")
+	got := string(s.Bytes())
+	if got != "/P1 SCN" {
+		t.Errorf("expected %q, got %q", "/P1 SCN", got)
+	}
+}
+
+func TestSetStrokeColorPatternWithTint(t *testing.T) {
+	s := NewStream()
+	s.SetStrokeColorPattern("P1", 0.5)
+	got := string(s.Bytes())
+	if got != "0.5 /P1 SCN" {
+		t.Errorf("expected %q, got %q", "0.5 /P1 SCN", got)
+	}
+}
+
+func TestSetStrokeColorPatternDeviceN(t *testing.T) {
+	s := NewStream()
+	s.SetStrokeColorPattern("", 0.1, 0.2, 0.3, 0.4, 0.5)
+	got := string(s.Bytes())
+	if got != "0.1 0.2 0.3 0.4 0.5 SCN" {
+		t.Errorf("expected %q, got %q", "0.1 0.2 0.3 0.4 0.5 SCN", got)
+	}
+}
+
+func TestSetFillColorPattern(t *testing.T) {
+	s := NewStream()
+	s.SetFillColorPattern("P1")
+	got := string(s.Bytes())
+	if got != "/P1 scn" {
+		t.Errorf("expected %q, got %q", "/P1 scn", got)
+	}
+}
+
+func TestSetFillColorPatternWithTint(t *testing.T) {
+	s := NewStream()
+	s.SetFillColorPattern("P1", 0.5)
+	got := string(s.Bytes())
+	if got != "0.5 /P1 scn" {
+		t.Errorf("expected %q, got %q", "0.5 /P1 scn", got)
+	}
+}
+
+func TestSetFillColorPatternDeviceN(t *testing.T) {
+	s := NewStream()
+	s.SetFillColorPattern("", 0.1, 0.2, 0.3)
+	got := string(s.Bytes())
+	if got != "0.1 0.2 0.3 scn" {
+		t.Errorf("expected %q, got %q", "0.1 0.2 0.3 scn", got)
+	}
+}
+
+func TestShadingFill(t *testing.T) {
+	s := NewStream()
+	s.ShadingFill("Sh1")
+	got := string(s.Bytes())
+	if got != "/Sh1 sh" {
+		t.Errorf("expected %q, got %q", "/Sh1 sh", got)
+	}
+}
+
+func TestMarkedPoint(t *testing.T) {
+	s := NewStream()
+	s.MarkedPoint("Artifact")
+	got := string(s.Bytes())
+	if got != "/Artifact MP" {
+		t.Errorf("expected %q, got %q", "/Artifact MP", got)
+	}
+}
+
+func TestMarkedPointWithID(t *testing.T) {
+	s := NewStream()
+	s.MarkedPointWithID("Span", 7)
+	got := string(s.Bytes())
+	if got != "/Span <</MCID 7>> DP" {
+		t.Errorf("expected %q, got %q", "/Span <</MCID 7>> DP", got)
+	}
+}
