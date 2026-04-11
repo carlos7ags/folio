@@ -12,6 +12,13 @@ import (
 	"github.com/carlos7ags/folio/core"
 )
 
+// EmbeddedFont tracks which glyphs of a Face have been used in a document
+// so that only those glyphs are embedded in the PDF via subsetting.
+//
+// Concurrency: EmbeddedFont is not safe for concurrent use. EncodeString
+// mutates an internal map of used glyphs on every call. Use one
+// EmbeddedFont per goroutine, or serialize access externally.
+//
 // EmbeddedFont holds the PDF objects needed to embed a TrueType font
 // as a CIDFont (Type0 composite font) in a PDF document.
 //
