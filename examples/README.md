@@ -13,6 +13,9 @@ go run ./examples/hello
 ```
 examples/
 ├── hello/          # minimal one-page PDF
+├── rtl/            # right-to-left script shaping (Arabic, Hebrew)
+├── indic/          # Indic script shaping (Devanagari first)
+├── cjk/            # Chinese, Japanese, Korean with font subsetting
 ├── fonts/          # standard, custom, and Unicode fonts (CJK, Cyrillic)
 ├── links/          # hyperlinks, bookmarks, internal navigation
 ├── forms/          # interactive AcroForm fields (text, checkbox, radio, dropdown)
