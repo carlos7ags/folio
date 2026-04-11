@@ -7,6 +7,7 @@ import (
 	"bytes"
 	"compress/zlib"
 	"io"
+	"math"
 	"strings"
 	"testing"
 )
@@ -495,6 +496,65 @@ func TestReferenceHighNumbers(t *testing.T) {
 func TestReferenceType(t *testing.T) {
 	if NewPdfIndirectReference(1, 0).Type() != ObjectTypeReference {
 		t.Error("expected ObjectTypeReference")
+	}
+}
+
+func TestReferenceNumGen(t *testing.T) {
+	r := NewPdfIndirectReference(7, 2)
+	if r.Num() != 7 {
+		t.Errorf("Num() = %d, want 7", r.Num())
+	}
+	if r.Gen() != 2 {
+		t.Errorf("Gen() = %d, want 2", r.Gen())
+	}
+}
+
+func TestNumberIntValueChecked(t *testing.T) {
+	tests := []struct {
+		name    string
+		num     *PdfNumber
+		wantVal int
+		wantOK  bool
+	}{
+		{"integer zero", NewPdfInteger(0), 0, true},
+		{"integer positive", NewPdfInteger(42), 42, true},
+		{"integer negative", NewPdfInteger(-100), -100, true},
+		{"real whole", NewPdfReal(5.0), 5, true},
+		{"real fractional", NewPdfReal(3.14), 3, false},
+		{"real negative fractional", NewPdfReal(-0.5), 0, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			v, ok := tt.num.IntValueChecked()
+			if v != tt.wantVal || ok != tt.wantOK {
+				t.Errorf("IntValueChecked() = (%d, %v), want (%d, %v)",
+					v, ok, tt.wantVal, tt.wantOK)
+			}
+		})
+	}
+}
+
+func TestNumberIntValueCheckedNaN(t *testing.T) {
+	n := NewPdfReal(math.NaN())
+	_, ok := n.IntValueChecked()
+	if ok {
+		t.Error("IntValueChecked on NaN should return ok=false")
+	}
+}
+
+func TestNumberIntValueCheckedInf(t *testing.T) {
+	n := NewPdfReal(math.Inf(1))
+	_, ok := n.IntValueChecked()
+	if ok {
+		t.Error("IntValueChecked on +Inf should return ok=false")
+	}
+}
+
+func TestNullSingleton(t *testing.T) {
+	a := NewPdfNull()
+	b := NewPdfNull()
+	if a != b {
+		t.Error("NewPdfNull should return the same pointer (singleton)")
 	}
 }
 

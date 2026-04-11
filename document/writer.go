@@ -86,7 +86,7 @@ func (w *Writer) SetEncryption(enc *core.Encryptor) {
 	w.encryptor = enc
 	encDict := enc.BuildEncryptDict()
 	w.encryptRef = w.AddObject(encDict)
-	enc.SetEncryptDictObjNum(w.encryptRef.ObjectNumber)
+	enc.SetEncryptDictObjNum(w.encryptRef.Num())
 }
 
 // WriteTo writes the complete PDF file to the given writer.

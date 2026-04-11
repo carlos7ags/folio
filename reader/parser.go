@@ -178,8 +178,8 @@ func (p *Parser) parseStream(dict *core.PdfDictionary) (core.PdfObject, error) {
 
 	// Build PdfStream — data will be read from the file by the resolver.
 	stream := core.NewPdfStream(nil)
-	for _, entry := range dict.Entries {
-		stream.Dict.Set(entry.Key.Value, entry.Value)
+	for key, value := range dict.All() {
+		stream.Dict.Set(key, value)
 	}
 
 	return stream, nil

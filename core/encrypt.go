@@ -13,6 +13,9 @@ import (
 	"crypto/sha512"
 	"encoding/binary"
 	"fmt"
+	"unicode/utf8"
+
+	"golang.org/x/text/unicode/norm"
 )
 
 // Permission flags for PDF document encryption (ISO 32000 Table 22).
@@ -44,7 +47,11 @@ func permBits(p Permission) int32 {
 type EncryptionRevision int
 
 const (
-	RevisionRC4128 EncryptionRevision = 3 // RC4 128-bit (V=2, R=3)
+	// RevisionRC4128 selects the RC4-128 Standard Security Handler (V=2, R=3).
+	//
+	// Deprecated: RC4 is cryptographically broken and kept only for backward
+	// compatibility with legacy readers. Use [RevisionAES256] for new documents.
+	RevisionRC4128 EncryptionRevision = 3
 	RevisionAES128 EncryptionRevision = 4 // AES-128-CBC (V=4, R=4)
 	RevisionAES256 EncryptionRevision = 6 // AES-256-CBC (V=5, R=6)
 )
@@ -134,12 +141,12 @@ func (e *Encryptor) EncryptObject(obj PdfObject, objNum, genNum int) error {
 func (e *Encryptor) walkEncrypt(obj PdfObject, objNum, genNum int) error {
 	switch o := obj.(type) {
 	case *PdfString:
-		enc, err := e.EncryptBytes(objNum, genNum, []byte(o.Value))
+		enc, err := e.EncryptBytes(objNum, genNum, []byte(o.value))
 		if err != nil {
 			return fmt.Errorf("encrypt string (obj %d): %w", objNum, err)
 		}
-		o.Value = string(enc)
-		o.Encoding = StringHexadecimal // binary data must be hex-encoded
+		o.value = string(enc)
+		o.encoding = StringHexadecimal // binary data must be hex-encoded
 	case *PdfDictionary:
 		for _, entry := range o.Entries {
 			if err := e.walkEncrypt(entry.Value, objNum, genNum); err != nil {
@@ -162,10 +169,12 @@ func (e *Encryptor) walkEncrypt(obj PdfObject, objNum, genNum int) error {
 		// Compress data first (if applicable), then encrypt.
 		data := o.Data
 		if o.compress {
-			if compressed, err := deflate(data); err == nil {
-				data = compressed
-				o.Dict.Set("Filter", NewPdfName("FlateDecode"))
+			compressed, err := deflate(data)
+			if err != nil {
+				return fmt.Errorf("compress stream (obj %d): %w", objNum, err)
 			}
+			data = compressed
+			o.Dict.Set("Filter", NewPdfName("FlateDecode"))
 			o.compress = false
 		}
 		enc, err := e.EncryptBytes(objNum, genNum, data)
@@ -256,7 +265,7 @@ func computeOwnerHashR3(userPwd, ownerPwd string, keyLen int) []byte {
 	// Step a-d: hash the owner password.
 	padded := padPassword([]byte(ownerPwd))
 	h := md5.Sum(padded[:])
-	for i := 0; i < 50; i++ {
+	for range 50 {
 		h = md5.Sum(h[:])
 	}
 	key := h[:keyLen]
@@ -284,7 +293,7 @@ func computeFileKeyR3(userPwd string, o []byte, p int32, fileID []byte, keyLen i
 	h.Write(pbuf[:])
 	h.Write(fileID)
 	sum := h.Sum(nil)
-	for i := 0; i < 50; i++ {
+	for range 50 {
 		tmp := md5.Sum(sum[:keyLen])
 		sum = tmp[:]
 	}
@@ -321,10 +330,7 @@ func (e *Encryptor) objectKeyRC4(objNum, genNum int) []byte {
 	buf[4] = byte(genNum >> 8)
 	h.Write(buf[:])
 	sum := h.Sum(nil)
-	n := e.keyLen + 5
-	if n > 16 {
-		n = 16
-	}
+	n := min(e.keyLen+5, 16)
 	return sum[:n]
 }
 
@@ -363,9 +369,9 @@ func (e *Encryptor) objectKeyAES(objNum, genNum int) []byte {
 
 // newEncryptorR6 creates an Encryptor using AES-256-CBC (Revision 6, PDF 2.0).
 func newEncryptorR6(userPwd, ownerPwd string, p int32, fileID []byte) (*Encryptor, error) {
-	// Truncate passwords to 127 bytes (UTF-8).
-	uPwd := truncatePassword(userPwd)
-	oPwd := truncatePassword(ownerPwd)
+	// SASLprep (NFKC normalize + truncate to 127 bytes at rune boundary).
+	uPwd := saslPrepPassword(userPwd)
+	oPwd := saslPrepPassword(ownerPwd)
 
 	// Random 32-byte file encryption key.
 	fileKey, err := randomBytes(32)
@@ -422,7 +428,10 @@ func newEncryptorR6(userPwd, ownerPwd string, p int32, fileID []byte) (*Encrypto
 	}
 
 	// Perms: AES-256-ECB encrypt 16-byte permissions block.
-	perms := buildPermsBlock(p)
+	perms, err := buildPermsBlock(p)
+	if err != nil {
+		return nil, err
+	}
 	encPerms := aesECBEncryptBlock(fileKey, perms)
 
 	return &Encryptor{
@@ -454,7 +463,13 @@ func algorithmR6Hash(password, salt, userKey []byte) []byte {
 		}
 
 		// E = AES-128-CBC(key=K[0:16], iv=K[16:32], data=K1).
-		block, _ := aes.NewCipher(k[0:16])
+		// K[0:16] always comes from a hash output, so NewCipher cannot fail
+		// for a standards-compliant AES implementation; panic instead of
+		// silently discarding the error.
+		block, err := aes.NewCipher(k[0:16])
+		if err != nil {
+			panic("core: aes.NewCipher on hash-derived key failed: " + err.Error())
+		}
 		cbc := cipher.NewCBCEncrypter(block, k[16:32])
 		e := make([]byte, len(k1))
 		cbc.CryptBlocks(e, k1)
@@ -487,7 +502,7 @@ func algorithmR6Hash(password, salt, userKey []byte) []byte {
 }
 
 // buildPermsBlock creates the 16-byte permissions plaintext for R=6.
-func buildPermsBlock(p int32) []byte {
+func buildPermsBlock(p int32) ([]byte, error) {
 	buf := make([]byte, 16)
 	binary.LittleEndian.PutUint32(buf[0:4], uint32(p))
 	// Bytes 4-7: 0xFFFFFFFF.
@@ -497,8 +512,10 @@ func buildPermsBlock(p int32) []byte {
 	// Bytes 9-11: 'adb' (per spec).
 	buf[9], buf[10], buf[11] = 'a', 'd', 'b'
 	// Bytes 12-15: random.
-	_, _ = rand.Read(buf[12:16])
-	return buf
+	if _, err := rand.Read(buf[12:16]); err != nil {
+		return nil, fmt.Errorf("encrypt: random bytes for perms block: %w", err)
+	}
+	return buf, nil
 }
 
 // --- Cryptographic helpers ---
@@ -515,13 +532,32 @@ func padPassword(pwd []byte) [32]byte {
 }
 
 // truncatePassword truncates a UTF-8 password to at most 127 bytes, as
-// required by ISO 32000-2 §7.6.4.3.3.
+// required by ISO 32000-2 §7.6.4.3.3. Truncation respects rune boundaries:
+// if byte 127 falls inside a multi-byte sequence, it is cut at the preceding
+// rune start so the result is always valid UTF-8.
 func truncatePassword(pwd string) []byte {
 	b := []byte(pwd)
-	if len(b) > 127 {
-		b = b[:127]
+	if len(b) <= 127 {
+		return b
 	}
-	return b
+	// Walk backward from byte 127 until we find a valid rune start.
+	i := 127
+	for i > 0 && !utf8.RuneStart(b[i]) {
+		i--
+	}
+	return b[:i]
+}
+
+// saslPrepPassword applies a simplified SASLprep (RFC 4013) profile to a
+// PDF password, as required by ISO 32000-2 §7.6.4.3.3 for revision 6.
+// The full SASLprep specification includes character mapping, prohibited
+// character checks, and bidirectional string validation. This implementation
+// performs NFKC normalization — the most impactful step, which ensures that
+// canonically equivalent Unicode strings (e.g., precomposed "é" vs. "e" +
+// combining acute) produce the same encryption key — then truncates to
+// 127 bytes at a rune boundary.
+func saslPrepPassword(pwd string) []byte {
+	return truncatePassword(norm.NFKC.String(pwd))
 }
 
 // rc4Encrypt encrypts (or decrypts) data using RC4 with the given key.

@@ -28,3 +28,21 @@ func TestFormatRealNegInf(t *testing.T) {
 		t.Errorf("expected %q for -Inf, got %q", "0.0", got)
 	}
 }
+
+func TestIntValueNaN(t *testing.T) {
+	if got := NewPdfReal(math.NaN()).IntValue(); got != 0 {
+		t.Errorf("IntValue on NaN = %d, want 0", got)
+	}
+}
+
+func TestIntValuePosInf(t *testing.T) {
+	if got := NewPdfReal(math.Inf(1)).IntValue(); got != 0 {
+		t.Errorf("IntValue on +Inf = %d, want 0", got)
+	}
+}
+
+func TestIntValueNegInf(t *testing.T) {
+	if got := NewPdfReal(math.Inf(-1)).IntValue(); got != 0 {
+		t.Errorf("IntValue on -Inf = %d, want 0", got)
+	}
+}

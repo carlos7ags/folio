@@ -89,12 +89,12 @@ func (c *Copier) copyDeep(obj core.PdfObject) (core.PdfObject, error) {
 // placeholder to handle circular references.
 func (c *Copier) copyIndirectRef(ref *core.PdfIndirectReference) (core.PdfObject, error) {
 	// Check if already copied.
-	if newRef, ok := c.refMap[ref.ObjectNumber]; ok {
+	if newRef, ok := c.refMap[ref.Num()]; ok {
 		return newRef, nil
 	}
 
 	// Resolve the original object.
-	resolved, err := c.reader.resolver.Resolve(ref.ObjectNumber)
+	resolved, err := c.reader.resolver.Resolve(ref.Num())
 	if err != nil {
 		// Intentional tolerance: return null for references that cannot be
 		// resolved (broken xref, missing object, etc.). This is acceptable
@@ -109,7 +109,7 @@ func (c *Copier) copyIndirectRef(ref *core.PdfIndirectReference) (core.PdfObject
 
 	// Allocate a placeholder reference first (handles circular refs).
 	placeholder := c.addObj(core.NewPdfNull())
-	c.refMap[ref.ObjectNumber] = placeholder
+	c.refMap[ref.Num()] = placeholder
 
 	// Deep-copy the resolved object.
 	copied, err := c.copyDeep(resolved)
@@ -122,7 +122,7 @@ func (c *Copier) copyIndirectRef(ref *core.PdfIndirectReference) (core.PdfObject
 	// and update the refMap. The placeholder ref is now orphaned but
 	// harmless (it points to null).
 	newRef := c.addObj(copied)
-	c.refMap[ref.ObjectNumber] = newRef
+	c.refMap[ref.Num()] = newRef
 
 	return newRef, nil
 }
@@ -130,12 +130,12 @@ func (c *Copier) copyIndirectRef(ref *core.PdfIndirectReference) (core.PdfObject
 // copyDict deep-copies a PDF dictionary, recursively copying all values.
 func (c *Copier) copyDict(dict *core.PdfDictionary) (*core.PdfDictionary, error) {
 	newDict := core.NewPdfDictionary()
-	for _, entry := range dict.Entries {
-		copied, err := c.copyDeep(entry.Value)
+	for key, value := range dict.All() {
+		copied, err := c.copyDeep(value)
 		if err != nil {
 			return nil, err
 		}
-		newDict.Set(entry.Key.Value, copied)
+		newDict.Set(key, copied)
 	}
 	return newDict, nil
 }
@@ -143,7 +143,7 @@ func (c *Copier) copyDict(dict *core.PdfDictionary) (*core.PdfDictionary, error)
 // copyArray deep-copies a PDF array, recursively copying all elements.
 func (c *Copier) copyArray(arr *core.PdfArray) (*core.PdfArray, error) {
 	newArr := core.NewPdfArray()
-	for _, elem := range arr.Elements {
+	for _, elem := range arr.All() {
 		copied, err := c.copyDeep(elem)
 		if err != nil {
 			return nil, err
@@ -164,40 +164,26 @@ func (c *Copier) copyStream(stream *core.PdfStream) (*core.PdfStream, error) {
 	if hasFilter {
 		// Unknown filter — preserve raw data and dict entries as-is.
 		newStream = core.NewPdfStream(stream.Data)
-		for _, entry := range stream.Dict.Entries {
-			if entry.Key.Value == "Length" {
-				continue
-			}
-			copied, err := c.copyDeep(entry.Value)
-			if err != nil {
-				return nil, err
-			}
-			newStream.Dict.Set(entry.Key.Value, copied)
-		}
 	} else {
 		// Decompressed stream — re-compress with FlateDecode on write.
 		newStream = core.NewPdfStreamCompressed(stream.Data)
-		for _, entry := range stream.Dict.Entries {
-			if entry.Key.Value == "Length" {
-				continue
-			}
-			copied, err := c.copyDeep(entry.Value)
-			if err != nil {
-				return nil, err
-			}
-			newStream.Dict.Set(entry.Key.Value, copied)
+	}
+	for key, value := range stream.Dict.All() {
+		if key == "Length" {
+			continue
 		}
+		copied, err := c.copyDeep(value)
+		if err != nil {
+			return nil, err
+		}
+		newStream.Dict.Set(key, copied)
 	}
 	return newStream, nil
 }
 
-// removeEntry removes a key from a dictionary.
+// removeEntry removes a key from a dictionary. It delegates to
+// [core.PdfDictionary.Remove] so the dictionary's internal index
+// stays in sync.
 func removeEntry(dict *core.PdfDictionary, key string) {
-	var kept []core.DictEntry
-	for _, e := range dict.Entries {
-		if e.Key.Value != key {
-			kept = append(kept, e)
-		}
-	}
-	dict.Entries = kept
+	dict.Remove(key)
 }

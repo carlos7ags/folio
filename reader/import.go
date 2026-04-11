@@ -91,38 +91,38 @@ func resolveDeepVisited(obj core.PdfObject, res *resolver, visited map[int]core.
 	// Resolve indirect references.
 	if ref, ok := obj.(*core.PdfIndirectReference); ok {
 		// Check for cycles.
-		if cached, ok := visited[ref.ObjectNumber]; ok {
+		if cached, ok := visited[ref.Num()]; ok {
 			return cached, nil
 		}
-		resolved, err := res.Resolve(ref.ObjectNumber)
+		resolved, err := res.Resolve(ref.Num())
 		if err != nil {
 			return obj, nil // return unresolved on error
 		}
 		// Mark as visited before recursing (handles cycles).
-		visited[ref.ObjectNumber] = nil
+		visited[ref.Num()] = nil
 		result, err := resolveDeepVisited(resolved, res, visited)
 		if err != nil {
 			return resolved, nil
 		}
-		visited[ref.ObjectNumber] = result
+		visited[ref.Num()] = result
 		return result, nil
 	}
 
 	switch o := obj.(type) {
 	case *core.PdfDictionary:
 		newDict := core.NewPdfDictionary()
-		for _, entry := range o.Entries {
-			resolved, err := resolveDeepVisited(entry.Value, res, visited)
+		for key, value := range o.All() {
+			resolved, err := resolveDeepVisited(value, res, visited)
 			if err != nil {
 				return nil, err
 			}
-			newDict.Set(entry.Key.Value, resolved)
+			newDict.Set(key, resolved)
 		}
 		return newDict, nil
 
 	case *core.PdfArray:
 		newArr := core.NewPdfArray()
-		for _, elem := range o.Elements {
+		for _, elem := range o.All() {
 			resolved, err := resolveDeepVisited(elem, res, visited)
 			if err != nil {
 				return nil, err
@@ -134,12 +134,12 @@ func resolveDeepVisited(obj core.PdfObject, res *resolver, visited map[int]core.
 	case *core.PdfStream:
 		// Copy the stream data and resolve dict entries.
 		newStream := core.NewPdfStream(o.Data)
-		for _, entry := range o.Dict.Entries {
-			resolved, err := resolveDeepVisited(entry.Value, res, visited)
+		for key, value := range o.Dict.All() {
+			resolved, err := resolveDeepVisited(value, res, visited)
 			if err != nil {
 				return nil, err
 			}
-			newStream.Dict.Set(entry.Key.Value, resolved)
+			newStream.Dict.Set(key, resolved)
 		}
 		return newStream, nil
 

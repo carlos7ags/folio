@@ -34,7 +34,7 @@ func parseStructureTree(catalog *core.PdfDictionary, res *resolver) *StructureTr
 				markedObj := markDict.Get("Marked")
 				if markedObj != nil {
 					if boolVal, ok := markedObj.(*core.PdfBoolean); ok {
-						if !boolVal.Value {
+						if !boolVal.Bool() {
 							return nil
 						}
 					}
@@ -92,7 +92,7 @@ func parseStructKids(kObj core.PdfObject, parent *StructNode, res *resolver) {
 		parseStructElement(v, parent, res)
 
 	case *core.PdfArray:
-		for _, elem := range v.Elements {
+		for _, elem := range v.All() {
 			parseStructKids(elem, parent, res)
 		}
 	}
@@ -112,7 +112,7 @@ func parseStructElement(dict *core.PdfDictionary, parent *StructNode, res *resol
 					pgObj := dict.Get("Pg")
 					if pgObj != nil {
 						if ref, ok := pgObj.(*core.PdfIndirectReference); ok {
-							pageObjNum = ref.ObjectNumber
+							pageObjNum = ref.Num()
 						}
 					}
 					// MCR is a leaf — attach MCID to parent directly.
@@ -149,7 +149,7 @@ func parseStructElement(dict *core.PdfDictionary, parent *StructNode, res *resol
 	pgObj := dict.Get("Pg")
 	if pgObj != nil {
 		if ref, ok := pgObj.(*core.PdfIndirectReference); ok {
-			pageObjNum = ref.ObjectNumber
+			pageObjNum = ref.Num()
 		}
 	}
 
@@ -171,7 +171,7 @@ func parseStructElement(dict *core.PdfDictionary, parent *StructNode, res *resol
 			case *core.PdfDictionary:
 				parseStructElement(kv, child, res)
 			case *core.PdfArray:
-				for _, elem := range kv.Elements {
+				for _, elem := range kv.All() {
 					parseStructKids(elem, child, res)
 				}
 			}

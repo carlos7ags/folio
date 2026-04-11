@@ -278,10 +278,10 @@ func TestEncryptObjectString(t *testing.T) {
 		t.Fatal(err)
 	}
 	// After encryption: encoding must be hex, value must differ.
-	if s.Encoding != StringHexadecimal {
+	if !s.IsHex() {
 		t.Error("encrypted string not hex-encoded")
 	}
-	if s.Value == "Hello" {
+	if s.Text() == "Hello" {
 		t.Error("string not encrypted")
 	}
 }
@@ -293,7 +293,7 @@ func TestEncryptObjectSkipsEncryptDict(t *testing.T) {
 	if err := enc.EncryptObject(s, 5, 0); err != nil {
 		t.Fatal(err)
 	}
-	if s.Value != "Secret" {
+	if s.Text() != "Secret" {
 		t.Error("encrypt dict object should not be encrypted")
 	}
 }
@@ -308,7 +308,7 @@ func TestEncryptObjectDict(t *testing.T) {
 	}
 	// String should be encrypted; integer should be unchanged.
 	title := d.Get("Title").(*PdfString)
-	if title.Value == "Test" {
+	if title.Text() == "Test" {
 		t.Error("string in dict not encrypted")
 	}
 	count := d.Get("Count").(*PdfNumber)
@@ -394,5 +394,151 @@ func TestBuildEncryptDictAuthEvent(t *testing.T) {
 		if em == nil {
 			t.Errorf("R=%d: missing /EncryptMetadata", rev)
 		}
+	}
+}
+
+func TestNewEncryptorInvalidRevision(t *testing.T) {
+	_, err := NewEncryptor(EncryptionRevision(99), "user", "owner", PermAll)
+	if err == nil {
+		t.Error("expected error for invalid revision, got nil")
+	}
+}
+
+func TestEncryptBytesEmpty(t *testing.T) {
+	enc, _ := NewEncryptor(RevisionAES256, "pass", "pass", PermAll)
+	out, err := enc.EncryptBytes(1, 0, []byte{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(out) != 0 {
+		t.Errorf("expected empty output for empty input, got %d bytes", len(out))
+	}
+}
+
+func TestEncryptBytesRC4Direct(t *testing.T) {
+	enc, err := NewEncryptor(RevisionRC4128, "pass", "pass", PermAll)
+	if err != nil {
+		t.Fatal(err)
+	}
+	plaintext := []byte("some plaintext")
+	encrypted, err := enc.EncryptBytes(1, 0, plaintext)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bytes.Equal(encrypted, plaintext) {
+		t.Error("RC4 encryption did not change data")
+	}
+	if len(encrypted) != len(plaintext) {
+		t.Errorf("RC4 should not change length: got %d, want %d",
+			len(encrypted), len(plaintext))
+	}
+}
+
+func TestEncryptBytesRC4RoundTrip(t *testing.T) {
+	enc, err := NewEncryptor(RevisionRC4128, "pass", "pass", PermAll)
+	if err != nil {
+		t.Fatal(err)
+	}
+	original := []byte("Hello, PDF encryption!")
+	encrypted, err := enc.EncryptBytes(1, 0, original)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// RC4 is symmetric: encrypting with the same per-object key decrypts.
+	decrypted, err := enc.EncryptBytes(1, 0, encrypted)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(decrypted, original) {
+		t.Errorf("RC4 round-trip failed: got %q, want %q", decrypted, original)
+	}
+}
+
+func TestEncryptBytesAES128Direct(t *testing.T) {
+	enc, err := NewEncryptor(RevisionAES128, "pass", "pass", PermAll)
+	if err != nil {
+		t.Fatal(err)
+	}
+	plaintext := []byte("some AES-128 plaintext")
+	encrypted, err := enc.EncryptBytes(1, 0, plaintext)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bytes.Equal(encrypted, plaintext) {
+		t.Error("AES-128 encryption did not change data")
+	}
+	// Output must have a 16-byte IV prefix plus PKCS7-padded ciphertext.
+	if len(encrypted) < len(plaintext)+16 {
+		t.Errorf("AES-128 output too short: got %d, want >= %d",
+			len(encrypted), len(plaintext)+16)
+	}
+}
+
+func TestEncryptObjectArray(t *testing.T) {
+	enc, _ := NewEncryptor(RevisionAES256, "pass", "pass", PermAll)
+	arr := NewPdfArray(
+		NewPdfLiteralString("secret"),
+		NewPdfInteger(42),
+	)
+	if err := enc.EncryptObject(arr, 2, 0); err != nil {
+		t.Fatal(err)
+	}
+	s := arr.Elements[0].(*PdfString)
+	if s.Text() == "secret" {
+		t.Error("string in array not encrypted")
+	}
+	n := arr.Elements[1].(*PdfNumber)
+	if n.IntValue() != 42 {
+		t.Error("integer in array modified during encryption")
+	}
+}
+
+func TestSaslPrepNormalization(t *testing.T) {
+	// U+00E9 (precomposed e-acute) vs U+0065 U+0301 (e + combining acute).
+	precomposed := "caf\u00e9"
+	decomposed := "cafe\u0301"
+
+	p1 := saslPrepPassword(precomposed)
+	p2 := saslPrepPassword(decomposed)
+	if !bytes.Equal(p1, p2) {
+		t.Errorf("SASLprep should normalize equivalent Unicode: %x vs %x", p1, p2)
+	}
+}
+
+func TestTruncatePasswordRuneBoundary(t *testing.T) {
+	// Build a password whose byte 127 falls inside a multi-byte rune.
+	// The é character (U+00E9) is 2 bytes in UTF-8: 0xC3 0xA9.
+	// 63 × "ab" (126 bytes) + "é" (2 bytes) = 128 bytes. Byte 127 is
+	// the continuation byte of é.
+	pwd := ""
+	for range 63 {
+		pwd += "ab"
+	}
+	pwd += "é" // 0xC3 0xA9
+	if len(pwd) != 128 {
+		t.Fatalf("setup: pwd length = %d, want 128", len(pwd))
+	}
+	truncated := truncatePassword(pwd)
+	if len(truncated) > 127 {
+		t.Errorf("truncated length = %d, want <= 127", len(truncated))
+	}
+	// The result must be valid UTF-8 (no lone continuation byte).
+	if last := truncated[len(truncated)-1]; last&0xC0 == 0x80 {
+		t.Errorf("truncated password ends with continuation byte 0x%02X", last)
+	}
+}
+
+func TestEncryptR6EquivalentUnicodePasswords(t *testing.T) {
+	// Two R6 encryptors created with canonically equivalent passwords
+	// should accept each other's encryption under the same file key.
+	// Since each NewEncryptor randomizes the file key, we can't compare
+	// file keys directly; instead verify that saslPrepPassword produces
+	// the same bytes, which is what feeds the key derivation.
+	p1 := saslPrepPassword("Angstr\u00f6m")  // precomposed Å, single ö
+	p2 := saslPrepPassword("Angstro\u0308m") // o + combining diaeresis = ö
+	// Note: "Angstr" stays the same, difference is just in ö.
+	// Without NFKC these would differ; with NFKC they should match.
+	if !bytes.Equal(p1, p2) {
+		t.Errorf("canonically-equivalent passwords produced different bytes: %x vs %x", p1, p2)
 	}
 }

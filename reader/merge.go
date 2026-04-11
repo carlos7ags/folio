@@ -195,7 +195,7 @@ func (m *Modifier) RemovePage(index int) error {
 	if index < 0 || index >= m.pageCount {
 		return fmt.Errorf("page index %d out of range [0, %d)", index, m.pageCount)
 	}
-	m.kids.Elements = append(m.kids.Elements[:index], m.kids.Elements[index+1:]...)
+	m.kids.RemoveAt(index)
 	m.pageDicts = append(m.pageDicts[:index], m.pageDicts[index+1:]...)
 	m.pageCount--
 	return nil
@@ -236,10 +236,10 @@ func (m *Modifier) ReorderPages(order []int) error {
 	newKids := make([]core.PdfObject, m.pageCount)
 	newDicts := make([]*core.PdfDictionary, m.pageCount)
 	for i, idx := range order {
-		newKids[i] = m.kids.Elements[idx]
+		newKids[i] = m.kids.At(idx)
 		newDicts[i] = m.pageDicts[idx]
 	}
-	m.kids.Elements = newKids
+	m.kids.Replace(newKids...)
 	m.pageDicts = newDicts
 	return nil
 }

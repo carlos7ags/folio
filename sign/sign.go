@@ -265,7 +265,7 @@ func buildAcroForm(r *reader.PdfReader, sigFieldObjNum int) *core.PdfDictionary 
 		if af := catalog.Get("AcroForm"); af != nil {
 			if afDict, ok := af.(*core.PdfDictionary); ok {
 				if existingFields, ok := afDict.Get("Fields").(*core.PdfArray); ok {
-					for _, f := range existingFields.Elements {
+					for _, f := range existingFields.All() {
 						fields.Add(f)
 					}
 				}
@@ -275,7 +275,7 @@ func buildAcroForm(r *reader.PdfReader, sigFieldObjNum int) *core.PdfDictionary 
 				if resolved, err := r.ResolveObject(afRef); err == nil {
 					if afDict, ok := resolved.(*core.PdfDictionary); ok {
 						if existingFields, ok := afDict.Get("Fields").(*core.PdfArray); ok {
-							for _, f := range existingFields.Elements {
+							for _, f := range existingFields.All() {
 								fields.Add(f)
 							}
 						}
@@ -300,7 +300,7 @@ func getCatalogObjNum(trailer *core.PdfDictionary) (int, error) {
 	if !ok {
 		return 0, errors.New("sign: trailer /Root is not an indirect reference")
 	}
-	return ref.ObjectNumber, nil
+	return ref.Num(), nil
 }
 
 // buildCatalogWithAcroForm clones the original catalog and adds /AcroForm.
@@ -311,11 +311,11 @@ func buildCatalogWithAcroForm(r *reader.PdfReader, acroFormObjNum int) (*core.Pd
 	}
 
 	d := core.NewPdfDictionary()
-	for _, e := range catalog.Entries {
-		if e.Key.Value == "AcroForm" {
+	for key, value := range catalog.All() {
+		if key == "AcroForm" {
 			continue // Replace with our own.
 		}
-		d.Set(e.Key.Value, e.Value)
+		d.Set(key, value)
 	}
 	d.Set("AcroForm", core.NewPdfIndirectReference(acroFormObjNum, 0))
 	return d, nil

@@ -199,7 +199,7 @@ func TestPNGBuildXObject(t *testing.T) {
 	objCount := 0
 	addObject := func(obj core.PdfObject) *core.PdfIndirectReference {
 		objCount++
-		return &core.PdfIndirectReference{ObjectNumber: objCount, GenerationNumber: 0}
+		return core.NewPdfIndirectReference(objCount, 0)
 	}
 
 	imgRef, smaskRef := img.BuildXObject(addObject)
@@ -224,7 +224,7 @@ func TestPNGBuildXObjectWithAlpha(t *testing.T) {
 	objCount := 0
 	addObject := func(obj core.PdfObject) *core.PdfIndirectReference {
 		objCount++
-		return &core.PdfIndirectReference{ObjectNumber: objCount, GenerationNumber: 0}
+		return core.NewPdfIndirectReference(objCount, 0)
 	}
 
 	imgRef, smaskRef := img.BuildXObject(addObject)
@@ -235,11 +235,11 @@ func TestPNGBuildXObjectWithAlpha(t *testing.T) {
 		t.Fatal("expected non-nil SMask reference for PNG with alpha")
 	}
 	// SMask should be added first (object 1), then the image (object 2).
-	if smaskRef.ObjectNumber != 1 {
-		t.Errorf("expected SMask object number 1, got %d", smaskRef.ObjectNumber)
+	if smaskRef.Num() != 1 {
+		t.Errorf("expected SMask object number 1, got %d", smaskRef.Num())
 	}
-	if imgRef.ObjectNumber != 2 {
-		t.Errorf("expected image object number 2, got %d", imgRef.ObjectNumber)
+	if imgRef.Num() != 2 {
+		t.Errorf("expected image object number 2, got %d", imgRef.Num())
 	}
 	if objCount != 2 {
 		t.Errorf("expected 2 objects added, got %d", objCount)
@@ -338,7 +338,7 @@ func TestPNGBuildXObjectGrayscale(t *testing.T) {
 	}
 
 	addObject := func(obj core.PdfObject) *core.PdfIndirectReference {
-		return &core.PdfIndirectReference{ObjectNumber: 1, GenerationNumber: 0}
+		return core.NewPdfIndirectReference(1, 0)
 	}
 
 	imgRef, smaskRef := img.BuildXObject(addObject)

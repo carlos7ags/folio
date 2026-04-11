@@ -30,10 +30,43 @@ func NewPdfReal(v float64) *PdfNumber {
 // Type returns ObjectTypeNumber.
 func (n *PdfNumber) Type() ObjectType { return ObjectTypeNumber }
 
-// IntValue returns the integer value. It truncates reals.
+// IntValue returns the integer value, truncating reals toward zero.
+// NaN and infinite values return 0 so malformed PDFs cannot propagate
+// undefined conversions into the rest of the pipeline.
+//
+// Note: this method silently truncates real values and can overflow on
+// 32-bit platforms for very large reals. Use [PdfNumber.IntValueChecked]
+// when you need to distinguish between an integer, a truncated real,
+// and an out-of-range value.
 func (n *PdfNumber) IntValue() int {
+	if math.IsNaN(n.value) || math.IsInf(n.value, 0) {
+		return 0
+	}
 	return int(n.value)
 }
+
+// IntValueChecked returns the integer value and a boolean indicating whether
+// the conversion was exact. ok is false if the underlying value is a real
+// with a fractional part, is NaN or Inf, or overflows the platform int range.
+func (n *PdfNumber) IntValueChecked() (value int, ok bool) {
+	v := n.value
+	if v != v { // NaN
+		return 0, false
+	}
+	if v > float64(maxInt) || v < float64(minInt) {
+		return 0, false
+	}
+	if !n.isInteger && v != float64(int64(v)) {
+		return int(v), false
+	}
+	return int(v), true
+}
+
+// Platform int bounds for IntValueChecked overflow detection.
+const (
+	maxInt = int(^uint(0) >> 1)
+	minInt = -maxInt - 1
+)
 
 // FloatValue returns the float64 value.
 func (n *PdfNumber) FloatValue() float64 {

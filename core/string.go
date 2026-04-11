@@ -20,32 +20,46 @@ const (
 // PdfString represents a PDF string object (ISO 32000 §7.3.4).
 // PDF supports two notations: literal strings in parentheses and
 // hexadecimal strings in angle brackets.
+//
+// Use [NewPdfLiteralString] or [NewPdfHexString] to construct, and
+// [PdfString.Text] / [PdfString.IsHex] to read. The underlying fields
+// are unexported; encryption mutates them in-place from within the
+// core package.
 type PdfString struct {
-	Value    string
-	Encoding StringEncoding
+	value    string
+	encoding StringEncoding
 }
 
 // NewPdfLiteralString creates a literal string: (value).
 func NewPdfLiteralString(v string) *PdfString {
-	return &PdfString{Value: v, Encoding: StringLiteral}
+	return &PdfString{value: v, encoding: StringLiteral}
 }
 
 // NewPdfHexString creates a hexadecimal string: <hex>.
 func NewPdfHexString(v string) *PdfString {
-	return &PdfString{Value: v, Encoding: StringHexadecimal}
+	return &PdfString{value: v, encoding: StringHexadecimal}
 }
 
 // Type returns ObjectTypeString.
 func (s *PdfString) Type() ObjectType { return ObjectTypeString }
 
+// Text returns the raw string value, without PDF escaping.
+// For literal strings this is the unescaped content; for hex strings
+// it is the decoded bytes interpreted as a string.
+func (s *PdfString) Text() string { return s.value }
+
+// IsHex reports whether the string will be serialized in hexadecimal
+// notation (<hex>) rather than literal notation ((text)).
+func (s *PdfString) IsHex() bool { return s.encoding == StringHexadecimal }
+
 // WriteTo serializes the string in literal or hexadecimal notation to w.
 func (s *PdfString) WriteTo(w io.Writer) (int64, error) {
 	var out string
-	switch s.Encoding {
+	switch s.encoding {
 	case StringHexadecimal:
-		out = "<" + fmt.Sprintf("%X", []byte(s.Value)) + ">"
+		out = "<" + fmt.Sprintf("%X", []byte(s.value)) + ">"
 	default:
-		out = "(" + EscapeLiteralString(s.Value) + ")"
+		out = "(" + EscapeLiteralString(s.value) + ")"
 	}
 	n, err := fmt.Fprint(w, out)
 	return int64(n), err
@@ -57,7 +71,7 @@ func (s *PdfString) WriteTo(w io.Writer) (int64, error) {
 func EscapeLiteralString(s string) string {
 	var b strings.Builder
 	b.Grow(len(s))
-	for i := 0; i < len(s); i++ {
+	for i := range len(s) {
 		c := s[i]
 		switch {
 		case c == '\\':

@@ -153,15 +153,15 @@ func TestJPEGBuildXObject(t *testing.T) {
 	objCount := 0
 	addObject := func(obj core.PdfObject) *core.PdfIndirectReference {
 		objCount++
-		return &core.PdfIndirectReference{ObjectNumber: objCount, GenerationNumber: 0}
+		return core.NewPdfIndirectReference(objCount, 0)
 	}
 
 	imgRef, smaskRef := img.BuildXObject(addObject)
 	if imgRef == nil {
 		t.Fatal("expected non-nil image reference")
 	}
-	if imgRef.ObjectNumber != 1 {
-		t.Errorf("expected object number 1, got %d", imgRef.ObjectNumber)
+	if imgRef.Num() != 1 {
+		t.Errorf("expected object number 1, got %d", imgRef.Num())
 	}
 	if smaskRef != nil {
 		t.Error("expected nil SMask reference for JPEG")
@@ -193,7 +193,7 @@ func TestJPEGBuildXObjectColorSpace(t *testing.T) {
 	}
 
 	addObject := func(obj core.PdfObject) *core.PdfIndirectReference {
-		return &core.PdfIndirectReference{ObjectNumber: 1, GenerationNumber: 0}
+		return core.NewPdfIndirectReference(1, 0)
 	}
 
 	imgRef, smaskRef := img.BuildXObject(addObject)
