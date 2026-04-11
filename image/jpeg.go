@@ -6,7 +6,6 @@ package image
 import (
 	"encoding/binary"
 	"fmt"
-	"os"
 )
 
 // JPEG marker constants.
@@ -17,11 +16,21 @@ const (
 	markerSOF2 = 0xFFC2 // Progressive DCT
 )
 
-// NewJPEG creates an Image from raw JPEG data.
-// It parses the JPEG header to extract dimensions and color space.
+// maxJPEGSegments bounds the number of segments [parseJPEGHeader] is
+// willing to walk before concluding the file is malformed. Real JPEGs
+// rarely contain more than a few dozen segments; anything close to this
+// limit is adversarial.
+const maxJPEGSegments = 10000
+
+// NewJPEG creates an Image from raw JPEG data. It parses the JPEG header
+// to extract dimensions and color space, rejecting dimensions that exceed
+// the package limits ([MaxDimension], [MaxPixels]).
 func NewJPEG(data []byte) (*Image, error) {
 	w, h, ncomp, err := parseJPEGHeader(data)
 	if err != nil {
+		return nil, fmt.Errorf("jpeg: %w", err)
+	}
+	if err := checkDimensions(w, h); err != nil {
 		return nil, fmt.Errorf("jpeg: %w", err)
 	}
 
@@ -47,24 +56,32 @@ func NewJPEG(data []byte) (*Image, error) {
 	}, nil
 }
 
-// LoadJPEG reads a JPEG file and creates an Image.
+// LoadJPEG reads a JPEG file from disk and creates an Image. Files larger
+// than [MaxFileSize] are rejected with [ErrFileTooLarge] before being
+// buffered into memory.
 func LoadJPEG(path string) (*Image, error) {
-	data, err := os.ReadFile(path)
+	data, err := readLimited(path)
 	if err != nil {
 		return nil, err
 	}
 	return NewJPEG(data)
 }
 
-// parseJPEGHeader reads the JPEG header to find dimensions and component count.
-// It scans for SOF0, SOF1, or SOF2 markers.
+// parseJPEGHeader reads the JPEG header to find dimensions and component
+// count. It scans for SOF0, SOF1, or SOF2 markers and bounds the number
+// of segments walked via [maxJPEGSegments] to guard against crafted files
+// that would otherwise loop slowly through pathological segment sequences.
 func parseJPEGHeader(data []byte) (width, height, numComponents int, err error) {
 	if len(data) < 2 || binary.BigEndian.Uint16(data[0:2]) != markerSOI {
 		return 0, 0, 0, fmt.Errorf("not a JPEG file")
 	}
 
 	pos := 2
-	for pos < len(data)-1 {
+	for segments := 0; pos < len(data)-1; segments++ {
+		if segments > maxJPEGSegments {
+			return 0, 0, 0, fmt.Errorf("too many segments (>%d)", maxJPEGSegments)
+		}
+
 		// Find marker (0xFF followed by non-zero byte).
 		if data[pos] != 0xFF {
 			return 0, 0, 0, fmt.Errorf("expected marker at offset %d", pos)

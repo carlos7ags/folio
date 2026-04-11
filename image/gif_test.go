@@ -92,7 +92,7 @@ func TestGIFBuildXObject(t *testing.T) {
 	objCount := 0
 	addObject := func(obj core.PdfObject) *core.PdfIndirectReference {
 		objCount++
-		return &core.PdfIndirectReference{ObjectNumber: objCount, GenerationNumber: 0}
+		return core.NewPdfIndirectReference(objCount, 0)
 	}
 	ref, _ := img.BuildXObject(addObject)
 	if ref == nil {
