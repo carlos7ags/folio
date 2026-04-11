@@ -248,7 +248,7 @@ func ShapeArabicWithFont(s string, face font.Face) string {
 	return shapeArabicWithFont(s, gsub, face, gidReverse)
 }
 
-func shapeArabicWithFont(s string, gsub font.GSUBSubstitutions, face font.Face, gidReverse map[uint16]rune) string {
+func shapeArabicWithFont(s string, gsub *font.GSUBSubstitutions, face font.Face, gidReverse map[uint16]rune) string {
 	runes := []rune(s)
 	if len(runes) == 0 {
 		return s
@@ -305,7 +305,7 @@ func shapeArabicWithFont(s string, gsub font.GSUBSubstitutions, face font.Face, 
 		// replacement GID → rune (via reverse cmap). Falls through to
 		// PFB if any step fails.
 		if gsub != nil && face != nil && gidReverse != nil {
-			if table, ok := gsub[targetFeature]; ok {
+			if table, ok := gsub.Single[targetFeature]; ok {
 				gid := face.GlyphIndex(r)
 				if gid != 0 {
 					if subGID, found := table[gid]; found {

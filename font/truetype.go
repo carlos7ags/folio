@@ -28,8 +28,10 @@ type sfntFace struct {
 	tables       map[string][]byte
 	tablesParsed bool
 
-	// Cached GSUB substitution tables (nil = not yet parsed).
-	gsubResult GSUBSubstitutions
+	// Cached GSUB substitution tables. gsubParsed distinguishes "not
+	// yet parsed" (false) from "parsed and empty" (true, gsubResult nil).
+	gsubResult *GSUBSubstitutions
+	gsubParsed bool
 
 	// Cached GID→Unicode reverse map (nil = not yet built).
 	gidToUnicodeMap   map[uint16]rune
@@ -408,26 +410,16 @@ func (f *sfntFace) NumGlyphs() int {
 	return f.font.NumGlyphs()
 }
 
-// gsubCache caches the parsed GSUB substitutions (nil means not yet parsed;
-// an empty map means "parsed but no Arabic features found").
-var gsubSentinel = GSUBSubstitutions{} // non-nil empty sentinel
-
-// GSUB returns the parsed GSUB substitution tables for Arabic positional
-// features. The result is cached after the first call.
-func (f *sfntFace) GSUB() GSUBSubstitutions {
-	if f.gsubResult != nil {
-		if len(f.gsubResult) == 0 {
-			return nil // sentinel: already parsed, nothing found
-		}
+// GSUB returns the parsed GSUB substitution tables. The result is cached
+// after the first call; a nil return means the font has no GSUB tables
+// for any of the recognized features.
+func (f *sfntFace) GSUB() *GSUBSubstitutions {
+	if f.gsubParsed {
 		return f.gsubResult
 	}
-	result := ParseGSUB(f.rawData)
-	if result == nil {
-		f.gsubResult = gsubSentinel
-		return nil
-	}
-	f.gsubResult = result
-	return result
+	f.gsubResult = ParseGSUB(f.rawData)
+	f.gsubParsed = true
+	return f.gsubResult
 }
 
 // GIDToUnicode returns a reverse mapping from glyph ID to Unicode codepoint.
