@@ -13,6 +13,7 @@ go run ./examples/hello
 ```
 examples/
 ├── hello/          # minimal one-page PDF
+├── devanagari/     # Devanagari (Hindi, Sanskrit, Marathi) text shaping
 ├── fonts/          # standard, custom, and Unicode fonts (CJK, Cyrillic)
 ├── links/          # hyperlinks, bookmarks, internal navigation
 ├── forms/          # interactive AcroForm fields (text, checkbox, radio, dropdown)
