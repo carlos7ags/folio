@@ -767,6 +767,176 @@ func TestEndMarkedContent(t *testing.T) {
 	}
 }
 
+// TestBeginMarkedContentActualTextASCII verifies that an ASCII input is
+// encoded as UTF-16BE with the byte-order mark. UTF-16BE places the high
+// (zero) byte before each ASCII byte, and the literal-string escaper turns
+// each \x00 into the octal escape \000.
+func TestBeginMarkedContentActualTextASCII(t *testing.T) {
+	s := NewStream()
+	s.BeginMarkedContentActualText("hello")
+	got := string(s.Bytes())
+	want := "/Span <</ActualText (\xFE\xFF\\000h\\000e\\000l\\000l\\000o)>> BDC"
+	if got != want {
+		t.Errorf("expected %q, got %q", want, got)
+	}
+	roundTrip := decodeActualTextLiteral(t, got)
+	if roundTrip != "hello" {
+		t.Errorf("round trip: got %q, want %q", roundTrip, "hello")
+	}
+}
+
+// TestBeginMarkedContentActualTextEmpty verifies that the empty string still
+// emits the byte-order mark inside the literal value.
+func TestBeginMarkedContentActualTextEmpty(t *testing.T) {
+	s := NewStream()
+	s.BeginMarkedContentActualText("")
+	got := string(s.Bytes())
+	want := "/Span <</ActualText (\xFE\xFF)>> BDC"
+	if got != want {
+		t.Errorf("expected %q, got %q", want, got)
+	}
+}
+
+// TestBeginMarkedContentActualTextArabic verifies that an Arabic input is
+// encoded as UTF-16BE so that the marker round-trips the original Unicode
+// codepoints. Tests the word \u0633\u0644\u0627\u0645 (salam, "peace").
+// The high byte for each Arabic letter is 0x06, which is a control byte
+// and must be octal-escaped inside the literal string.
+func TestBeginMarkedContentActualTextArabic(t *testing.T) {
+	s := NewStream()
+	s.BeginMarkedContentActualText("\u0633\u0644\u0627\u0645")
+	got := string(s.Bytes())
+	want := "/Span <</ActualText (\xFE\xFF\\0063\\006D\\006'\\006E)>> BDC"
+	if got != want {
+		t.Errorf("expected %q, got %q", want, got)
+	}
+	// Independent decode pass: strip the operator wrapper, undo PDF
+	// literal-string escapes, drop the BOM, decode UTF-16BE, and compare
+	// to the original input. This guards against mistakes in the literal
+	// expectation above.
+	roundTrip := decodeActualTextLiteral(t, got)
+	if roundTrip != "\u0633\u0644\u0627\u0645" {
+		t.Errorf("round trip: got %q, want %q", roundTrip, "\u0633\u0644\u0627\u0645")
+	}
+}
+
+// TestBeginMarkedContentActualTextEscaping verifies that bytes that collide
+// with the literal-string syntax (backslash and parentheses) are escaped
+// inside the property list.
+func TestBeginMarkedContentActualTextEscaping(t *testing.T) {
+	s := NewStream()
+	// Inputs whose UTF-16BE low byte equals '(' (0x28), ')' (0x29), '\\' (0x5C):
+	// U+0028 → 00 28, U+0029 → 00 29, U+005C → 00 5C.
+	s.BeginMarkedContentActualText("(\\)")
+	got := string(s.Bytes())
+	want := "/Span <</ActualText (\xFE\xFF\\000\\(\\000\\\\\\000\\))>> BDC"
+	if got != want {
+		t.Errorf("expected %q, got %q", want, got)
+	}
+}
+
+// TestBeginMarkedContentActualTextSurrogatePair verifies that an astral-plane
+// codepoint (above U+FFFF) is encoded as a UTF-16 surrogate pair per
+// RFC 2781. Uses U+1F600 (grinning face) which encodes as D83D DE00.
+// The trailing 0x00 is escaped as \000 by the literal-string escaper.
+func TestBeginMarkedContentActualTextSurrogatePair(t *testing.T) {
+	s := NewStream()
+	s.BeginMarkedContentActualText("\U0001F600")
+	got := string(s.Bytes())
+	want := "/Span <</ActualText (\xFE\xFF\xD8\x3D\xDE\\000)>> BDC"
+	if got != want {
+		t.Errorf("expected %q, got %q", want, got)
+	}
+	roundTrip := decodeActualTextLiteral(t, got)
+	if roundTrip != "\U0001F600" {
+		t.Errorf("round trip: got %q, want %q", roundTrip, "\U0001F600")
+	}
+}
+
+// decodeActualTextLiteral parses an emitted /Span /ActualText BDC line back
+// into its UTF-8 string. It is the inverse of BeginMarkedContentActualText
+// and is used by tests to confirm round-trip behavior independently of the
+// literal byte expectations elsewhere in the suite. It only handles the
+// escapes EscapeLiteralString actually emits.
+func decodeActualTextLiteral(t *testing.T, line string) string {
+	t.Helper()
+	const prefix = "/Span <</ActualText ("
+	const suffix = ")>> BDC"
+	if !strings.HasPrefix(line, prefix) || !strings.HasSuffix(line, suffix) {
+		t.Fatalf("unexpected ActualText line shape: %q", line)
+	}
+	body := line[len(prefix) : len(line)-len(suffix)]
+	// Undo PDF literal-string escapes.
+	var raw []byte
+	for i := 0; i < len(body); i++ {
+		c := body[i]
+		if c != '\\' {
+			raw = append(raw, c)
+			continue
+		}
+		if i+1 >= len(body) {
+			t.Fatalf("trailing backslash in %q", body)
+		}
+		next := body[i+1]
+		switch next {
+		case '\\', '(', ')':
+			raw = append(raw, next)
+			i++
+		case 'n':
+			raw = append(raw, '\n')
+			i++
+		case 'r':
+			raw = append(raw, '\r')
+			i++
+		case 't':
+			raw = append(raw, '\t')
+			i++
+		default:
+			// Octal escape: \ddd. EscapeLiteralString always emits three
+			// octal digits for control bytes, so consume exactly three.
+			if i+3 >= len(body) {
+				t.Fatalf("short octal escape in %q at %d", body, i)
+			}
+			var v byte
+			for j := 1; j <= 3; j++ {
+				d := body[i+j]
+				if d < '0' || d > '7' {
+					t.Fatalf("bad octal digit %q in %q", d, body)
+				}
+				v = v*8 + (d - '0')
+			}
+			raw = append(raw, v)
+			i += 3
+		}
+	}
+	if len(raw) < 2 || raw[0] != 0xFE || raw[1] != 0xFF {
+		t.Fatalf("missing UTF-16BE BOM in %x", raw)
+	}
+	raw = raw[2:]
+	if len(raw)%2 != 0 {
+		t.Fatalf("odd-length UTF-16BE payload: %x", raw)
+	}
+	var runes []rune
+	for i := 0; i < len(raw); i += 2 {
+		u := uint16(raw[i])<<8 | uint16(raw[i+1])
+		if u >= 0xD800 && u <= 0xDBFF {
+			if i+3 >= len(raw) {
+				t.Fatalf("dangling high surrogate at %d in %x", i, raw)
+			}
+			lo := uint16(raw[i+2])<<8 | uint16(raw[i+3])
+			if lo < 0xDC00 || lo > 0xDFFF {
+				t.Fatalf("invalid low surrogate %04X at %d", lo, i+2)
+			}
+			r := 0x10000 + (uint32(u-0xD800) << 10) + uint32(lo-0xDC00)
+			runes = append(runes, rune(r))
+			i += 2
+			continue
+		}
+		runes = append(runes, rune(u))
+	}
+	return string(runes)
+}
+
 func TestRoundedRectPerCorner(t *testing.T) {
 	s := NewStream()
 	s.RoundedRectPerCorner(0, 0, 100, 50, 10, 5, 3, 8)

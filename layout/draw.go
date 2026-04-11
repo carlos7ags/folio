@@ -153,6 +153,17 @@ func drawTextLine(ctx DrawContext, words []Word, x, baselineY, maxWidth float64,
 			curColor = word.Color
 		}
 
+		// When a shaper substituted glyph-form codepoints (currently
+		// Arabic Presentation Forms-B), wrap the text-showing operators
+		// in an ISO 32000-2 §14.9.4 /Span /ActualText marked-content
+		// sequence so that copy/paste and accessibility tools recover
+		// the original Unicode codepoints. The opt-out lives on the
+		// renderer (default on) and travels through DrawContext.
+		emitActualText := word.OriginalText != "" && ctx.ActualText
+		if emitActualText {
+			ctx.Stream.BeginMarkedContentActualText(word.OriginalText)
+		}
+
 		ctx.Stream.BeginText()
 		resName := registerFont(ctx.Page, word)
 		ctx.Stream.SetFont(resName, word.FontSize)
@@ -171,6 +182,10 @@ func drawTextLine(ctx DrawContext, words []Word, x, baselineY, maxWidth float64,
 			ctx.Stream.SetCharSpacing(0)
 		}
 		ctx.Stream.EndText()
+
+		if emitActualText {
+			ctx.Stream.EndMarkedContent()
+		}
 
 		// Compute the advance to the next word (used for spacing and underline extension).
 		var advance float64

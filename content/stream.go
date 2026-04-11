@@ -571,6 +571,47 @@ func (s *Stream) BeginMarkedContentWithID(tag string, mcid int) {
 	s.writeln(fmt.Sprintf("/%s <</MCID %d>> BDC", tag, mcid))
 }
 
+// BeginMarkedContentActualText writes the BDC operator with a /Span tag and a
+// property list containing /ActualText. Per ISO 32000-2 §14.9.4, the
+// /ActualText entry overrides the displayed text for accessibility, search,
+// and copy/paste, while the rendered glyphs remain unchanged. The text is
+// encoded as a UTF-16BE PDF text string with the byte-order mark FEFF, per
+// ISO 32000-2 §7.9.2.2. Pair every call with a single EndMarkedContent;
+// nested ActualText sequences are not supported by this helper.
+func (s *Stream) BeginMarkedContentActualText(text string) {
+	enc := encodeTextStringUTF16BE(text)
+	s.writeln(fmt.Sprintf("/Span <</ActualText (%s)>> BDC",
+		core.EscapeLiteralString(enc)))
+}
+
+// encodeTextStringUTF16BE returns the UTF-16BE byte representation of s
+// prefixed with the UTF-16 byte-order mark (\xFE\xFF). The result is suitable
+// for use as the value of a PDF text string per ISO 32000-2 §7.9.2.2.
+// Code points outside the Basic Multilingual Plane are emitted as a UTF-16
+// surrogate pair (high surrogate + low surrogate).
+func encodeTextStringUTF16BE(s string) string {
+	var b strings.Builder
+	b.Grow(2 + 2*len(s))
+	b.WriteByte(0xFE)
+	b.WriteByte(0xFF)
+	for _, r := range s {
+		if r <= 0xFFFF {
+			b.WriteByte(byte(r >> 8))
+			b.WriteByte(byte(r))
+			continue
+		}
+		// Astral plane: encode as a surrogate pair (UTF-16, RFC 2781).
+		v := uint32(r) - 0x10000
+		hi := 0xD800 + (v >> 10)
+		lo := 0xDC00 + (v & 0x3FF)
+		b.WriteByte(byte(hi >> 8))
+		b.WriteByte(byte(hi))
+		b.WriteByte(byte(lo >> 8))
+		b.WriteByte(byte(lo))
+	}
+	return b.String()
+}
+
 // MarkedPoint writes the MP operator: designate a marked-content point.
 // tag is the marked-content tag (structure type).
 func (s *Stream) MarkedPoint(tag string) {

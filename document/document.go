@@ -85,6 +85,7 @@ type Document struct {
 	watermark        *WatermarkConfig
 	encryption       *EncryptionConfig
 	tagged           bool        // if true, produce tagged PDF with structure tree
+	actualText       bool        // if true (default), wrap shaped Arabic words in /ActualText markers
 	pdfA             *PdfAConfig // if non-nil, produce PDF/A conformant output
 	acroForm         interface {
 		Build(func(core.PdfObject) *core.PdfIndirectReference, []*core.PdfIndirectReference) (*core.PdfIndirectReference, map[int][]*core.PdfIndirectReference)
@@ -96,10 +97,13 @@ type Document struct {
 }
 
 // NewDocument creates a new PDF document with the given page size.
+// /ActualText emission for shaped Arabic words is enabled by default; call
+// SetActualText(false) on the returned document to opt out.
 func NewDocument(ps PageSize) *Document {
 	return &Document{
-		pageSize: ps,
-		margins:  layout.Margins{Top: 72, Right: 72, Bottom: 72, Left: 72},
+		pageSize:   ps,
+		margins:    layout.Margins{Top: 72, Right: 72, Bottom: 72, Left: 72},
+		actualText: true,
 	}
 }
 
@@ -110,6 +114,17 @@ func NewDocument(ps PageSize) *Document {
 // accessibility compliance (Section 508, EN 301 549).
 func (d *Document) SetTagged(enabled bool) {
 	d.tagged = enabled
+}
+
+// SetActualText controls whether the document wraps shaped Arabic words in
+// ISO 32000-2 §14.9.4 /Span /ActualText marked-content sequences. When
+// enabled (the default), copy/paste and accessibility consumers recover the
+// original Unicode codepoints rather than the Arabic Presentation Forms-B
+// substitutions emitted by the shaper. Disabling shaves a few dozen bytes
+// per shaped Arabic word and is appropriate for size-sensitive documents
+// that do not need text round-tripping.
+func (d *Document) SetActualText(enabled bool) {
+	d.actualText = enabled
 }
 
 // SetAcroForm attaches an interactive form to the document.
@@ -352,6 +367,7 @@ func (d *Document) buildAllPages() (all []*Page, structTags []layout.StructTagIn
 		if d.tagged {
 			r.SetTagged(true)
 		}
+		r.SetActualText(d.actualText)
 		for _, e := range d.elements {
 			r.Add(e)
 		}

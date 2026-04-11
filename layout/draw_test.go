@@ -182,6 +182,213 @@ func TestDrawColumnRules(t *testing.T) {
 	}
 }
 
+// TestActualTextArabicWord verifies that an Arabic-only paragraph rendered
+// through the full pipeline emits at least one /Span /ActualText marker and
+// that the marker's UTF-16BE payload round-trips to the original Arabic
+// input string. The check is per-word: every shaped Arabic word should
+// carry its own ActualText sequence.
+func TestActualTextArabicWord(t *testing.T) {
+	// "سلام" — salam, "peace". A single Arabic word, four codepoints,
+	// shaped into Presentation Forms-B by ShapeArabic.
+	const input = "\u0633\u0644\u0627\u0645"
+	r := NewRenderer(612, 792, Margins{Top: 72, Right: 72, Bottom: 72, Left: 72})
+	r.Add(NewParagraph(input, font.Helvetica, 12))
+	pages := r.Render()
+	if len(pages) == 0 {
+		t.Fatal("no pages produced")
+	}
+	stream := string(pages[0].Stream.Bytes())
+	if !strings.Contains(stream, "/ActualText") {
+		t.Fatalf("expected /ActualText marker in content stream:\n%s", stream)
+	}
+	// Decode the first ActualText payload back to UTF-8 and compare to
+	// the original input. There should be exactly one for this word.
+	got := extractFirstActualText(t, stream)
+	if got != input {
+		t.Errorf("ActualText round trip: got %q, want %q", got, input)
+	}
+	// Confirm marked-content brackets are balanced (one BDC per EMC).
+	bdc := strings.Count(stream, " BDC")
+	emc := strings.Count(stream, "EMC")
+	if bdc != emc {
+		t.Errorf("BDC/EMC unbalanced: %d BDC vs %d EMC", bdc, emc)
+	}
+}
+
+// TestActualTextLatinUnchanged verifies that a Latin-only paragraph
+// produces no /ActualText markers (no shaping happened).
+func TestActualTextLatinUnchanged(t *testing.T) {
+	r := NewRenderer(612, 792, Margins{Top: 72, Right: 72, Bottom: 72, Left: 72})
+	r.Add(NewParagraph("Hello world", font.Helvetica, 12))
+	pages := r.Render()
+	if len(pages) == 0 {
+		t.Fatal("no pages produced")
+	}
+	stream := string(pages[0].Stream.Bytes())
+	if strings.Contains(stream, "/ActualText") {
+		t.Errorf("Latin-only paragraph should produce no /ActualText markers:\n%s", stream)
+	}
+}
+
+// TestActualTextOptOut verifies that SetActualText(false) suppresses
+// /ActualText emission even for shaped Arabic words.
+func TestActualTextOptOut(t *testing.T) {
+	const input = "\u0633\u0644\u0627\u0645"
+	r := NewRenderer(612, 792, Margins{Top: 72, Right: 72, Bottom: 72, Left: 72})
+	r.SetActualText(false)
+	r.Add(NewParagraph(input, font.Helvetica, 12))
+	pages := r.Render()
+	if len(pages) == 0 {
+		t.Fatal("no pages produced")
+	}
+	stream := string(pages[0].Stream.Bytes())
+	if strings.Contains(stream, "/ActualText") {
+		t.Errorf("SetActualText(false) should suppress markers:\n%s", stream)
+	}
+}
+
+// TestActualTextMixedArabicLatin verifies that in a paragraph mixing Arabic
+// and Latin words, the Arabic words carry /ActualText markers and the Latin
+// words are emitted plain. The number of markers should equal the number of
+// Arabic words.
+func TestActualTextMixedArabicLatin(t *testing.T) {
+	// "Hello سلام world" — Latin, Arabic, Latin. Each is its own
+	// whitespace-delimited token.
+	const input = "Hello \u0633\u0644\u0627\u0645 world"
+	r := NewRenderer(612, 792, Margins{Top: 72, Right: 72, Bottom: 72, Left: 72})
+	r.Add(NewParagraph(input, font.Helvetica, 12))
+	pages := r.Render()
+	if len(pages) == 0 {
+		t.Fatal("no pages produced")
+	}
+	stream := string(pages[0].Stream.Bytes())
+	count := strings.Count(stream, "/ActualText")
+	if count != 1 {
+		t.Errorf("expected exactly 1 /ActualText marker for the Arabic word, got %d:\n%s", count, stream)
+	}
+	got := extractFirstActualText(t, stream)
+	if got != "\u0633\u0644\u0627\u0645" {
+		t.Errorf("ActualText payload: got %q, want %q", got, "\u0633\u0644\u0627\u0645")
+	}
+}
+
+// extractFirstActualText decodes the first /Span /ActualText literal-string
+// payload found in stream and returns its UTF-8 representation. It is the
+// inverse of content.Stream.BeginMarkedContentActualText. The stream may
+// contain other operators on either side of the marker.
+func extractFirstActualText(t *testing.T, stream string) string {
+	t.Helper()
+	const marker = "/Span <</ActualText ("
+	start := strings.Index(stream, marker)
+	if start < 0 {
+		t.Fatalf("no /ActualText marker found")
+	}
+	body := stream[start+len(marker):]
+	// Walk forward, honoring escape sequences, until we hit the closing
+	// ')' that terminates the literal string. Track parenthesis nesting
+	// because PDF allows balanced unescaped parentheses inside strings.
+	depth := 1
+	end := -1
+	for i := 0; i < len(body); i++ {
+		c := body[i]
+		if c == '\\' {
+			// Skip the escape sequence: either \n/\r/\t/\\/(/) (one char)
+			// or \ddd (up to three octal digits).
+			if i+1 >= len(body) {
+				break
+			}
+			next := body[i+1]
+			if next >= '0' && next <= '7' {
+				j := 1
+				for j < 3 && i+1+j < len(body) && body[i+1+j] >= '0' && body[i+1+j] <= '7' {
+					j++
+				}
+				i += j
+				continue
+			}
+			i++
+			continue
+		}
+		if c == '(' {
+			depth++
+			continue
+		}
+		if c == ')' {
+			depth--
+			if depth == 0 {
+				end = i
+				break
+			}
+		}
+	}
+	if end < 0 {
+		t.Fatalf("unterminated /ActualText literal")
+	}
+	literal := body[:end]
+	// Undo PDF literal-string escapes to recover raw bytes.
+	var raw []byte
+	for i := 0; i < len(literal); i++ {
+		c := literal[i]
+		if c != '\\' {
+			raw = append(raw, c)
+			continue
+		}
+		if i+1 >= len(literal) {
+			t.Fatalf("trailing backslash")
+		}
+		next := literal[i+1]
+		switch next {
+		case '\\', '(', ')':
+			raw = append(raw, next)
+			i++
+		case 'n':
+			raw = append(raw, '\n')
+			i++
+		case 'r':
+			raw = append(raw, '\r')
+			i++
+		case 't':
+			raw = append(raw, '\t')
+			i++
+		default:
+			if next < '0' || next > '7' {
+				t.Fatalf("unsupported escape %q", next)
+			}
+			var v byte
+			j := 0
+			for j < 3 && i+1+j < len(literal) && literal[i+1+j] >= '0' && literal[i+1+j] <= '7' {
+				v = v*8 + (literal[i+1+j] - '0')
+				j++
+			}
+			raw = append(raw, v)
+			i += j
+		}
+	}
+	if len(raw) < 2 || raw[0] != 0xFE || raw[1] != 0xFF {
+		t.Fatalf("missing UTF-16BE BOM in payload: %x", raw)
+	}
+	raw = raw[2:]
+	if len(raw)%2 != 0 {
+		t.Fatalf("odd-length UTF-16BE payload: %x", raw)
+	}
+	var runes []rune
+	for i := 0; i < len(raw); i += 2 {
+		u := uint16(raw[i])<<8 | uint16(raw[i+1])
+		if u >= 0xD800 && u <= 0xDBFF {
+			if i+3 >= len(raw) {
+				t.Fatalf("dangling high surrogate at %d", i)
+			}
+			lo := uint16(raw[i+2])<<8 | uint16(raw[i+3])
+			r := 0x10000 + (uint32(u-0xD800) << 10) + uint32(lo-0xDC00)
+			runes = append(runes, rune(r))
+			i += 2
+			continue
+		}
+		runes = append(runes, rune(u))
+	}
+	return string(runes)
+}
+
 func TestDrawSaveRestoreBalance(t *testing.T) {
 	// Complex element: Div with background, border, shadow, outline.
 	// Verify all q/Q are balanced.
