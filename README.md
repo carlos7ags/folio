@@ -414,6 +414,32 @@ Reproduce locally:
 go test -run='^$' -bench=. -benchmem ./document/
 ```
 
+### Output size
+
+The writer can emit cross-reference streams (ISO 32000-1 §7.5.8) and pack
+eligible indirect objects into compressed object streams (ISO 32000-1
+§7.5.7). Both modes are opt-in via `document.WriteOptions`:
+
+```go
+doc.SaveWithOptions("out.pdf", document.WriteOptions{
+    UseXRefStream:    true,
+    UseObjectStreams: true,
+})
+```
+
+Existing callers of `Save`, `WriteTo`, and `ToBytes` see byte-identical
+output. The savings depend on the document shape — content streams are
+already Flate-compressed and ineligible for object stream packing, so
+text-heavy documents save less than metadata-heavy ones:
+
+| Fixture | Default | Optimized | Saved |
+|---|---:|---:|---:|
+| Text-heavy report (25 sections) | 6913 B | 5621 B | 18.7% |
+| 50 empty pages | 6317 B | 932 B | 85.2% |
+| 60-row data table | 8063 B | 7785 B | 3.4% |
+
+Run [`examples/optimize`](examples/optimize/) to reproduce these numbers.
+
 ---
 
 ## Architecture
@@ -466,6 +492,7 @@ Each [`examples/`](examples/) subdirectory is a self-contained `go run` demo:
 | [`html-to-pdf`](examples/html-to-pdf/) | Rich HTML+CSS report with flexbox and tables |
 | [`import-page`](examples/import-page/) | Load existing PDF as template, fill in data |
 | [`merge`](examples/merge/) | Parse, merge, and extract text |
+| [`optimize`](examples/optimize/) | Cross-reference and object stream output, side-by-side size comparison |
 | [`redact`](examples/redact/) | Permanently remove sensitive text |
 | [`report`](examples/report/) | Multi-page report with layout API |
 | [`sign`](examples/sign/) | PAdES digital signature |
