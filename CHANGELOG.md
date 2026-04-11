@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+No breaking API changes. The new writer behavior is opt-in via a new options struct; existing callers of `Document.WriteTo`, `Document.Save`, `Document.ToBytes`, and `Writer.WriteTo` see byte-identical output.
+
+### Added
+
+- **`document.WriteOptions`** — first option-aware extension point for the PDF writer. Zero value reproduces the historical default output (traditional cross-reference table per ISO 32000-1 §7.5.4 and a separate trailer dictionary per §7.5.5)
+- **`WriteOptions.UseXRefStream`** — emit a cross-reference stream object (ISO 32000-1 §7.5.8) in place of the traditional xref table and trailer. The stream dictionary carries `/Root`, `/Info`, `/Encrypt`, and `/ID`; entries are Flate-compressed. PDF readers from PDF 1.5 onward consume the format. The xref stream is always written as the last indirect object so its own offset is known before serialization (no two-pass writer)
+- **`WriteOptions.UseObjectStreams`** — pack eligible indirect objects into compressed object streams (ISO 32000-1 §7.5.7). Implies `UseXRefStream` because type-2 cross-reference entries (compressed objects) require an xref stream to express. Eligibility follows §7.5.7: streams, the encryption dictionary, and any object with a non-zero generation are excluded; phase 1 also keeps the catalog and info dictionary inline as a conservative restriction. Refused on encrypted documents in phase 1
+- **`WriteOptions.ObjectStreamCapacity`** — caps the number of objects packed into a single `/ObjStm`. Default 100
+- **`Writer.WriteToWithOptions`** — option-aware variant of `Writer.WriteTo`
+- **`Document.WriteToWithOptions`, `Document.SaveWithOptions`, `Document.ToBytesWithOptions`** — option-aware variants of the existing methods
+- **`examples/optimize`** — runnable demo that writes the same document with and without the optimizer options and reports the byte-size delta
+
 ## [0.6.2] - 2026-04-08
 
 No breaking API changes — all additions below are additive. `layout.Grid.SetAlignContent` keeps its signature; it now also records that the value was explicitly set so implicit "normal" stretching is preserved. The C ABI grows from 348 to 372 exports, all additive.

@@ -504,13 +504,28 @@ func buildAutoBookmarks(results []layout.PageResult, pageOffset int) []Outline {
 	return outlines
 }
 
-// Save writes the document to a file at the given path.
+// Save writes the document to a file at the given path using the
+// historical default writer options.
 func (d *Document) Save(path string) error {
+	return d.SaveWithOptions(path, WriteOptions{})
+}
+
+// SaveWithOptions writes the document to a file at the given path,
+// passing the supplied [WriteOptions] through to the writer.
+//
+// The most common reason to use this entry point is to opt into the
+// optimized output mode:
+//
+//	doc.SaveWithOptions("out.pdf", document.WriteOptions{
+//	    UseXRefStream:    true,
+//	    UseObjectStreams: true,
+//	})
+func (d *Document) SaveWithOptions(path string, opts WriteOptions) error {
 	f, err := os.Create(path)
 	if err != nil {
 		return err
 	}
-	if _, err = d.WriteTo(f); err != nil {
+	if _, err = d.WriteToWithOptions(f, opts); err != nil {
 		_ = f.Close()
 		return err
 	}
@@ -526,15 +541,28 @@ func (d *Document) Save(path string) error {
 //	w.Header().Set("Content-Type", "application/pdf")
 //	w.Write(pdf)
 func (d *Document) ToBytes() ([]byte, error) {
+	return d.ToBytesWithOptions(WriteOptions{})
+}
+
+// ToBytesWithOptions is the option-aware variant of [Document.ToBytes].
+func (d *Document) ToBytesWithOptions(opts WriteOptions) ([]byte, error) {
 	var buf bytes.Buffer
-	if _, err := d.WriteTo(&buf); err != nil {
+	if _, err := d.WriteToWithOptions(&buf, opts); err != nil {
 		return nil, err
 	}
 	return buf.Bytes(), nil
 }
 
-// WriteTo serializes the complete PDF document to w.
+// WriteTo serializes the complete PDF document to w using the
+// historical default writer options.
 func (d *Document) WriteTo(w io.Writer) (int64, error) {
+	return d.WriteToWithOptions(w, WriteOptions{})
+}
+
+// WriteToWithOptions serializes the complete PDF document to w,
+// passing the supplied [WriteOptions] through to the underlying
+// [Writer]. The zero value reproduces [Document.WriteTo].
+func (d *Document) WriteToWithOptions(w io.Writer, opts WriteOptions) (int64, error) {
 	allPages, structTags := d.buildAllPages()
 
 	// Second pass: replace ##TOTAL_PAGES## placeholder with actual count.
@@ -925,7 +953,7 @@ func (d *Document) WriteTo(w io.Writer) (int64, error) {
 		writer.SetEncryption(enc)
 	}
 
-	return writer.WriteTo(w)
+	return writer.WriteToWithOptions(w, opts)
 }
 
 // hoistStreams walks a PdfDictionary tree and replaces any PdfStream
