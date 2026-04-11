@@ -454,10 +454,10 @@ func TestResolveCompositesTransitiveClosure(t *testing.T) {
 		return appendComponent(b, 0, gid, 2, 0)
 	}
 	glyf, offsets := buildGlyfEntries([][]byte{
-		simple,      // gid 0
-		simple,      // gid 1
-		comp(3),     // gid 2 -> 3
-		comp(1),     // gid 3 -> 1
+		simple,  // gid 0
+		simple,  // gid 1
+		comp(3), // gid 2 -> 3
+		comp(1), // gid 3 -> 1
 	})
 
 	glyphSet := map[uint16]bool{0: true, 2: true}
