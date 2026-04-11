@@ -5,7 +5,6 @@ package font
 
 import (
 	"os"
-	"reflect"
 	"testing"
 )
 
@@ -341,13 +340,9 @@ func TestFaceGSUBCaching(t *testing.T) {
 		t.Skip("font has no GSUB table; cannot verify cache identity")
 	}
 
-	// Identity check: the cached path must return the same map header.
-	// reflect.Value.Pointer on a map returns the hmap pointer, which is
-	// a stable identity token for the underlying map.
-	p1 := reflect.ValueOf(first).Pointer()
-	p2 := reflect.ValueOf(second).Pointer()
-	if p1 != p2 {
-		t.Errorf("GSUB cache returned different map instances (%#x vs %#x); cache is not taking effect", p1, p2)
+	// Identity check: the cached path must return the same pointer.
+	if first != second {
+		t.Errorf("GSUB cache returned different pointers (%p vs %p); cache is not taking effect", first, second)
 	}
 }
 

@@ -16,9 +16,9 @@ import (
 // mockGSUBFace implements font.Face and font.GSUBProvider with synthetic
 // data so tests don't depend on system fonts.
 type mockGSUBFace struct {
-	glyphMap      map[rune]uint16        // cmap: rune -> GID
-	reverseMap    map[uint16]rune        // reverse cmap: GID -> rune
-	substitutions font.GSUBSubstitutions // GSUB tables
+	glyphMap      map[rune]uint16         // cmap: rune -> GID
+	reverseMap    map[uint16]rune         // reverse cmap: GID -> rune
+	substitutions *font.GSUBSubstitutions // GSUB tables
 }
 
 func (m *mockGSUBFace) PostScriptName() string { return "MockArabic" }
@@ -40,7 +40,7 @@ func (m *mockGSUBFace) Kern(uint16, uint16) int       { return 0 }
 func (m *mockGSUBFace) Flags() uint32                 { return 0 }
 func (m *mockGSUBFace) RawData() []byte               { return nil }
 func (m *mockGSUBFace) NumGlyphs() int                { return 100 }
-func (m *mockGSUBFace) GSUB() font.GSUBSubstitutions  { return m.substitutions }
+func (m *mockGSUBFace) GSUB() *font.GSUBSubstitutions { return m.substitutions }
 func (m *mockGSUBFace) GIDToUnicode() map[uint16]rune { return m.reverseMap }
 
 // newMockArabicFace creates a mock face with synthetic GSUB data for
@@ -61,9 +61,11 @@ func newMockArabicFace() *mockGSUBFace {
 			30: 0xE001, // GID 30 -> PUA codepoint (font-specific, NOT in PFB table)
 			31: 0xE002, // GID 31 -> PUA codepoint
 		},
-		substitutions: font.GSUBSubstitutions{
-			font.GSUBInit: {10: 30}, // beh initial: GID 10 -> GID 30 -> U+E001
-			font.GSUBFina: {11: 31}, // alef final: GID 11 -> GID 31 -> U+E002
+		substitutions: &font.GSUBSubstitutions{
+			Single: map[font.GSUBFeature]map[uint16]uint16{
+				font.GSUBInit: {10: 30}, // beh initial: GID 10 -> GID 30 -> U+E001
+				font.GSUBFina: {11: 31}, // alef final: GID 11 -> GID 31 -> U+E002
+			},
 		},
 	}
 }
@@ -96,10 +98,11 @@ func TestGSUBPipelineUsedOverPFB(t *testing.T) {
 // covered by GSUB fall back to the PFB table.
 func TestGSUBFallbackToPFBWhenNoSubstitution(t *testing.T) {
 	face := &mockGSUBFace{
-		glyphMap:      map[rune]uint16{0x0633: 40}, // seen -> GID 40
-		reverseMap:    map[uint16]rune{40: 0x0633},
-		substitutions: font.GSUBSubstitutions{
+		glyphMap:   map[rune]uint16{0x0633: 40}, // seen -> GID 40
+		reverseMap: map[uint16]rune{40: 0x0633},
+		substitutions: &font.GSUBSubstitutions{
 			// No init/fina/medi/isol entries for GID 40.
+			Single: map[font.GSUBFeature]map[uint16]uint16{},
 		},
 	}
 	// Seen isolated: GSUB has no entry -> falls back to PFB.
@@ -116,9 +119,11 @@ func TestGSUBFallbackToPFBWhenNoSubstitution(t *testing.T) {
 // doesn't have the rune (GlyphIndex returns 0).
 func TestGSUBFallbackWhenGIDZero(t *testing.T) {
 	face := &mockGSUBFace{
-		glyphMap:      map[rune]uint16{}, // empty cmap
-		reverseMap:    map[uint16]rune{},
-		substitutions: font.GSUBSubstitutions{font.GSUBIsol: {99: 100}},
+		glyphMap:   map[rune]uint16{}, // empty cmap
+		reverseMap: map[uint16]rune{},
+		substitutions: &font.GSUBSubstitutions{
+			Single: map[font.GSUBFeature]map[uint16]uint16{font.GSUBIsol: {99: 100}},
+		},
 	}
 	input := "\u0628" // beh
 	shaped := ShapeArabicWithFont(input, face)
@@ -133,9 +138,11 @@ func TestGSUBFallbackWhenGIDZero(t *testing.T) {
 // substituted GID has no reverse cmap entry.
 func TestGSUBFallbackWhenNoReverseMapping(t *testing.T) {
 	face := &mockGSUBFace{
-		glyphMap:      map[rune]uint16{0x0628: 10},
-		reverseMap:    map[uint16]rune{10: 0x0628},                     // no entry for GID 50
-		substitutions: font.GSUBSubstitutions{font.GSUBIsol: {10: 50}}, // maps to GID 50
+		glyphMap:   map[rune]uint16{0x0628: 10},
+		reverseMap: map[uint16]rune{10: 0x0628}, // no entry for GID 50
+		substitutions: &font.GSUBSubstitutions{
+			Single: map[font.GSUBFeature]map[uint16]uint16{font.GSUBIsol: {10: 50}}, // maps to GID 50
+		},
 	}
 	input := "\u0628"
 	shaped := ShapeArabicWithFont(input, face)
@@ -182,9 +189,10 @@ func TestShapeArabicWithRealFontGSUB(t *testing.T) {
 	if !ok || gp.GSUB() == nil {
 		t.Skip("no GSUB tables")
 	}
+	sub := gp.GSUB()
 	t.Logf("GSUB features: init=%d medi=%d fina=%d isol=%d",
-		len(gp.GSUB()[font.GSUBInit]), len(gp.GSUB()[font.GSUBMedi]),
-		len(gp.GSUB()[font.GSUBFina]), len(gp.GSUB()[font.GSUBIsol]))
+		len(sub.Single[font.GSUBInit]), len(sub.Single[font.GSUBMedi]),
+		len(sub.Single[font.GSUBFina]), len(sub.Single[font.GSUBIsol]))
 
 	input := "\u0633\u0644\u0627\u0645" // salam
 	shaped := ShapeArabicWithFont(input, face)
