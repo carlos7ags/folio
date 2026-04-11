@@ -129,8 +129,8 @@ func TestBuildObjStmHeaderLayout(t *testing.T) {
 	// Body offsets are relative to the start of the body block (after /First).
 	wantLines := []string{
 		"10 0\n",
-		"11 3\n",  // body "42" plus LF separator before "/Foo" → offset 3
-		"12 8\n",  // "/Foo" is 4 bytes, plus LF → offset 3+4+1 = 8
+		"11 3\n", // body "42" plus LF separator before "/Foo" → offset 3
+		"12 8\n", // "/Foo" is 4 bytes, plus LF → offset 3+4+1 = 8
 	}
 	wantHeader := strings.Join(wantLines, "")
 	if header != wantHeader {
