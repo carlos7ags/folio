@@ -247,6 +247,81 @@ func TestSplitMixedBidiWordInlineBlock(t *testing.T) {
 	}
 }
 
+// TestSplitMixedBidiWordScriptChange verifies that two characters from
+// different scripts at the same bidi level (e.g. Arabic alef + Devanagari
+// ka, both bidi-strong but mutually incompatible scripts) split into two
+// sub-words. This is the UAX #24 script-segmentation case and is the
+// behaviour introduced alongside the ScriptOf / SegmentByScript helpers.
+func TestSplitMixedBidiWordScriptChange(t *testing.T) {
+	// Arabic alef followed by Devanagari ka.
+	w := Word{Text: "\u0627\u0915", Width: 20, SpaceAfter: 4}
+	subs := splitMixedBidiWord(w)
+	if subs == nil {
+		t.Fatal("expected split on script transition, got nil")
+	}
+	if len(subs) != 2 {
+		t.Fatalf("expected 2 sub-words, got %d", len(subs))
+	}
+	if subs[0].Text != "\u0627" {
+		t.Errorf("sub[0]: got %q, want Arabic alef", subs[0].Text)
+	}
+	if subs[1].Text != "\u0915" {
+		t.Errorf("sub[1]: got %q, want Devanagari ka", subs[1].Text)
+	}
+	if subs[0].SpaceAfter != 0 {
+		t.Errorf("sub[0].SpaceAfter: got %v, want 0", subs[0].SpaceAfter)
+	}
+	if subs[1].SpaceAfter != 4 {
+		t.Errorf("sub[1].SpaceAfter: got %v, want 4", subs[1].SpaceAfter)
+	}
+}
+
+// TestSplitMixedBidiWordLatinDevanagari verifies a same-direction
+// (both LTR) script change also splits — Latin "test" + Devanagari ka.
+func TestSplitMixedBidiWordLatinDevanagari(t *testing.T) {
+	w := Word{Text: "test\u0915", Width: 30}
+	subs := splitMixedBidiWord(w)
+	if subs == nil {
+		t.Fatal("expected split, got nil")
+	}
+	if len(subs) != 2 {
+		t.Fatalf("expected 2 sub-words, got %d", len(subs))
+	}
+	if subs[0].Text != "test" {
+		t.Errorf("sub[0]: got %q, want 'test'", subs[0].Text)
+	}
+	if subs[1].Text != "\u0915" {
+		t.Errorf("sub[1]: got %q, want Devanagari ka", subs[1].Text)
+	}
+}
+
+// TestSplitMixedBidiWordPureCJK ensures pure Han text passes through
+// without splitting (script is uniform, bidi is uniform).
+func TestSplitMixedBidiWordPureCJK(t *testing.T) {
+	w := Word{Text: "\u4E2D\u6587", Width: 20} // 中文
+	if subs := splitMixedBidiWord(w); subs != nil {
+		t.Errorf("pure Han should not split, got %d sub-words", len(subs))
+	}
+}
+
+// TestSplitMixedBidiWordPureArabic ensures pure Arabic passes through
+// unchanged (no script transition, no bidi transition).
+func TestSplitMixedBidiWordPureArabic(t *testing.T) {
+	w := Word{Text: "\u0645\u0631\u062D\u0628\u0627", Width: 30} // مرحبا
+	if subs := splitMixedBidiWord(w); subs != nil {
+		t.Errorf("pure Arabic should not split, got %d sub-words", len(subs))
+	}
+}
+
+// TestSplitMixedBidiWordAccentedLatin ensures combining marks on Latin
+// text (Inherited script per UAX #24) attach to the Latin run.
+func TestSplitMixedBidiWordAccentedLatin(t *testing.T) {
+	w := Word{Text: "cafe\u0301", Width: 30}
+	if subs := splitMixedBidiWord(w); subs != nil {
+		t.Errorf("Latin with combining mark should not split, got %d sub-words", len(subs))
+	}
+}
+
 func TestBidiNumbersInRTL(t *testing.T) {
 	// "שלום 42 עולם" — numbers in an RTL paragraph stay LTR.
 	// Visual order (left-to-right): עולם 42 שלום
