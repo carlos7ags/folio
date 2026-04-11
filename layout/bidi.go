@@ -5,6 +5,7 @@ package layout
 
 import (
 	"strings"
+	"unicode/utf8"
 
 	"golang.org/x/text/unicode/bidi"
 )
@@ -287,10 +288,32 @@ func splitMixedBidiWord(w Word) []Word {
 	// characters attach to the preceding strong run (or the first strong
 	// run if they lead). This produces the smallest number of sub-words
 	// while keeping each sub-word uniform in both bidi and script.
+	//
+	// A split position must additionally land on a grapheme cluster
+	// boundary (UAX #29 §3.1.1): a base + combining mark, or any other
+	// extended-cluster sequence, must never be torn apart by this pass.
+	// If a transition would land mid-cluster (e.g. a Devanagari vowel
+	// sign at rune index i after a Latin base), the split is suppressed
+	// for that rune and the offending codepoint is absorbed into the
+	// preceding sub-word; the tracking state still advances so the next
+	// real transition is detected correctly.
 	var parts []string
 	start := 0
 	currentStrong := bucketNeutral
 	currentScript := ScriptCommon
+	// Map each rune index to its byte offset in w.Text so we can test
+	// cluster-boundary alignment against GraphemeBreaks. Rune index N
+	// is at byteOffsets[N]; len(runes) is appended so the final slice
+	// math works out.
+	byteOffsets := make([]int, len(runes)+1)
+	{
+		bi := 0
+		for ri, r := range runes {
+			byteOffsets[ri] = bi
+			bi += utf8.RuneLen(r)
+		}
+		byteOffsets[len(runes)] = bi
+	}
 	for i, r := range runes {
 		b := classifyBidi(r)
 		sc := ScriptOf(r)
@@ -311,21 +334,28 @@ func splitMixedBidiWord(w Word) []Word {
 			}
 		}
 		if bidiChange || scriptChange {
-			parts = append(parts, string(runes[start:i]))
-			start = i
-			// The current rune begins the next sub-word: reset the
-			// tracked strong direction and script to its values so the
-			// next iteration compares against this rune, not the old
-			// sub-word.
-			if b != bucketNeutral {
-				currentStrong = b
-			} else {
-				currentStrong = bucketNeutral
-			}
-			if sc != ScriptCommon {
-				currentScript = sc
-			} else {
-				currentScript = ScriptCommon
+			// Only emit the split if it lands on a grapheme cluster
+			// boundary. A mid-cluster split would leave a mark or
+			// other non-starter character at the head of the next
+			// sub-word, which is incorrect per UAX #29. When the
+			// split is suppressed the offending codepoint is folded
+			// into the preceding sub-word, and the tracking state
+			// stays on the preceding sub-word's strong bucket /
+			// script so the next real cluster-aligned transition is
+			// still detected.
+			if isGraphemeBoundary(w.Text, byteOffsets[i]) {
+				parts = append(parts, string(runes[start:i]))
+				start = i
+				if b != bucketNeutral {
+					currentStrong = b
+				} else {
+					currentStrong = bucketNeutral
+				}
+				if sc != ScriptCommon {
+					currentScript = sc
+				} else {
+					currentScript = ScriptCommon
+				}
 			}
 		}
 	}
