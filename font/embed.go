@@ -70,6 +70,56 @@ func (ef *EmbeddedFont) EncodeString(s string) []byte {
 	return buf
 }
 
+// EncodeGIDs encodes a glyph ID stream produced by a complex-script
+// shaper (Devanagari and similar) as big-endian uint16 pairs for the
+// Identity-H CIDFont encoding. Each GID in gids is recorded in the
+// used-glyph set using originalText as the ActualText source: the
+// ToUnicode CMap must still round-trip to real codepoints so that
+// copy/paste and accessibility recover the pre-shaping text. When the
+// shaper emits more glyphs than input runes (common for Indic
+// conjuncts) or fewer (ligatures), we associate each GID with the
+// first rune of originalText as a best-effort fallback; ActualText
+// marked-content on the draw path provides the authoritative recovery.
+func (ef *EmbeddedFont) EncodeGIDs(gids []uint16, originalText string) []byte {
+	// Pick a representative rune so usedGlyphs records at least some
+	// mapping: the ToUnicode CMap path below falls through to a single
+	// replacement character if this is 0.
+	var fallback rune
+	for _, r := range originalText {
+		fallback = r
+		break
+	}
+	buf := make([]byte, 0, len(gids)*2)
+	for _, gid := range gids {
+		if _, ok := ef.usedGlyphs[gid]; !ok {
+			ef.usedGlyphs[gid] = fallback
+		}
+		buf = append(buf, byte(gid>>8), byte(gid&0xFF))
+	}
+	return buf
+}
+
+// MeasureGIDs returns the width of a shaper-produced glyph ID stream
+// in PDF points at the given font size. Unlike MeasureString, this
+// does not walk grapheme clusters — the Indic shaper has already
+// collapsed clusters into the final glyph stream, and every GID in
+// the stream contributes its face advance verbatim. Kerning is not
+// applied because OpenType GPOS mark-positioning (not the kern table)
+// governs Indic cluster spacing, and the draw path handles GPOS
+// separately.
+func (ef *EmbeddedFont) MeasureGIDs(gids []uint16, fontSize float64) float64 {
+	face := ef.face
+	upem := face.UnitsPerEm()
+	if upem == 0 || len(gids) == 0 {
+		return 0
+	}
+	var total float64
+	for _, gid := range gids {
+		total += float64(face.GlyphAdvance(gid))
+	}
+	return total / float64(upem) * fontSize
+}
+
 // Kern returns the kerning value between two runes in PDF text space units
 // (thousandths of a unit of text space). Negative values mean glyphs should
 // be closer together. Returns 0 if no kerning data is available.

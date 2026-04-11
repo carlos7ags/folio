@@ -333,4 +333,17 @@ type Word struct {
 	InlineBlock  Element // the layout element to render instead of text
 	InlineWidth  float64 // pre-measured width of the inline block
 	InlineHeight float64 // pre-measured height of the inline block
+
+	// GIDs carries a shaper-produced glyph ID stream for complex scripts
+	// whose output cannot be represented as Unicode codepoints. The
+	// Devanagari shaper (layout/indic.go) emits GIDs here after running
+	// the OpenType Indic shaping pipeline; the draw path emits these
+	// GIDs as an Identity-H hex string via Tj instead of walking Text.
+	//
+	// When GIDs is non-nil, Text still holds the post-reordering logical
+	// text (used for copy/paste fallbacks), and OriginalText holds the
+	// pre-shaping Unicode for ActualText marked-content recovery. Most
+	// words leave this field nil; only Devanagari (and future Indic)
+	// words set it, so the existing rune-based path is undisturbed.
+	GIDs []uint16
 }

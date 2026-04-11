@@ -19,6 +19,27 @@ const (
 	GSUBRlig GSUBFeature = "rlig" // required ligatures
 	GSUBClig GSUBFeature = "clig" // contextual ligatures
 	GSUBCalt GSUBFeature = "calt" // contextual alternates
+
+	// Indic shaping features applied during phase 3 of the OpenType Indic
+	// shaping engine. The ordering matches the Microsoft "Creating and
+	// supporting OpenType fonts for the Indic scripts" specification so
+	// downstream shapers can drive their apply loop from this list.
+	GSUBNukt GSUBFeature = "nukt" // nukta forms
+	GSUBAkhn GSUBFeature = "akhn" // akhand required ligatures (KSSA, JNYA)
+	GSUBRphf GSUBFeature = "rphf" // reph form (initial ra + halant)
+	GSUBRkrf GSUBFeature = "rkrf" // rakar form (consonant + halant + ra)
+	GSUBBlwf GSUBFeature = "blwf" // below-base form
+	GSUBHalf GSUBFeature = "half" // half form (pre-base consonants)
+	GSUBPstf GSUBFeature = "pstf" // post-base form
+	GSUBVatu GSUBFeature = "vatu" // vattu variants
+	GSUBCjct GSUBFeature = "cjct" // conjunct form
+
+	// Indic phase-5 positional / presentational features.
+	GSUBPres GSUBFeature = "pres" // pre-base substitutions
+	GSUBAbvs GSUBFeature = "abvs" // above-base substitutions
+	GSUBBlws GSUBFeature = "blws" // below-base substitutions
+	GSUBPsts GSUBFeature = "psts" // post-base substitutions
+	GSUBHaln GSUBFeature = "haln" // halant forms
 )
 
 // LigatureSubst describes a single ligature substitution: a sequence of
@@ -98,13 +119,15 @@ type lookupRecord struct {
 const maxChainDepth = 64
 
 // ParseGSUB reads the GSUB table from raw TrueType/OpenType font bytes
-// and extracts Single (LookupType 1) and Ligature (LookupType 4)
-// substitutions for the Arabic positional features, the standard Latin
-// ligature features, and required/contextual ligatures.
+// and extracts Single (LookupType 1), Ligature (LookupType 4), and
+// Chain Context (LookupType 6) substitutions for the features needed
+// by the layout engine's shapers.
 //
-// Script selection: "arab", "latn", and "DFLT" (in that preference order
-// for the default LangSys). Extension lookups (LookupType 7) are
-// unwrapped transparently.
+// Script selection: "arab", "latn", "deva", "dev2", and "DFLT". The
+// Devanagari "deva" / "dev2" tags feed the Indic shaper's phase-3 and
+// phase-5 feature dispatch; see the Microsoft "Creating and supporting
+// OpenType fonts for the Indic scripts" specification. Extension
+// lookups (LookupType 7) are unwrapped transparently.
 //
 // Returns nil if the font has no GSUB table or no matching features.
 //
@@ -140,6 +163,23 @@ func ParseGSUB(data []byte) *GSUBSubstitutions {
 		"rlig": GSUBRlig,
 		"clig": GSUBClig,
 		"calt": GSUBCalt,
+		// Indic phase-3 features (Microsoft Indic shaping doc,
+		// Devanagari section, "Basic shaping forms" through "Conjuncts").
+		"nukt": GSUBNukt,
+		"akhn": GSUBAkhn,
+		"rphf": GSUBRphf,
+		"rkrf": GSUBRkrf,
+		"blwf": GSUBBlwf,
+		"half": GSUBHalf,
+		"pstf": GSUBPstf,
+		"vatu": GSUBVatu,
+		"cjct": GSUBCjct,
+		// Indic phase-5 positional / presentational features.
+		"pres": GSUBPres,
+		"abvs": GSUBAbvs,
+		"blws": GSUBBlws,
+		"psts": GSUBPsts,
+		"haln": GSUBHaln,
 	}
 	featureToLookups := matchFeatures(gsub, featureListOff, featureIndices, targetTags)
 	if len(featureToLookups) == 0 {
@@ -323,7 +363,10 @@ func scriptFeatureIndices(gsub []byte, off int) []int {
 		tag := string(rec[:4])
 		scriptOff := off + int(be16(rec, 4))
 		switch tag {
-		case "arab", "latn":
+		case "arab", "latn", "deva", "dev2":
+			// "deva" is the classic OpenType Devanagari tag; "dev2" is
+			// the newer tag fonts use when they support the Microsoft
+			// Indic v2 feature set. We collect features from both.
 			langSysOffs = append(langSysOffs, scriptOff)
 		case "DFLT":
 			dfltOff = scriptOff

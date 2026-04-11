@@ -273,6 +273,18 @@ func drawWordEmbedded(stream *content.Stream, word Word) {
 	if word.Embedded == nil {
 		return
 	}
+	// Shaper-produced glyph stream (currently Devanagari): emit the
+	// GID stream directly through the Identity-H encoder. The TJ
+	// kern-pair walk is skipped because complex-script shapers handle
+	// positioning via GPOS and not via the kern table. This branch
+	// must run before the mark-attachment check below because
+	// Devanagari combining marks are classified as Extend in UAX #29,
+	// so a shaped Devanagari word would otherwise re-enter the
+	// mark path and be shaped a second time on the original text.
+	if len(word.GIDs) > 0 {
+		stream.ShowTextHex(word.Embedded.EncodeGIDs(word.GIDs, word.OriginalText))
+		return
+	}
 	if markPositioningEligible(word) {
 		drawWordEmbeddedWithMarks(stream, word)
 		return
