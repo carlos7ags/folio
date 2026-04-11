@@ -311,6 +311,75 @@ func TestAscentZeroFontSize(t *testing.T) {
 	}
 }
 
+func TestMeasureStringStandardFontAppliesKerning(t *testing.T) {
+	// "AV" has a documented kern pair (-70) in Helvetica. The kerned
+	// width must be smaller than the sum of the per-glyph advances.
+	unKerned := (float64(helveticaWidths['A']) + float64(helveticaWidths['V'])) / 1000 * 12
+	kerned := Helvetica.MeasureString("AV", 12)
+	if kerned >= unKerned {
+		t.Errorf("expected kerned width (%.4f) < unkerned (%.4f)", kerned, unKerned)
+	}
+	// Kern delta should equal the value from the kern table.
+	expectedDelta := float64(Helvetica.Kern('A', 'V')) / 1000 * 12
+	if gotDelta := kerned - unKerned; gotDelta < expectedDelta-0.001 || gotDelta > expectedDelta+0.001 {
+		t.Errorf("kern delta = %.4f, want %.4f", gotDelta, expectedDelta)
+	}
+
+	// "AB" has no kern pair, so the measurement must equal the unkerned sum.
+	unKernedAB := (float64(helveticaWidths['A']) + float64(helveticaWidths['B'])) / 1000 * 12
+	kernedAB := Helvetica.MeasureString("AB", 12)
+	if math.Abs(kernedAB-unKernedAB) > 0.001 {
+		t.Errorf("AB: kerned %.4f != unkerned %.4f (no pair expected)", kernedAB, unKernedAB)
+	}
+}
+
+func TestMeasureStringEmbeddedFontAppliesKerning(t *testing.T) {
+	ttfPath := "/System/Library/Fonts/Supplemental/Arial.ttf"
+	data, err := os.ReadFile(ttfPath)
+	if err != nil {
+		t.Skipf("Arial TTF not available: %v", err)
+	}
+	face, err := ParseTTF(data)
+	if err != nil {
+		t.Fatalf("ParseTTF: %v", err)
+	}
+	ef := NewEmbeddedFont(face)
+
+	// Compute the unkerned advance sum for "AV" in PDF points.
+	gidA := face.GlyphIndex('A')
+	gidV := face.GlyphIndex('V')
+	upem := float64(face.UnitsPerEm())
+	unKerned := (float64(face.GlyphAdvance(gidA)) + float64(face.GlyphAdvance(gidV))) / upem * 12
+
+	kerned := ef.MeasureString("AV", 12)
+	kernRaw := face.Kern(gidA, gidV)
+	if kernRaw == 0 {
+		t.Skip("font has no kern entry for A-V; cannot verify kerning-aware measurement")
+	}
+	if kerned >= unKerned {
+		t.Errorf("expected kerned width (%.4f) < unkerned (%.4f); raw kern = %d FUnits",
+			kerned, unKerned, kernRaw)
+	}
+	// Kerned width must equal unkerned + kern contribution in FUnits→points.
+	want := unKerned + float64(kernRaw)/upem*12
+	if math.Abs(kerned-want) > 0.0001 {
+		t.Errorf("kerned measurement %.6f != expected %.6f", kerned, want)
+	}
+
+	// Cross-check against the draw-time value used in drawWordEmbedded:
+	// EmbeddedFont.Kern returns kern in thousandths of text space; the
+	// draw pipeline applies -kern as a TJ adjustment, yielding an
+	// effective advance of (unkerned - (-kern)/1000 * fontSize) =
+	// unkerned + kern/1000*fontSize. Since Kern scales FUnits to
+	// 1/1000 units, this matches the measurement.
+	drawTimeKern := ef.Kern('A', 'V')
+	drawTimeAdvance := unKerned + drawTimeKern/1000*12
+	if math.Abs(kerned-drawTimeAdvance) > 0.0001 {
+		t.Errorf("measure-time %.6f disagrees with draw-time advance %.6f",
+			kerned, drawTimeAdvance)
+	}
+}
+
 func TestKernEmbeddedFont(t *testing.T) {
 	ttfPath := "/System/Library/Fonts/Supplemental/Arial.ttf"
 	data, err := os.ReadFile(ttfPath)

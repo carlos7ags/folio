@@ -377,15 +377,15 @@ func buildLigatureGSUB(opt ligOptions) []byte {
 	switch opt.CoverageFormat {
 	case 2:
 		coverage = make([]byte, 10)
-		put16(coverage[0:2], 2) // format
-		put16(coverage[2:4], 1) // rangeCount
+		put16(coverage[0:2], 2)  // format
+		put16(coverage[2:4], 1)  // rangeCount
 		put16(coverage[4:6], 10) // startGlyphID
 		put16(coverage[6:8], 10) // endGlyphID
 		put16(coverage[8:10], 0) // startCoverageIndex
 	default:
 		coverage = make([]byte, 6)
-		put16(coverage[0:2], 1) // format
-		put16(coverage[2:4], 1) // glyphCount
+		put16(coverage[0:2], 1)  // format
+		put16(coverage[2:4], 1)  // glyphCount
 		put16(coverage[4:6], 10) // GID 10
 	}
 
@@ -394,10 +394,10 @@ func buildLigatureGSUB(opt ligOptions) []byte {
 	//   then the coverage, then the ligSet.
 	ligSubHdr := 8
 	ligSub = make([]byte, ligSubHdr+len(coverage)+len(ligSet))
-	put16(ligSub[0:2], 1)                                  // format
-	put16(ligSub[2:4], uint16(ligSubHdr))                  // coverageOff
-	put16(ligSub[4:6], 1)                                  // ligSetCount
-	put16(ligSub[6:8], uint16(ligSubHdr+len(coverage)))    // setOffset[0]
+	put16(ligSub[0:2], 1)                               // format
+	put16(ligSub[2:4], uint16(ligSubHdr))               // coverageOff
+	put16(ligSub[4:6], 1)                               // ligSetCount
+	put16(ligSub[6:8], uint16(ligSubHdr+len(coverage))) // setOffset[0]
 	copy(ligSub[ligSubHdr:], coverage)
 	copy(ligSub[ligSubHdr+len(coverage):], ligSet)
 
@@ -407,9 +407,9 @@ func buildLigatureGSUB(opt ligOptions) []byte {
 	if opt.Extension {
 		extHdr := 8
 		extSub = make([]byte, extHdr+len(ligSub))
-		put16(extSub[0:2], 1)                    // format = 1
-		put16(extSub[2:4], 4)                    // wrapped type = 4
-		put32(extSub[4:8], uint32(extHdr))       // offset to wrapped subtable
+		put16(extSub[0:2], 1)              // format = 1
+		put16(extSub[2:4], 4)              // wrapped type = 4
+		put32(extSub[4:8], uint32(extHdr)) // offset to wrapped subtable
 		copy(extSub[extHdr:], ligSub)
 	}
 
@@ -462,7 +462,7 @@ func buildLigatureGSUB(opt ligOptions) []byte {
 	scriptHdr := 4
 	script = make([]byte, scriptHdr+len(langSys))
 	put16(script[0:2], uint16(scriptHdr)) // defaultLangSysOff
-	put16(script[2:4], 0)                  // langSysCount
+	put16(script[2:4], 0)                 // langSysCount
 	copy(script[scriptHdr:], langSys)
 
 	// ScriptList: scriptCount(2) + ScriptRecord[1](tag(4)+offset(2)) + script

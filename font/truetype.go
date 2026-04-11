@@ -15,9 +15,10 @@ import (
 )
 
 // sfntFace is the Face implementation backed by golang.org/x/image/font/sfnt.
-// Lazy caches (tables, gsubResult, gidToUnicodeMap) are unsynchronized;
-// callers must not share a single sfntFace across goroutines.
-// This is an internal implementation — callers use the Face interface.
+// Lazy caches (tables, gsubResult, gidToUnicodeMap, kernPairs) are
+// unsynchronized; callers must not share a single sfntFace across
+// goroutines. This is an internal implementation — callers use the
+// Face interface.
 type sfntFace struct {
 	font    *sfnt.Font
 	rawData []byte
@@ -36,6 +37,13 @@ type sfntFace struct {
 	// Cached GID→Unicode reverse map (nil = not yet built).
 	gidToUnicodeMap   map[uint16]rune
 	gidToUnicodeBuilt bool
+
+	// Cached kern pairs: (leftGID, rightGID) → FUnit value. Populated on
+	// the first Kern() call. A nil map after parsing means the font has
+	// no kern table or no supported subtables; kernPairsParsed then
+	// guards re-parsing.
+	kernPairs       map[[2]uint16]int16
+	kernPairsParsed bool
 }
 
 // ParseTTF parses a TrueType (.ttf) or OpenType (.otf) font from raw bytes.
@@ -202,128 +210,23 @@ func (f *sfntFace) StemV() int {
 	return max(stemV, 10)
 }
 
-// Kern returns the kerning adjustment between two glyphs by looking up the
-// kern table. Returns 0 if no kern table exists or no pair entry is found.
+// Kern returns the kerning adjustment between two glyphs by consulting
+// the cached parsed kern table. Returns 0 if the font has no kern table,
+// no supported subtables, or no entry for the pair. The cache is built
+// on the first call.
 func (f *sfntFace) Kern(left, right uint16) int {
-	tables := f.rawTables()
-	if tables == nil {
-		return 0
-	}
-	kern, ok := tables["kern"]
-	if !ok || len(kern) < 4 {
-		return 0
-	}
-	return lookupKernPair(kern, left, right)
-}
-
-// lookupKernPair searches the kern table for a glyph pair.
-// Supports format 0 subtables (the most common format).
-func lookupKernPair(data []byte, left, right uint16) int {
-	if len(data) < 4 {
-		return 0
-	}
-	version := binary.BigEndian.Uint16(data[0:2])
-	nTables := binary.BigEndian.Uint16(data[2:4])
-	offset := 4
-
-	// Version 0 kern table (Windows/TrueType style).
-	if version == 0 {
-		for range int(nTables) {
-			if offset+6 > len(data) {
-				break
+	if !f.kernPairsParsed {
+		if tables := f.rawTables(); tables != nil {
+			if kern, ok := tables["kern"]; ok {
+				f.kernPairs = ParseKern(kern)
 			}
-			// subtable header: version(2) + length(2) + coverage(2)
-			subtableLen := int(binary.BigEndian.Uint16(data[offset+2 : offset+4]))
-			coverage := binary.BigEndian.Uint16(data[offset+4 : offset+6])
-
-			// Validate subtable bounds.
-			if subtableLen < 6 || offset+subtableLen > len(data) {
-				break
-			}
-
-			// coverage: bits 0-7 = format, bit 0 of high byte = horizontal
-			format := coverage & 0xFF
-			horizontal := (coverage & 0x0100) != 0
-
-			if format == 0 && horizontal {
-				val := lookupKernFormat0(data[offset+6:offset+subtableLen], left, right)
-				if val != 0 {
-					return val
-				}
-			}
-			offset += subtableLen
 		}
+		f.kernPairsParsed = true
+	}
+	if f.kernPairs == nil {
 		return 0
 	}
-
-	// Version 1 kern table (macOS/AAT style) — less common but worth supporting.
-	if version == 1 && len(data) >= 8 {
-		nTables32 := binary.BigEndian.Uint32(data[4:8])
-		offset = 8
-		for range int(nTables32) {
-			if offset+8 > len(data) {
-				break
-			}
-			subtableLen := int(binary.BigEndian.Uint32(data[offset : offset+4]))
-			coverage := binary.BigEndian.Uint16(data[offset+4 : offset+6])
-
-			// Validate subtable bounds.
-			if subtableLen < 8 || offset+subtableLen > len(data) {
-				break
-			}
-
-			format := coverage & 0xFF
-			if format == 0 {
-				val := lookupKernFormat0(data[offset+8:offset+subtableLen], left, right)
-				if val != 0 {
-					return val
-				}
-			}
-			offset += subtableLen
-		}
-	}
-
-	return 0
-}
-
-// lookupKernFormat0 searches a format 0 kern subtable for the given pair.
-// Format 0 has: nPairs(2), searchRange(2), entrySelector(2), rangeShift(2)
-// followed by nPairs entries of: left(2) + right(2) + value(2).
-func lookupKernFormat0(data []byte, left, right uint16) int {
-	if len(data) < 8 {
-		return 0
-	}
-	nPairs := int(binary.BigEndian.Uint16(data[0:2]))
-	pairData := data[8:] // skip nPairs, searchRange, entrySelector, rangeShift
-
-	// Clamp nPairs to the actual available data to prevent unsound
-	// binary search on malformed fonts with inflated pair counts.
-	if maxPairs := len(pairData) / 6; nPairs > maxPairs {
-		nPairs = maxPairs
-	}
-
-	// Binary search for the pair (pairs are sorted by (left, right)).
-	key := uint32(left)<<16 | uint32(right)
-	lo, hi := 0, nPairs-1
-	for lo <= hi {
-		mid := (lo + hi) / 2
-		off := mid * 6
-		if off+6 > len(pairData) {
-			break
-		}
-		pairLeft := binary.BigEndian.Uint16(pairData[off : off+2])
-		pairRight := binary.BigEndian.Uint16(pairData[off+2 : off+4])
-		pairKey := uint32(pairLeft)<<16 | uint32(pairRight)
-
-		if pairKey == key {
-			return int(int16(binary.BigEndian.Uint16(pairData[off+4 : off+6])))
-		} else if pairKey < key {
-			lo = mid + 1
-		} else {
-			hi = mid - 1
-		}
-	}
-	return 0
+	return int(f.kernPairs[[2]uint16{left, right}])
 }
 
 // Flags returns the PDF font descriptor flags per ISO 32000 Table 123.
