@@ -7,6 +7,7 @@ import (
 	"os"
 	"runtime"
 	"testing"
+	"time"
 )
 
 // TestParseGSUBFindsArabicFeatures loads a system font known to have
@@ -1081,6 +1082,398 @@ func assembleTwoLookupGSUB(singleSub, chainSub []byte, extension bool) []byte {
 	out = append(out, featList...)
 	out = append(out, lookupList...)
 	return out
+}
+
+// --- Recursive ChainContext action dispatch tests (PR #17x follow-up) ---
+
+// lookupSpec describes one lookup to be packaged into a synthetic GSUB
+// blob by assembleMultiLookupGSUB. Type is the on-disk LookupType to
+// write for this slot (1, 4, 6, or 7). Sub is the raw subtable bytes.
+// When Type is 7, Sub must already carry the LookupType 7 extension
+// wrapper; the helper does not add one.
+type lookupSpec struct {
+	Type uint16
+	Sub  []byte
+}
+
+// assembleMultiLookupGSUB assembles a synthetic GSUB blob with an
+// arbitrary number of lookups, a single "calt" feature that references
+// one lookup slot (featureRef), and a "latn" script binding that feature
+// as the default. It mirrors the layout conventions used by the existing
+// chain-context test builders.
+func assembleMultiLookupGSUB(lookups []lookupSpec, featureRef uint16) []byte {
+	// Pack each lookup: type(2) + flag(2) + subCount(2) + subOff[0]=8 + sub.
+	lookupBytes := make([][]byte, len(lookups))
+	for i, lk := range lookups {
+		buf := make([]byte, 8+len(lk.Sub))
+		put16(buf[0:2], lk.Type)
+		put16(buf[2:4], 0)
+		put16(buf[4:6], 1)
+		put16(buf[6:8], 8)
+		copy(buf[8:], lk.Sub)
+		lookupBytes[i] = buf
+	}
+
+	lookupListHdr := 2 + 2*len(lookups)
+	offs := make([]int, len(lookups))
+	total := lookupListHdr
+	for i, b := range lookupBytes {
+		offs[i] = total
+		total += len(b)
+	}
+	lookupList := make([]byte, total)
+	put16(lookupList[0:2], uint16(len(lookups)))
+	for i, off := range offs {
+		put16(lookupList[2+i*2:4+i*2], uint16(off))
+		copy(lookupList[off:], lookupBytes[i])
+	}
+
+	// Feature: featureParams(2)=0, lookupCount(2)=1, lookupIndex(2)=featureRef.
+	feature := make([]byte, 6)
+	put16(feature[0:2], 0)
+	put16(feature[2:4], 1)
+	put16(feature[4:6], featureRef)
+
+	featListHdr := 8
+	featList := make([]byte, featListHdr+len(feature))
+	put16(featList[0:2], 1)
+	copy(featList[2:6], []byte("calt"))
+	put16(featList[6:8], uint16(featListHdr))
+	copy(featList[featListHdr:], feature)
+
+	langSys := make([]byte, 8)
+	put16(langSys[0:2], 0)
+	put16(langSys[2:4], 0xFFFF)
+	put16(langSys[4:6], 1)
+	put16(langSys[6:8], 0)
+
+	scriptHdr := 4
+	script := make([]byte, scriptHdr+len(langSys))
+	put16(script[0:2], uint16(scriptHdr))
+	put16(script[2:4], 0)
+	copy(script[scriptHdr:], langSys)
+
+	scriptListHdr := 8
+	scriptList := make([]byte, scriptListHdr+len(script))
+	put16(scriptList[0:2], 1)
+	copy(scriptList[2:6], []byte("latn"))
+	put16(scriptList[6:8], uint16(scriptListHdr))
+	copy(scriptList[scriptListHdr:], script)
+
+	header := make([]byte, 10)
+	scriptListOff := len(header)
+	featListOff := scriptListOff + len(scriptList)
+	lookupListOff := featListOff + len(featList)
+	put16(header[0:2], 1)
+	put16(header[2:4], 0)
+	put16(header[4:6], uint16(scriptListOff))
+	put16(header[6:8], uint16(featListOff))
+	put16(header[8:10], uint16(lookupListOff))
+
+	out := make([]byte, 0, lookupListOff+len(lookupList))
+	out = append(out, header...)
+	out = append(out, scriptList...)
+	out = append(out, featList...)
+	out = append(out, lookupList...)
+	return out
+}
+
+// buildSingleSubstSubtable returns a SingleSubstFormat2 subtable that
+// maps each source GID to the corresponding target GID, in the order
+// given by sources. Sources must be sorted ascending so Coverage Format 1
+// can list them directly.
+func buildSingleSubstSubtable(sources, targets []uint16) []byte {
+	n := len(sources)
+	cov := make([]byte, 4+n*2)
+	put16(cov[0:2], 1)
+	put16(cov[2:4], uint16(n))
+	for i, gid := range sources {
+		put16(cov[4+i*2:6+i*2], gid)
+	}
+	hdr := 6
+	sub := make([]byte, hdr+n*2+len(cov))
+	put16(sub[0:2], 2)
+	put16(sub[2:4], uint16(hdr+n*2))
+	put16(sub[4:6], uint16(n))
+	for i, gid := range targets {
+		put16(sub[hdr+i*2:hdr+i*2+2], gid)
+	}
+	copy(sub[hdr+n*2:], cov)
+	return sub
+}
+
+// buildLigatureSubstSubtable returns a LigatureSubstFormat1 subtable
+// for a single trigger GID with one ligature: [trigger, components...]
+// -> ligGID. The components slice lists the glyphs that must follow
+// the trigger to fire the ligature.
+func buildLigatureSubstSubtable(trigger uint16, components []uint16, ligGID uint16) []byte {
+	// Ligature record: ligGlyph(2) + componentCount(2) + comps[components](2 each).
+	compCount := 1 + len(components)
+	lig := make([]byte, 4+len(components)*2)
+	put16(lig[0:2], ligGID)
+	put16(lig[2:4], uint16(compCount))
+	for i, c := range components {
+		put16(lig[4+i*2:6+i*2], c)
+	}
+	// LigatureSet: ligCount(2) + ligOff[0]=4 + lig.
+	set := make([]byte, 4+len(lig))
+	put16(set[0:2], 1)
+	put16(set[2:4], 4)
+	copy(set[4:], lig)
+	// Coverage format 1 for {trigger}.
+	cov := make([]byte, 6)
+	put16(cov[0:2], 1)
+	put16(cov[2:4], 1)
+	put16(cov[4:6], trigger)
+	// Subtable: format=1 + coverageOff + setCount=1 + setOff[0].
+	hdr := 8
+	sub := make([]byte, hdr+len(cov)+len(set))
+	put16(sub[0:2], 1)
+	put16(sub[2:4], uint16(hdr))
+	put16(sub[4:6], 1)
+	put16(sub[6:8], uint16(hdr+len(cov)))
+	copy(sub[hdr:], cov)
+	copy(sub[hdr+len(cov):], set)
+	return sub
+}
+
+// buildChainCtxFormat1Rule builds a ChainSubRule with the supplied back,
+// input (including the trigger), and lookahead GID sequences and
+// SubstLookupRecord actions. Returns the raw rule bytes.
+func buildChainCtxFormat1Rule(back, input, look []uint16, actions []ChainSubstAction) []byte {
+	if len(input) < 1 {
+		panic("input must include the trigger glyph at index 0")
+	}
+	rest := input[1:]
+	n := 2 + len(back)*2 + 2 + len(rest)*2 + 2 + len(look)*2 + 2 + len(actions)*4
+	rule := make([]byte, n)
+	p := 0
+	put16(rule[p:p+2], uint16(len(back)))
+	p += 2
+	for _, g := range back {
+		put16(rule[p:p+2], g)
+		p += 2
+	}
+	put16(rule[p:p+2], uint16(len(input)))
+	p += 2
+	for _, g := range rest {
+		put16(rule[p:p+2], g)
+		p += 2
+	}
+	put16(rule[p:p+2], uint16(len(look)))
+	p += 2
+	for _, g := range look {
+		put16(rule[p:p+2], g)
+		p += 2
+	}
+	put16(rule[p:p+2], uint16(len(actions)))
+	p += 2
+	for _, a := range actions {
+		put16(rule[p:p+2], a.SequenceIndex)
+		p += 2
+		put16(rule[p:p+2], a.LookupListIndex)
+		p += 2
+	}
+	return rule
+}
+
+// buildChainCtxFormat1Subtable builds a ChainContextSubstFormat1 subtable
+// for a single trigger GID with one rule. The trigger is taken from
+// input[0].
+func buildChainCtxFormat1Subtable(back, input, look []uint16, actions []ChainSubstAction) []byte {
+	if len(input) < 1 {
+		panic("input must include the trigger glyph at index 0")
+	}
+	trigger := input[0]
+	rule := buildChainCtxFormat1Rule(back, input, look, actions)
+
+	set := make([]byte, 4+len(rule))
+	put16(set[0:2], 1)
+	put16(set[2:4], 4)
+	copy(set[4:], rule)
+
+	cov := make([]byte, 6)
+	put16(cov[0:2], 1)
+	put16(cov[2:4], 1)
+	put16(cov[4:6], trigger)
+
+	hdr := 8
+	sub := make([]byte, hdr+len(cov)+len(set))
+	put16(sub[0:2], 1)
+	put16(sub[2:4], uint16(hdr))
+	put16(sub[4:6], 1)
+	put16(sub[6:8], uint16(hdr+len(cov)))
+	copy(sub[hdr:], cov)
+	copy(sub[hdr+len(cov):], set)
+	return sub
+}
+
+// wrapExtension wraps a subtable in a LookupType 7 Extension header with
+// the given effective type. The caller must set the outer lookup's type
+// to 7.
+func wrapExtension(effectiveType uint16, inner []byte) []byte {
+	out := make([]byte, 8+len(inner))
+	put16(out[0:2], 1)
+	put16(out[2:4], effectiveType)
+	put32(out[4:8], 8)
+	copy(out[8:], inner)
+	return out
+}
+
+// TestChainContextActionTargetsLigature constructs a font where a chain
+// context rule matches [back=5, input=10 20, look=30] and its action
+// fires a Ligature lookup keyed at position 0 (the trigger, GID 10). The
+// ligature [10, 20] -> 99 collapses two glyphs into one inside the
+// chain's matched range; the action's target is a genuine LookupType 4,
+// which is the behavior this test exercises.
+func TestChainContextActionTargetsLigature(t *testing.T) {
+	ligSub := buildLigatureSubstSubtable(10, []uint16{20}, 99)
+	chainSub := buildChainCtxFormat1Subtable(
+		[]uint16{5}, []uint16{10, 20}, []uint16{30},
+		[]ChainSubstAction{{SequenceIndex: 0, LookupListIndex: 0}},
+	)
+	gsub := assembleMultiLookupGSUB([]lookupSpec{
+		{Type: 4, Sub: ligSub},
+		{Type: 6, Sub: chainSub},
+	}, 1)
+	ttf := buildTTFWithGSUB(gsub)
+	subs := ParseGSUB(ttf)
+	if subs == nil {
+		t.Fatalf("ParseGSUB returned nil")
+	}
+	got := subs.ApplyChainContext([]uint16{5, 10, 20, 30}, GSUBCalt)
+	want := []uint16{5, 99, 30}
+	if !uint16SliceEq(got, want) {
+		t.Errorf("ligature action: got %v, want %v", got, want)
+	}
+}
+
+// TestChainContextActionTargetsChainContext nests one chain rule inside
+// another: the outer rule's action dispatches into a second chain lookup
+// whose own action performs a Single substitution. Exercises the
+// recursive ChainContext case.
+func TestChainContextActionTargetsChainContext(t *testing.T) {
+	// lookup 0: Single [10 -> 99]
+	singleSub := buildSingleSubstSubtable([]uint16{10}, []uint16{99})
+	// lookup 1: Inner chain, back=[5], input=[10], look=[20], action -> 0.
+	innerChain := buildChainCtxFormat1Subtable(
+		[]uint16{5}, []uint16{10}, []uint16{20},
+		[]ChainSubstAction{{SequenceIndex: 0, LookupListIndex: 0}},
+	)
+	// lookup 2: Outer chain, same context, action -> 1 (inner chain).
+	outerChain := buildChainCtxFormat1Subtable(
+		[]uint16{5}, []uint16{10}, []uint16{20},
+		[]ChainSubstAction{{SequenceIndex: 0, LookupListIndex: 1}},
+	)
+	gsub := assembleMultiLookupGSUB([]lookupSpec{
+		{Type: 1, Sub: singleSub},
+		{Type: 6, Sub: innerChain},
+		{Type: 6, Sub: outerChain},
+	}, 2)
+	ttf := buildTTFWithGSUB(gsub)
+	subs := ParseGSUB(ttf)
+	if subs == nil {
+		t.Fatalf("ParseGSUB returned nil")
+	}
+	got := subs.ApplyChainContext([]uint16{5, 10, 20}, GSUBCalt)
+	want := []uint16{5, 99, 20}
+	if !uint16SliceEq(got, want) {
+		t.Errorf("recursive chain dispatch: got %v, want %v", got, want)
+	}
+}
+
+// TestChainContextRecursionDepthGuard builds a single chain lookup whose
+// action dispatches into itself. Without the maxChainDepth ceiling,
+// ApplyChainContext would recurse forever; the guard must short-circuit
+// the recursion and return a value without exceeding the test timeout.
+func TestChainContextRecursionDepthGuard(t *testing.T) {
+	selfRef := buildChainCtxFormat1Subtable(
+		[]uint16{5}, []uint16{10}, []uint16{20},
+		[]ChainSubstAction{{SequenceIndex: 0, LookupListIndex: 0}},
+	)
+	gsub := assembleMultiLookupGSUB([]lookupSpec{
+		{Type: 6, Sub: selfRef},
+	}, 0)
+	ttf := buildTTFWithGSUB(gsub)
+	subs := ParseGSUB(ttf)
+	if subs == nil {
+		t.Fatalf("ParseGSUB returned nil")
+	}
+	done := make(chan []uint16, 1)
+	go func() {
+		done <- subs.ApplyChainContext([]uint16{5, 10, 20}, GSUBCalt)
+	}()
+	select {
+	case got := <-done:
+		// The action doesn't actually substitute anything (the target is
+		// a chain lookup and all it does is recurse), so the input passes
+		// through unchanged. What matters is that the call returned.
+		if !uint16SliceEq(got, []uint16{5, 10, 20}) {
+			t.Errorf("unexpected mutation under depth guard: got %v", got)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatalf("ApplyChainContext did not return within 2s: depth guard failed")
+	}
+}
+
+// TestChainContextMixedActionDispatch checks a rule with two actions in
+// the same SubstLookupRecord array targeting different lookup types:
+// seqIdx=0 targets a Single lookup, seqIdx=1 targets a Ligature lookup.
+// Input [5, 10, 20, 30]: single action rewrites position 1 (10->99),
+// then the ligature action at position 2 consumes 20,30 -> 77.
+// Result: [5, 99, 77].
+func TestChainContextMixedActionDispatch(t *testing.T) {
+	singleSub := buildSingleSubstSubtable([]uint16{10}, []uint16{99})
+	ligSub := buildLigatureSubstSubtable(20, []uint16{30}, 77)
+	chainSub := buildChainCtxFormat1Subtable(
+		[]uint16{5}, []uint16{10, 20}, []uint16{30},
+		[]ChainSubstAction{
+			{SequenceIndex: 0, LookupListIndex: 0},
+			{SequenceIndex: 1, LookupListIndex: 1},
+		},
+	)
+	gsub := assembleMultiLookupGSUB([]lookupSpec{
+		{Type: 1, Sub: singleSub},
+		{Type: 4, Sub: ligSub},
+		{Type: 6, Sub: chainSub},
+	}, 2)
+	ttf := buildTTFWithGSUB(gsub)
+	subs := ParseGSUB(ttf)
+	if subs == nil {
+		t.Fatalf("ParseGSUB returned nil")
+	}
+	got := subs.ApplyChainContext([]uint16{5, 10, 20, 30}, GSUBCalt)
+	want := []uint16{5, 99, 77}
+	if !uint16SliceEq(got, want) {
+		t.Errorf("mixed dispatch: got %v, want %v", got, want)
+	}
+}
+
+// TestChainContextExtensionWrappedDispatchTarget wraps the inner Ligature
+// lookup in a LookupType 7 Extension and verifies the chain action still
+// reaches it. This exercises the extension-unwrap branch of
+// buildLookupDispatchTable.
+func TestChainContextExtensionWrappedDispatchTarget(t *testing.T) {
+	ligSub := buildLigatureSubstSubtable(10, []uint16{20}, 99)
+	extWrapped := wrapExtension(4, ligSub)
+	chainSub := buildChainCtxFormat1Subtable(
+		[]uint16{5}, []uint16{10, 20}, []uint16{30},
+		[]ChainSubstAction{{SequenceIndex: 0, LookupListIndex: 0}},
+	)
+	gsub := assembleMultiLookupGSUB([]lookupSpec{
+		{Type: 7, Sub: extWrapped},
+		{Type: 6, Sub: chainSub},
+	}, 1)
+	ttf := buildTTFWithGSUB(gsub)
+	subs := ParseGSUB(ttf)
+	if subs == nil {
+		t.Fatalf("ParseGSUB returned nil")
+	}
+	got := subs.ApplyChainContext([]uint16{5, 10, 20, 30}, GSUBCalt)
+	want := []uint16{5, 99, 30}
+	if !uint16SliceEq(got, want) {
+		t.Errorf("extension-wrapped dispatch: got %v, want %v", got, want)
+	}
 }
 
 func arabicFontPath() string {
