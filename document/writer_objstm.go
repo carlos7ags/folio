@@ -62,13 +62,16 @@ type packedObjStm struct {
 // objects inside an /ObjStm, and the safe interaction with the standard
 // security handler is large enough to defer.
 func (w *Writer) writeXRefStreamWithObjStms(cw *countingWriter, opts WriteOptions) error {
+	// The encryption refusal also lives in WriteToWithOptions, ahead of
+	// the encryption walk; this is defense in depth in case a future
+	// caller bypasses WriteToWithOptions.
 	if w.encryptor != nil {
 		return fmt.Errorf("writer: object streams are not supported with encryption in phase 1")
 	}
 
-	cap := opts.ObjectStreamCapacity
-	if cap <= 0 {
-		cap = defaultObjectStreamCapacity
+	capacity := opts.ObjectStreamCapacity
+	if capacity <= 0 {
+		capacity = defaultObjectStreamCapacity
 	}
 
 	eligibleIdx := make([]int, 0, len(w.objects))
@@ -83,8 +86,8 @@ func (w *Writer) writeXRefStreamWithObjStms(cw *countingWriter, opts WriteOption
 	// keep their numbers.
 	nextObjNum := len(w.objects) + 1
 	var objstms []packedObjStm
-	for start := 0; start < len(eligibleIdx); start += cap {
-		end := start + cap
+	for start := 0; start < len(eligibleIdx); start += capacity {
+		end := start + capacity
 		if end > len(eligibleIdx) {
 			end = len(eligibleIdx)
 		}
@@ -251,8 +254,10 @@ func (w *Writer) writeXRefStreamWithObjStms(cw *countingWriter, opts WriteOption
 //
 // The /Length-of-a-stream rule is enforced implicitly: folio always
 // inlines /Length as a direct integer (core/stream.go), so no indirect
-// object ever serves as a /Length value. If that ever changes, the
-// invariant test in this file will catch the regression.
+// object ever serves as a /Length value. TestStreamLengthIsDirect in
+// the core package pins this invariant; a future refactor that switches
+// /Length to an indirect reference will fail that test before it can
+// reach this code path.
 func (w *Writer) objStmEligible(obj IndirectObject) bool {
 	if obj.GenerationNumber != 0 {
 		return false

@@ -49,6 +49,15 @@ func (w *Writer) WriteToWithOptions(out io.Writer, opts WriteOptions) (int64, er
 		// instead of silently upgrading.
 		return 0, fmt.Errorf("writer: UseObjectStreams requires UseXRefStream")
 	}
+	if opts.UseObjectStreams && w.encryptor != nil {
+		// Refuse before the encryption walk runs. EncryptObject mutates
+		// objects in place, so a deferred refusal would leave the writer
+		// in a half-encrypted state and a retry without UseObjectStreams
+		// would double-encrypt. Phase 1 does not support per-objstm
+		// encryption (§7.6.1 requires the entire object stream to be
+		// encrypted as a unit, not the individual entries).
+		return 0, fmt.Errorf("writer: object streams are not supported with encryption in phase 1")
+	}
 
 	// Encrypt all user objects in place. Done before serialization so
 	// the offsets we record reflect the encrypted bytes. Matches the
