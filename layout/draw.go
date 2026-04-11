@@ -37,12 +37,27 @@ func drawTextLine(ctx DrawContext, words []Word, x, baselineY, maxWidth float64,
 		return
 	}
 
-	// For justified text, compute extra space between words.
+	// For justified text, compute extra space between words. When the line
+	// contains Arabic words, prefer kashida (tatweel) elongation over
+	// inter-word stretching: insert U+0640 into Arabic words to consume
+	// the slack above the natural inter-word gap. Whatever slack remains
+	// after kashida insertion (no Arabic on the line, no legal sites,
+	// or partial fill) falls through to whitespace stretching.
 	extraSpace := 0.0
 	if align == AlignJustify && !isLast && len(words) > 1 {
 		totalWordWidth := 0.0
 		for _, w := range words {
 			totalWordWidth += w.Width
+		}
+		// Slack = space available beyond the natural inter-word gaps.
+		naturalGaps := 0.0
+		for i := 0; i < len(words)-1; i++ {
+			naturalGaps += words[i].SpaceAfter
+		}
+		kashidaSlack := maxWidth - totalWordWidth - naturalGaps
+		if kashidaSlack > 0 {
+			consumed := applyKashidaJustification(words, kashidaSlack)
+			totalWordWidth += consumed
 		}
 		gaps := float64(len(words) - 1)
 		extraSpace = (maxWidth - totalWordWidth) / gaps
