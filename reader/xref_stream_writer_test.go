@@ -64,6 +64,63 @@ func TestParseFolioXRefStreamWriter(t *testing.T) {
 	}
 }
 
+func TestParseFolioObjectStreamWriter(t *testing.T) {
+	// Round-trip the object-stream writer mode through folio's own
+	// reader. The reader handles /Type /ObjStm via resolver.go; this
+	// test pins the contract that folio's writer output is consumable
+	// by folio's reader for the full {xref stream + object streams}
+	// combination.
+	w := document.NewWriter("1.7")
+	catalog := core.NewPdfDictionary()
+	catalog.Set("Type", core.NewPdfName("Catalog"))
+	pages := core.NewPdfDictionary()
+	pages.Set("Type", core.NewPdfName("Pages"))
+	pages.Set("Kids", core.NewPdfArray())
+	pages.Set("Count", core.NewPdfInteger(0))
+	catalogRef := w.AddObject(catalog)
+	pagesRef := w.AddObject(pages)
+	catalog.Set("Pages", pagesRef)
+	w.SetRoot(catalogRef)
+	for i := 0; i < 15; i++ {
+		d := core.NewPdfDictionary()
+		d.Set("Type", core.NewPdfName("Filler"))
+		d.Set("Index", core.NewPdfInteger(i))
+		w.AddObject(d)
+	}
+
+	var buf bytes.Buffer
+	if _, err := w.WriteToWithOptions(&buf, document.WriteOptions{
+		UseXRefStream:    true,
+		UseObjectStreams: true,
+	}); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+
+	r, err := Parse(buf.Bytes())
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+
+	// MaxObjectNumber: 17 user objects + 1 objstm + 1 xref stream = 19.
+	if got := r.MaxObjectNumber(); got != 19 {
+		t.Errorf("MaxObjectNumber = %d, want 19", got)
+	}
+
+	// Resolve a compressed object (filler 5, object number 8) and
+	// verify the parser pulls it out of the objstm correctly.
+	obj, err := r.ResolveObject(core.NewPdfIndirectReference(8, 0))
+	if err != nil {
+		t.Fatalf("ResolveObject(8): %v", err)
+	}
+	d, ok := obj.(*core.PdfDictionary)
+	if !ok {
+		t.Fatalf("object 8 is %T, want dictionary", obj)
+	}
+	if name, ok := d.Get("Type").(*core.PdfName); !ok || name.Value != "Filler" {
+		t.Errorf("compressed object /Type = %v, want /Filler", d.Get("Type"))
+	}
+}
+
 func TestParseFolioXRefStreamWriterMultiObject(t *testing.T) {
 	// Exercise the dense-subsection path with enough objects to push
 	// field 2 width past one byte (offsets > 255).

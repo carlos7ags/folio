@@ -194,17 +194,14 @@ func TestWriteToWithOptionsXRefStreamSmallerOnLargeDoc(t *testing.T) {
 		trad.Len(), xstm.Len(), trad.Len()-xstm.Len())
 }
 
-func TestWriteToWithOptionsObjectStreamsRejected(t *testing.T) {
-	// Phase 1 does not implement object stream packing. Setting the
-	// option must surface a clear error rather than silently writing
-	// the document with the option ignored.
+func TestWriteToWithOptionsObjectStreamsRequiresXRefStream(t *testing.T) {
+	// Type-2 xref entries (compressed objects) require an xref stream
+	// to express; the combination must be rejected rather than silently
+	// upgraded.
 	w := minimalCatalogWriter(t)
 	var buf bytes.Buffer
-	_, err := w.WriteToWithOptions(&buf, WriteOptions{
-		UseXRefStream:    true,
-		UseObjectStreams: true,
-	})
+	_, err := w.WriteToWithOptions(&buf, WriteOptions{UseObjectStreams: true})
 	if err == nil {
-		t.Error("expected error for unimplemented UseObjectStreams")
+		t.Error("expected error: UseObjectStreams without UseXRefStream")
 	}
 }

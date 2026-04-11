@@ -43,8 +43,11 @@ type WriteOptions struct {
 // options struct, so existing callers continue to receive the historical
 // default output.
 func (w *Writer) WriteToWithOptions(out io.Writer, opts WriteOptions) (int64, error) {
-	if opts.UseObjectStreams {
-		return 0, fmt.Errorf("writer: UseObjectStreams not yet implemented")
+	if opts.UseObjectStreams && !opts.UseXRefStream {
+		// §7.5.8.3: type-2 xref entries (compressed objects) require an
+		// xref stream to express. Refuse the contradictory combination
+		// instead of silently upgrading.
+		return 0, fmt.Errorf("writer: UseObjectStreams requires UseXRefStream")
 	}
 
 	// Encrypt all user objects in place. Done before serialization so
@@ -59,6 +62,10 @@ func (w *Writer) WriteToWithOptions(out io.Writer, opts WriteOptions) (int64, er
 	}
 
 	cw := &countingWriter{w: out}
+
+	if opts.UseObjectStreams {
+		return cw.n, w.writeXRefStreamWithObjStms(cw, opts)
+	}
 
 	if err := writeHeader(cw, w.version); err != nil {
 		return cw.n, err
