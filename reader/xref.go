@@ -170,9 +170,9 @@ func parseXrefStream(data []byte, offset int, table *xrefTable) (*core.PdfDictio
 		return nil, -1, fmt.Errorf("reader: xref stream /W must be array of 3 integers")
 	}
 	w := [3]int{
-		pdfIntValue(wArr.Elements[0]),
-		pdfIntValue(wArr.Elements[1]),
-		pdfIntValue(wArr.Elements[2]),
+		pdfIntValue(wArr.At(0)),
+		pdfIntValue(wArr.At(1)),
+		pdfIntValue(wArr.At(2)),
 	}
 	entrySize := w[0] + w[1] + w[2]
 	if entrySize == 0 {
@@ -190,8 +190,8 @@ func parseXrefStream(data []byte, offset int, table *xrefTable) (*core.PdfDictio
 	if indexObj := dict.Get("Index"); indexObj != nil {
 		if indexArr, ok := indexObj.(*core.PdfArray); ok {
 			for i := 0; i+1 < indexArr.Len(); i += 2 {
-				start := pdfIntValue(indexArr.Elements[i])
-				count := pdfIntValue(indexArr.Elements[i+1])
+				start := pdfIntValue(indexArr.At(i))
+				count := pdfIntValue(indexArr.At(i + 1))
 				subsections = append(subsections, [2]int{start, count})
 			}
 		}

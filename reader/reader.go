@@ -335,7 +335,7 @@ func (r *PdfReader) Info() (title, author, subject, creator, producer string) {
 			return ""
 		}
 		if s, ok := obj.(*core.PdfString); ok {
-			return s.Value
+			return s.Text()
 		}
 		return ""
 	}
@@ -439,7 +439,7 @@ func (r *PdfReader) collectPages(node *core.PdfDictionary, inh inherited) error 
 		return fmt.Errorf("reader: /Kids is not an array")
 	}
 
-	for _, kidRef := range kids.Elements {
+	for _, kidRef := range kids.All() {
 		kidObj, err := r.resolver.ResolveDeep(kidRef)
 		if err != nil {
 			return fmt.Errorf("reader: resolve page kid: %w", err)
@@ -519,10 +519,10 @@ func arrayToBox(arr *core.PdfArray) Box {
 		return Box{}
 	}
 	return Box{
-		X1: pdfNumValue(arr.Elements[0]),
-		Y1: pdfNumValue(arr.Elements[1]),
-		X2: pdfNumValue(arr.Elements[2]),
-		Y2: pdfNumValue(arr.Elements[3]),
+		X1: pdfNumValue(arr.At(0)),
+		Y1: pdfNumValue(arr.At(1)),
+		X2: pdfNumValue(arr.At(2)),
+		Y2: pdfNumValue(arr.At(3)),
 	}
 }
 
@@ -584,7 +584,7 @@ func (p *PageInfo) ContentStream() ([]byte, error) {
 	case *core.PdfArray:
 		// Multiple content streams — concatenate.
 		var result []byte
-		for _, elem := range v.Elements {
+		for _, elem := range v.All() {
 			streamObj, err := p.reader.resolver.ResolveDeep(elem)
 			if err != nil {
 				continue

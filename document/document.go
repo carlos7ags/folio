@@ -935,12 +935,12 @@ func (d *Document) WriteTo(w io.Writer) (int64, error) {
 // a fully direct object tree that may contain font programs and other
 // streams as direct values.
 func hoistStreams(dict *core.PdfDictionary, addObj func(core.PdfObject) *core.PdfIndirectReference) {
-	for i, entry := range dict.Entries {
-		switch v := entry.Value.(type) {
+	for key, value := range dict.All() {
+		switch v := value.(type) {
 		case *core.PdfStream:
 			// Recursively hoist any streams nested in this stream's dict.
 			hoistStreams(v.Dict, addObj)
-			dict.Entries[i].Value = addObj(v)
+			dict.Set(key, addObj(v))
 		case *core.PdfDictionary:
 			hoistStreams(v, addObj)
 		case *core.PdfArray:
@@ -952,11 +952,11 @@ func hoistStreams(dict *core.PdfDictionary, addObj func(core.PdfObject) *core.Pd
 // hoistStreamArray walks a PdfArray and replaces any PdfStream elements
 // with indirect references.
 func hoistStreamArray(arr *core.PdfArray, addObj func(core.PdfObject) *core.PdfIndirectReference) {
-	for i, elem := range arr.Elements {
+	for i, elem := range arr.All() {
 		switch v := elem.(type) {
 		case *core.PdfStream:
 			hoistStreams(v.Dict, addObj)
-			arr.Elements[i] = addObj(v)
+			arr.Set(i, addObj(v))
 		case *core.PdfDictionary:
 			hoistStreams(v, addObj)
 		case *core.PdfArray:

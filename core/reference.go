@@ -12,7 +12,16 @@ import (
 // Written as "objNum genNum R" (e.g., "1 0 R").
 // Generation numbers are almost always 0 in modern PDFs.
 type PdfIndirectReference struct {
-	ObjectNumber     int
+	// ObjectNumber is the object number of the referenced indirect object.
+	//
+	// Deprecated: direct field access is retained for backward compatibility.
+	// Prefer [PdfIndirectReference.Num] in new code.
+	ObjectNumber int
+
+	// GenerationNumber is the generation number of the referenced object.
+	//
+	// Deprecated: direct field access is retained for backward compatibility.
+	// Prefer [PdfIndirectReference.Gen] in new code.
 	GenerationNumber int
 }
 
@@ -26,6 +35,12 @@ func NewPdfIndirectReference(objNum, genNum int) *PdfIndirectReference {
 
 // Type returns ObjectTypeReference.
 func (r *PdfIndirectReference) Type() ObjectType { return ObjectTypeReference }
+
+// Num returns the object number of the referenced indirect object.
+func (r *PdfIndirectReference) Num() int { return r.ObjectNumber }
+
+// Gen returns the generation number of the referenced object.
+func (r *PdfIndirectReference) Gen() int { return r.GenerationNumber }
 
 // WriteTo serializes the indirect reference as "objNum genNum R" to w.
 func (r *PdfIndirectReference) WriteTo(w io.Writer) (int64, error) {

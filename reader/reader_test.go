@@ -222,8 +222,8 @@ func TestParserIndirectReference(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected PdfIndirectReference, got %T", obj)
 	}
-	if ref.ObjectNumber != 5 {
-		t.Errorf("objNum = %d, want 5", ref.ObjectNumber)
+	if ref.Num() != 5 {
+		t.Errorf("objNum = %d, want 5", ref.Num())
 	}
 }
 

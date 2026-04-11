@@ -50,7 +50,7 @@ func (m *Modifier) flattenPage(pageDict *core.PdfDictionary, pageIndex int) erro
 	xobjCount := 0
 	var keepAnnots []core.PdfObject
 
-	for _, annotObj := range annots.Elements {
+	for _, annotObj := range annots.All() {
 		annotDict, ok := annotObj.(*core.PdfDictionary)
 		if !ok {
 			// Could be an indirect ref — try to use as-is.
@@ -103,9 +103,9 @@ func (m *Modifier) flattenPage(pageDict *core.PdfDictionary, pageIndex int) erro
 			}
 			// If no AS or AS key not found, try "Yes" or first non-Off key.
 			if apStream == nil {
-				for _, entry := range n.Entries {
-					if entry.Key.Value != "Off" {
-						apStream = entry.Value
+				for key, value := range n.All() {
+					if key != "Off" {
+						apStream = value
 						break
 					}
 				}
@@ -122,14 +122,14 @@ func (m *Modifier) flattenPage(pageDict *core.PdfDictionary, pageIndex int) erro
 			continue
 		}
 		rectArr, ok := rectObj.(*core.PdfArray)
-		if !ok || len(rectArr.Elements) < 4 {
+		if !ok || rectArr.Len() < 4 {
 			continue
 		}
 
-		x1 := pdfFloat(rectArr.Elements[0])
-		y1 := pdfFloat(rectArr.Elements[1])
-		x2 := pdfFloat(rectArr.Elements[2])
-		y2 := pdfFloat(rectArr.Elements[3])
+		x1 := pdfFloat(rectArr.At(0))
+		y1 := pdfFloat(rectArr.At(1))
+		x2 := pdfFloat(rectArr.At(2))
+		y2 := pdfFloat(rectArr.At(3))
 		w := x2 - x1
 		h := y2 - y1
 
@@ -151,11 +151,11 @@ func (m *Modifier) flattenPage(pageDict *core.PdfDictionary, pageIndex int) erro
 
 	if xobjCount == 0 {
 		// No widgets flattened — just clean up annotations if any were removed.
-		if len(keepAnnots) != len(annots.Elements) {
+		if len(keepAnnots) != annots.Len() {
 			if len(keepAnnots) == 0 {
 				removeEntry(pageDict, "Annots")
 			} else {
-				pageDict.Set("Annots", &core.PdfArray{Elements: keepAnnots})
+				pageDict.Set("Annots", core.NewPdfArray(keepAnnots...))
 			}
 		}
 		return nil
@@ -175,8 +175,8 @@ func (m *Modifier) flattenPage(pageDict *core.PdfDictionary, pageIndex int) erro
 	existingXObj := resDict.Get("XObject")
 	if existingXObj != nil {
 		if existingDict, ok := existingXObj.(*core.PdfDictionary); ok {
-			for _, entry := range xobjects.Entries {
-				existingDict.Set(entry.Key.Value, entry.Value)
+			for key, value := range xobjects.All() {
+				existingDict.Set(key, value)
 			}
 		}
 	} else {

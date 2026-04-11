@@ -156,7 +156,7 @@ func (st *structTree) buildPdfObjects(
 	kids := st.buildChildren(st.root, docElemRef, pageRefs, addObject, &parentEntries)
 
 	if kids.Len() == 1 {
-		docElem.Set("K", kids.Elements[0])
+		docElem.Set("K", kids.At(0))
 	} else if kids.Len() > 0 {
 		docElem.Set("K", kids)
 	}
@@ -220,12 +220,12 @@ func (st *structTree) buildChildren(
 
 		// Recurse into child structure elements.
 		childKids := st.buildChildren(child, elemRef, pageRefs, addObject, parentEntries)
-		for _, ck := range childKids.Elements {
+		for _, ck := range childKids.All() {
 			elemKids.Add(ck)
 		}
 
 		if elemKids.Len() == 1 {
-			elemDict.Set("K", elemKids.Elements[0])
+			elemDict.Set("K", elemKids.At(0))
 		} else if elemKids.Len() > 0 {
 			elemDict.Set("K", elemKids)
 		}

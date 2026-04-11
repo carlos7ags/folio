@@ -221,14 +221,14 @@ func (r *resolver) resolveCompressed(objNum, objStreamNum, indexInStream int) (c
 
 // ResolveRef resolves a PdfIndirectReference to its target object.
 func (r *resolver) ResolveRef(ref *core.PdfIndirectReference) (core.PdfObject, error) {
-	return r.Resolve(ref.ObjectNumber)
+	return r.Resolve(ref.Num())
 }
 
 // ResolveDeep resolves an object, following indirect references.
 // If obj is a PdfIndirectReference, it resolves it. Otherwise returns obj as-is.
 func (r *resolver) ResolveDeep(obj core.PdfObject) (core.PdfObject, error) {
 	if ref, ok := obj.(*core.PdfIndirectReference); ok {
-		return r.Resolve(ref.ObjectNumber)
+		return r.Resolve(ref.Num())
 	}
 	return obj, nil
 }
@@ -331,22 +331,22 @@ func (r *resolver) resolveStream(stream *core.PdfStream, objOffset int64) (*core
 			var result *core.PdfStream
 			if decompressed {
 				result = core.NewPdfStreamCompressed(data)
-				for _, entry := range stream.Dict.Entries {
-					switch entry.Key.Value {
+				for key, value := range stream.Dict.All() {
+					switch key {
 					case "Filter", "DecodeParms", "Length":
 						continue
 					default:
-						result.Dict.Set(entry.Key.Value, entry.Value)
+						result.Dict.Set(key, value)
 					}
 				}
 			} else {
 				// Unknown filter — preserve raw data and original dict.
 				result = core.NewPdfStream(rawData)
-				for _, entry := range stream.Dict.Entries {
-					if entry.Key.Value == "Length" {
+				for key, value := range stream.Dict.All() {
+					if key == "Length" {
 						continue // WriteTo recalculates Length
 					}
-					result.Dict.Set(entry.Key.Value, entry.Value)
+					result.Dict.Set(key, value)
 				}
 			}
 			return result, nil
@@ -565,7 +565,7 @@ func extractFilters(obj core.PdfObject) []string {
 	}
 	if arr, ok := obj.(*core.PdfArray); ok {
 		var filters []string
-		for _, elem := range arr.Elements {
+		for _, elem := range arr.All() {
 			if name, ok := elem.(*core.PdfName); ok {
 				filters = append(filters, name.Value)
 			}

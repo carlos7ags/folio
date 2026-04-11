@@ -41,6 +41,9 @@ node_modules/
 *.swo
 *~
 
+# Local Claude Code state (worktrees, session artifacts)
+.claude/
+
 # OS
 .DS_Store
 Thumbs.db

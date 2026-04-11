@@ -127,15 +127,13 @@ func buildFontCacheWithShared(resources *core.PdfDictionary, res *resolver, shar
 	}
 
 	cache := make(FontCache)
-	for _, entry := range fontDict.Entries {
-		name := entry.Key.Value
-
+	for name, value := range fontDict.All() {
 		// Check if the font value is an indirect reference so we can
 		// look it up in the shared cache by object number.
 		var objNum int
 		var hasObjNum bool
-		if ref, ok := entry.Value.(*core.PdfIndirectReference); ok {
-			objNum = ref.ObjectNumber
+		if ref, ok := value.(*core.PdfIndirectReference); ok {
+			objNum = ref.Num()
 			hasObjNum = true
 		}
 
@@ -147,7 +145,7 @@ func buildFontCacheWithShared(resources *core.PdfDictionary, res *resolver, shar
 			}
 		}
 
-		fontVal := resolveWith(res, entry.Value)
+		fontVal := resolveWith(res, value)
 		fd, ok := fontVal.(*core.PdfDictionary)
 		if !ok {
 			continue
@@ -272,7 +270,7 @@ func parseEncodingDict(d *core.PdfDictionary, res *resolver) *Encoding {
 	}
 
 	code := 0
-	for _, elem := range arr.Elements {
+	for _, elem := range arr.All() {
 		switch v := elem.(type) {
 		case *core.PdfNumber:
 			code = int(v.IntValue())
@@ -300,7 +298,7 @@ func parseFontWidths(fd *core.PdfDictionary, fe *FontEntry, res *resolver) {
 		if !ok || dfArr.Len() == 0 {
 			return
 		}
-		cidFontObj := resolveWith(res, dfArr.Elements[0])
+		cidFontObj := resolveWith(res, dfArr.At(0))
 		cidFont, ok := cidFontObj.(*core.PdfDictionary)
 		if !ok {
 			return
@@ -347,34 +345,40 @@ func parseFontWidths(fd *core.PdfDictionary, fe *FontEntry, res *resolver) {
 	}
 
 	fe.widths = make([]int, wArr.Len())
-	for i, elem := range wArr.Elements {
+	for i, elem := range wArr.All() {
 		if num, ok := elem.(*core.PdfNumber); ok {
 			fe.widths[i] = num.IntValue()
 		}
 	}
 }
 
+// maxCIDRangeSize bounds how many CIDs a single "first last width" entry in
+// a /W array may materialize. The CID namespace is 16-bit (up to 65535), so
+// any range larger than this must come from a malformed or adversarial PDF
+// and would otherwise let the font dictionary allocate an unbounded map.
+const maxCIDRangeSize = 65536
+
 // parseCIDWidths parses a CIDFont /W array into a CID → width map.
 func parseCIDWidths(arr *core.PdfArray) map[int]int {
 	widths := make(map[int]int)
-	elems := arr.Elements
+	n := arr.Len()
 	i := 0
 
-	for i < len(elems) {
-		cidNum, ok := elems[i].(*core.PdfNumber)
+	for i < n {
+		cidNum, ok := arr.At(i).(*core.PdfNumber)
 		if !ok {
 			i++
 			continue
 		}
 		startCID := cidNum.IntValue()
 		i++
-		if i >= len(elems) {
+		if i >= n {
 			break
 		}
 
-		switch next := elems[i].(type) {
+		switch next := arr.At(i).(type) {
 		case *core.PdfArray:
-			for j, wElem := range next.Elements {
+			for j, wElem := range next.All() {
 				if wNum, ok := wElem.(*core.PdfNumber); ok {
 					widths[startCID+j] = wNum.IntValue()
 				}
@@ -383,11 +387,16 @@ func parseCIDWidths(arr *core.PdfArray) map[int]int {
 		case *core.PdfNumber:
 			endCID := next.IntValue()
 			i++
-			if i < len(elems) {
-				if wNum, ok := elems[i].(*core.PdfNumber); ok {
+			if i < n {
+				if wNum, ok := arr.At(i).(*core.PdfNumber); ok {
 					w := wNum.IntValue()
-					for cid := startCID; cid <= endCID; cid++ {
-						widths[cid] = w
+					// Reject ranges that would allocate an unbounded number
+					// of map entries. A legitimate CIDFont never spans more
+					// than the 16-bit CID namespace in one entry.
+					if endCID >= startCID && endCID-startCID < maxCIDRangeSize {
+						for cid := startCID; cid <= endCID; cid++ {
+							widths[cid] = w
+						}
 					}
 				}
 				i++
@@ -424,7 +433,7 @@ func extractEmbeddedFontCMap(fd *core.PdfDictionary, res *resolver) *CMap {
 	if !ok || dfArr.Len() == 0 {
 		return nil
 	}
-	cidFontObj := resolveWith(res, dfArr.Elements[0])
+	cidFontObj := resolveWith(res, dfArr.At(0))
 	cidFont, ok := cidFontObj.(*core.PdfDictionary)
 	if !ok {
 		return nil

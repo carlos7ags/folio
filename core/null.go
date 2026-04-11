@@ -9,11 +9,16 @@ import (
 )
 
 // PdfNull represents the PDF null object (ISO 32000 §7.3.9).
+// PdfNull is stateless; all instances are equivalent.
 type PdfNull struct{}
 
-// NewPdfNull creates a new PdfNull instance.
+// pdfNullSingleton is the single shared PdfNull instance returned by NewPdfNull.
+var pdfNullSingleton = &PdfNull{}
+
+// NewPdfNull returns the shared PdfNull instance. Because PdfNull has no
+// fields, a singleton is safe and avoids allocating on every call.
 func NewPdfNull() *PdfNull {
-	return &PdfNull{}
+	return pdfNullSingleton
 }
 
 // Type returns ObjectTypeNull.

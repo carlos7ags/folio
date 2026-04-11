@@ -32,7 +32,7 @@ func (ff *FormFiller) FieldNames() ([]string, error) {
 	for _, fd := range fields {
 		if t := fd.Get("T"); t != nil {
 			if s, ok := t.(*core.PdfString); ok {
-				names = append(names, s.Value)
+				names = append(names, s.Text())
 			}
 		}
 	}
@@ -86,9 +86,9 @@ func (ff *FormFiller) SetCheckbox(fieldName string, checked bool) error {
 					if apDict, ok := ap.(*core.PdfDictionary); ok {
 						if n := apDict.Get("N"); n != nil {
 							if nDict, ok := n.(*core.PdfDictionary); ok {
-								for _, entry := range nDict.Entries {
-									if entry.Key.Value != "Off" {
-										exportVal = entry.Key.Value
+								for key := range nDict.All() {
+									if key != "Off" {
+										exportVal = key
 										break
 									}
 								}
@@ -140,7 +140,7 @@ func (ff *FormFiller) getFieldDicts() ([]*core.PdfDictionary, error) {
 	}
 
 	var result []*core.PdfDictionary
-	for _, fieldRef := range fieldsArr.Elements {
+	for _, fieldRef := range fieldsArr.All() {
 		fieldObj, err := ff.reader.ResolveObject(fieldRef)
 		if err != nil {
 			continue
@@ -152,7 +152,7 @@ func (ff *FormFiller) getFieldDicts() ([]*core.PdfDictionary, error) {
 				kidsResolved, err := ff.reader.ResolveObject(kids)
 				if err == nil {
 					if kidsArr, ok := kidsResolved.(*core.PdfArray); ok {
-						for _, kidRef := range kidsArr.Elements {
+						for _, kidRef := range kidsArr.All() {
 							kidObj, err := ff.reader.ResolveObject(kidRef)
 							if err == nil {
 								if kd, ok := kidObj.(*core.PdfDictionary); ok {
@@ -176,7 +176,7 @@ func nameMatch(fd *core.PdfDictionary, name string) bool {
 		return false
 	}
 	if s, ok := t.(*core.PdfString); ok {
-		return s.Value == name
+		return s.Text() == name
 	}
 	return false
 }
@@ -189,7 +189,7 @@ func fieldValue(fd *core.PdfDictionary) string {
 	}
 	switch val := v.(type) {
 	case *core.PdfString:
-		return val.Value
+		return val.Text()
 	case *core.PdfName:
 		return val.Value
 	default:

@@ -186,7 +186,9 @@ func buildAcroFormWithExisting(catalog *core.PdfDictionary, newFieldObjNum int) 
 		if acroFormDict, ok := acroFormObj.(*core.PdfDictionary); ok {
 			if fieldsObj := acroFormDict.Get("Fields"); fieldsObj != nil {
 				if fieldsArr, ok := fieldsObj.(*core.PdfArray); ok {
-					existingFields = fieldsArr.Elements
+					for _, f := range fieldsArr.All() {
+						existingFields = append(existingFields, f)
+					}
 				}
 			}
 		} else if acroFormRef, ok := acroFormObj.(*core.PdfIndirectReference); ok {
@@ -206,11 +208,11 @@ func buildAcroFormWithExisting(catalog *core.PdfDictionary, newFieldObjNum int) 
 // cloneCatalogWithAcroForm clones catalog entries and sets /AcroForm.
 func cloneCatalogWithAcroForm(catalog *core.PdfDictionary, acroFormObjNum int) *core.PdfDictionary {
 	d := core.NewPdfDictionary()
-	for _, e := range catalog.Entries {
-		if e.Key.Value == "AcroForm" {
+	for key, value := range catalog.All() {
+		if key == "AcroForm" {
 			continue
 		}
-		d.Set(e.Key.Value, e.Value)
+		d.Set(key, value)
 	}
 	d.Set("AcroForm", core.NewPdfIndirectReference(acroFormObjNum, 0))
 	return d
@@ -263,11 +265,11 @@ func AddDSS(pdfBytes []byte, dss *DSS) ([]byte, error) {
 
 	// Update catalog to include /DSS.
 	updatedCatalog := core.NewPdfDictionary()
-	for _, e := range catalog.Entries {
-		if e.Key.Value == "DSS" {
+	for key, value := range catalog.All() {
+		if key == "DSS" {
 			continue // Replace existing DSS.
 		}
-		updatedCatalog.Set(e.Key.Value, e.Value)
+		updatedCatalog.Set(key, value)
 	}
 	updatedCatalog.Set("DSS", dssRef)
 

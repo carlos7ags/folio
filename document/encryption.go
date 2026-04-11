@@ -45,7 +45,14 @@ func revisionFromAlgorithm(alg EncryptionAlgorithm) core.EncryptionRevision {
 		return core.RevisionAES128
 	case EncryptAES256:
 		return core.RevisionAES256
+	case EncryptRC4128:
+		// Intentional: the public EncryptRC4128 option exists for PDF 1.4
+		// compatibility. The deprecation on core.RevisionRC4128 targets new
+		// callers, not this explicit mapping.
+		return core.RevisionRC4128 //nolint:staticcheck // SA1019
 	default:
-		return core.RevisionRC4128
+		// Unknown enum value — fall back to the recommended minimum
+		// instead of silently selecting broken RC4.
+		return core.RevisionAES128
 	}
 }
