@@ -350,7 +350,109 @@ func shapeArabicWithFont(s string, gsub *font.GSUBSubstitutions, face font.Face,
 		result = append(result, shaped)
 	}
 
+	// Phase 3: GSUB ligature pass (rlig then liga). This runs after the
+	// positional Single-substitutions above have been applied, so the
+	// lookup keys match the final-form GIDs real OpenType fonts expect
+	// (e.g. lam-alef ligatures are keyed off the final form of lam).
+	// Skipped entirely for fonts with no GSUB (the standard 14) and for
+	// GSUB tables with no ligature entries. See ISO 14496-22 §6.2 for
+	// the feature ordering rationale.
+	if gsub != nil && face != nil && gidReverse != nil && len(gsub.Ligature) > 0 {
+		result = applyArabicLigatureRoundTrip(result, gsub, face, gidReverse)
+	}
+
 	return string(result)
+}
+
+// shapeArabicGlyphRun applies OpenType GSUB ligature features to a glyph
+// run that has already been positional-form substituted. The two features
+// are applied in the order required by ISO 14496-22 §6.2: rlig (required
+// ligatures, e.g. lam-alef) first, then liga (standard discretionary
+// ligatures). A nil gsub or one without any ligature entries is a no-op,
+// so this is safe to call on runs from the standard 14 fonts.
+func shapeArabicGlyphRun(gids []uint16, gsub *font.GSUBSubstitutions) []uint16 {
+	if gsub == nil || len(gsub.Ligature) == 0 || len(gids) == 0 {
+		return gids
+	}
+	out := gsub.ApplyLigature(gids, font.GSUBRlig)
+	out = gsub.ApplyLigature(out, font.GSUBLiga)
+	return out
+}
+
+// applyArabicLigatureRoundTrip re-materializes a GID stream from the
+// already-positional-shaped rune slice, runs the GSUB ligature features
+// over it, and converts the result back to runes via the font's reverse
+// cmap. Ligature application is driven by a direct walk over the paired
+// (rune, GID) stream so we always know how many input positions a given
+// ligature consumed — this avoids any ambiguity between ligature GIDs
+// that coincidentally collide with pass-through GIDs. Ligature GIDs with
+// no reverse mapping fall back to emitting the original runes for that
+// cluster so downstream string consumers never lose a codepoint.
+func applyArabicLigatureRoundTrip(runes []rune, gsub *font.GSUBSubstitutions, face font.Face, gidReverse map[uint16]rune) []rune {
+	if len(runes) < 2 {
+		return runes
+	}
+	gids := make([]uint16, len(runes))
+	for i, r := range runes {
+		gid := face.GlyphIndex(r)
+		if gid == 0 {
+			// Any unmapped rune means we can't safely run ligatures over
+			// this stream without losing information; skip the pass.
+			return runes
+		}
+		gids[i] = gid
+	}
+
+	out := make([]rune, 0, len(runes))
+	i := 0
+	for i < len(gids) {
+		if ligGID, consumed, ok := matchLigatureAt(gsub, gids, i); ok {
+			if r, hasRune := gidReverse[ligGID]; hasRune {
+				out = append(out, r)
+			} else {
+				out = append(out, runes[i:i+consumed]...)
+			}
+			i += consumed
+			continue
+		}
+		out = append(out, runes[i])
+		i++
+	}
+	return out
+}
+
+// matchLigatureAt checks whether a ligature fires at gids[start], honoring
+// OpenType feature ordering: required ligatures (rlig) are tried before
+// discretionary standard ligatures (liga) so the rlig mapping always wins
+// when both features cover the same trigger. Returns the ligature GID and
+// the number of input GIDs it consumes, or (0, 0, false) if nothing
+// matches. Greedy longest-match semantics mirror ApplyLigature so the
+// rune-level wrapper stays consistent with the pure GID helper.
+func matchLigatureAt(gsub *font.GSUBSubstitutions, gids []uint16, start int) (uint16, int, bool) {
+	for _, feat := range [...]font.GSUBFeature{font.GSUBRlig, font.GSUBLiga} {
+		table := gsub.Ligature[feat]
+		if len(table) == 0 {
+			continue
+		}
+		candidates := table[gids[start]]
+		for _, cand := range candidates {
+			need := len(cand.Components)
+			if start+1+need > len(gids) {
+				continue
+			}
+			match := true
+			for j := 0; j < need; j++ {
+				if gids[start+1+j] != cand.Components[j] {
+					match = false
+					break
+				}
+			}
+			if match {
+				return cand.LigatureGID, 1 + need, true
+			}
+		}
+	}
+	return 0, 0, false
 }
 
 // applyLamAlef scans for lam (U+0644) followed by an alef variant and
