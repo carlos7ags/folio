@@ -71,14 +71,31 @@ type GSUBSubstitutions struct {
 	Ligature     map[GSUBFeature]map[uint16][]LigatureSubst
 	ChainContext map[GSUBFeature]map[uint16][]ChainContextSubst
 
-	// lookupTable is indexed by GSUB LookupList slot and holds just the
-	// flattened Single-Substitution map for that lookup. It is populated
-	// for every lookup in the LookupList (not only feature-reachable
-	// ones) so that ChainContext actions can dispatch to any lookup slot
-	// referenced by a SubstLookupRecord. Nil entries mean "lookup slot
-	// has no Single-Substitution subtable we understand".
-	lookupTable []map[uint16]uint16
+	// lookupTable is indexed by GSUB LookupList slot and carries a
+	// per-lookup record so that ChainContext actions can dispatch to any
+	// lookup slot referenced by a SubstLookupRecord, regardless of its
+	// lookup type. Nil entries mean "lookup slot has no subtable shape
+	// we understand as a dispatch target". See lookupRecord for the
+	// per-type payload.
+	lookupTable []*lookupRecord
 }
+
+// lookupRecord is the per-slot dispatch payload used by ChainContext
+// action recursion. Type carries the GSUB LookupType after any LookupType
+// 7 (Extension) unwrap; exactly one of Single/Lig/Chain is populated to
+// match Type.
+type lookupRecord struct {
+	Type   uint16
+	Single map[uint16]uint16
+	Lig    map[uint16][]LigatureSubst
+	Chain  map[uint16][]ChainContextSubst
+}
+
+// maxChainDepth bounds recursive ChainContext action dispatch. OpenType
+// does not specify a limit; in practice fonts use shallow chains and
+// widely deployed shapers cap recursion at 64 to prevent stack overflow
+// from pathological or adversarial rule sets. We use the same bound.
+const maxChainDepth = 64
 
 // ParseGSUB reads the GSUB table from raw TrueType/OpenType font bytes
 // and extracts Single (LookupType 1) and Ligature (LookupType 4)
@@ -130,10 +147,11 @@ func ParseGSUB(data []byte) *GSUBSubstitutions {
 	}
 
 	// Pre-scan the full LookupList once to build the internal per-slot
-	// Single-Substitution table used by ChainContext action dispatch.
-	// This table is sparse: a slot is left nil unless it carries a
-	// LookupType 1 (optionally wrapped in LookupType 7) subtable.
-	lookupTable := buildLookupSingleTable(gsub, lookupListOff)
+	// dispatch table used by ChainContext action recursion. This table
+	// is sparse: a slot is left nil unless it carries a subtable shape
+	// we can dispatch into (LookupType 1, 4, or 6; LookupType 7 is
+	// unwrapped).
+	lookupTable := buildLookupDispatchTable(gsub, lookupListOff)
 
 	result := &GSUBSubstitutions{
 		Single:       make(map[GSUBFeature]map[uint16]uint16),
@@ -179,36 +197,55 @@ func (g *GSUBSubstitutions) ApplyLigature(gids []uint16, feature GSUBFeature) []
 	if !ok || len(table) == 0 {
 		return gids
 	}
-	out := make([]uint16, 0, len(gids))
+	out := make([]uint16, len(gids))
+	copy(out, gids)
 	i := 0
-	for i < len(gids) {
-		candidates := table[gids[i]]
-		matched := false
-		for _, cand := range candidates {
-			need := len(cand.Components)
-			if i+1+need > len(gids) {
-				continue
-			}
-			ok := true
-			for j := 0; j < need; j++ {
-				if gids[i+1+j] != cand.Components[j] {
-					ok = false
-					break
-				}
-			}
-			if ok {
-				out = append(out, cand.LigatureGID)
-				i += 1 + need
-				matched = true
+	for i < len(out) {
+		next, consumed := applyLigatureAt(out, i, table)
+		if consumed > 0 {
+			out = next
+			i++
+			continue
+		}
+		i++
+	}
+	return out
+}
+
+// applyLigatureAt tests the ligature table at position pos and, on a
+// longest greedy match, splices the matched components out of gids and
+// inserts the ligature GID in place. The returned slice may alias gids
+// on no match, or be shorter than gids when a multi-component ligature
+// fires. consumed is the number of input positions that were collapsed
+// (0 on no match, 1+len(components) on a match).
+func applyLigatureAt(gids []uint16, pos int, table map[uint16][]LigatureSubst) ([]uint16, int) {
+	if pos < 0 || pos >= len(gids) {
+		return gids, 0
+	}
+	candidates := table[gids[pos]]
+	for _, cand := range candidates {
+		need := len(cand.Components)
+		if pos+1+need > len(gids) {
+			continue
+		}
+		matched := true
+		for j := 0; j < need; j++ {
+			if gids[pos+1+j] != cand.Components[j] {
+				matched = false
 				break
 			}
 		}
 		if !matched {
-			out = append(out, gids[i])
-			i++
+			continue
 		}
+		// Splice: replace [pos : pos+1+need] with a single GID.
+		gids[pos] = cand.LigatureGID
+		if need > 0 {
+			gids = append(gids[:pos+1], gids[pos+1+need:]...)
+		}
+		return gids, 1 + need
 	}
-	return out
+	return gids, 0
 }
 
 // sortLigsByLenDesc sorts ligatures so that longer component sequences
@@ -432,13 +469,14 @@ func parseLookup(gsub []byte, lookupOff int, single map[uint16]uint16, lig map[u
 	}
 }
 
-// buildLookupSingleTable walks every lookup in the GSUB LookupList and,
-// for each slot that carries a LookupType 1 subtable (directly or wrapped
-// in LookupType 7), records its flattened GID->GID map. The returned
-// slice is indexed by lookupListIndex. Slots carrying only other lookup
-// types receive a nil entry. This table is the dispatch target for
-// ChainContext actions.
-func buildLookupSingleTable(gsub []byte, listOff int) []map[uint16]uint16 {
+// buildLookupDispatchTable walks every lookup in the GSUB LookupList
+// once and builds a per-slot dispatch record. For each supported lookup
+// type it populates the matching map on a lookupRecord: Single for
+// LookupType 1, Lig for LookupType 4, Chain for LookupType 6. LookupType
+// 7 (Extension) is unwrapped and the extension's effective type drives
+// the target map. The returned slice is indexed by lookupListIndex.
+// Slots carrying no understood subtable shape receive a nil entry.
+func buildLookupDispatchTable(gsub []byte, listOff int) []*lookupRecord {
 	if listOff+2 > len(gsub) {
 		return nil
 	}
@@ -446,7 +484,7 @@ func buildLookupSingleTable(gsub []byte, listOff int) []map[uint16]uint16 {
 	if listOff+2+count*2 > len(gsub) {
 		return nil
 	}
-	out := make([]map[uint16]uint16, count)
+	out := make([]*lookupRecord, count)
 	for i := 0; i < count; i++ {
 		lookupOff := listOff + int(be16(gsub, listOff+2+i*2))
 		if lookupOff+6 > len(gsub) {
@@ -457,34 +495,57 @@ func buildLookupSingleTable(gsub []byte, listOff int) []map[uint16]uint16 {
 		if lookupOff+6+subCount*2 > len(gsub) {
 			continue
 		}
-		var single map[uint16]uint16
+		rec := &lookupRecord{}
 		for si := 0; si < subCount; si++ {
 			subOff := lookupOff + int(be16(gsub, lookupOff+6+si*2))
-			switch lookupType {
-			case 1:
-				if single == nil {
-					single = make(map[uint16]uint16)
-				}
-				parseSingleSubst(gsub, subOff, single)
-			case 7:
+			effType := lookupType
+			effOff := subOff
+			if lookupType == 7 {
 				if subOff+8 > len(gsub) {
 					continue
 				}
-				extType := be16(gsub, subOff+2)
-				extOff := subOff + int(be32(gsub, subOff+4))
-				if extOff >= len(gsub) {
+				effType = be16(gsub, subOff+2)
+				effOff = subOff + int(be32(gsub, subOff+4))
+				if effOff >= len(gsub) {
 					continue
 				}
-				if extType == 1 {
-					if single == nil {
-						single = make(map[uint16]uint16)
-					}
-					parseSingleSubst(gsub, extOff, single)
+			}
+			switch effType {
+			case 1:
+				if rec.Single == nil {
+					rec.Single = make(map[uint16]uint16)
 				}
+				parseSingleSubst(gsub, effOff, rec.Single)
+			case 4:
+				if rec.Lig == nil {
+					rec.Lig = make(map[uint16][]LigatureSubst)
+				}
+				parseLigatureSubst(gsub, effOff, rec.Lig)
+			case 6:
+				if rec.Chain == nil {
+					rec.Chain = make(map[uint16][]ChainContextSubst)
+				}
+				parseChainContextSubst(gsub, effOff, rec.Chain)
 			}
 		}
-		if len(single) > 0 {
-			out[i] = single
+		// Pick a dispatch type. We only support one per slot; mixing
+		// types in a single lookup is not allowed by the spec anyway
+		// (every subtable in a lookup must share the LookupType).
+		switch {
+		case len(rec.Single) > 0:
+			rec.Type = 1
+			out[i] = rec
+		case len(rec.Lig) > 0:
+			// Sort each bucket longest-first to match ApplyLigature's
+			// greedy-longest scan.
+			for k := range rec.Lig {
+				sortLigsByLenDesc(rec.Lig[k])
+			}
+			rec.Type = 4
+			out[i] = rec
+		case len(rec.Chain) > 0:
+			rec.Type = 6
+			out[i] = rec
 		}
 	}
 	return out
@@ -1156,11 +1217,11 @@ func parseSubstLookupRecords(gsub []byte, off int) []ChainSubstAction {
 // each candidate rule is tested for backtrack, input, and lookahead
 // matches and, on success, its SubstLookupRecord actions are dispatched.
 //
-// Action dispatch is currently limited to LookupType 1 (Single)
-// substitutions — recursing into Ligature or another ChainContext from
-// inside an action requires bounded recursion tracking and is deferred
-// to a follow-up. Rules whose actions reference non-Single lookups are
-// silently skipped for that action but the rule itself still matches.
+// Action dispatch supports LookupType 1 (Single), LookupType 4 (Ligature),
+// and recursive LookupType 6 (ChainContext) targets. LookupType 7
+// (Extension) wrappers are transparently unwrapped at parse time.
+// Recursion depth is bounded by maxChainDepth to defend against
+// pathological self-referential rule sets.
 //
 // Reference: ISO 14496-22 §6.2 LookupType 6.
 func (g *GSUBSubstitutions) ApplyChainContext(gids []uint16, feature GSUBFeature) []uint16 {
@@ -1173,39 +1234,82 @@ func (g *GSUBSubstitutions) ApplyChainContext(gids []uint16, feature GSUBFeature
 	}
 	out := make([]uint16, len(gids))
 	copy(out, gids)
-	for i := 0; i < len(out); i++ {
-		rules := table[out[i]]
-		if len(rules) == 0 {
-			continue
-		}
-		for _, rule := range rules {
-			if !chainRuleMatches(out, i, &rule) {
-				continue
-			}
-			// Action dispatch: Single-Substitution only.
-			for _, act := range rule.Actions {
-				pos := i + int(act.SequenceIndex)
-				if pos < 0 || pos >= len(out) {
-					continue
-				}
-				if int(act.LookupListIndex) >= len(g.lookupTable) {
-					continue
-				}
-				lookup := g.lookupTable[act.LookupListIndex]
-				if lookup == nil {
-					continue
-				}
-				if repl, found := lookup[out[pos]]; found {
-					out[pos] = repl
-				}
-			}
-			// Per the spec the outer loop advances by 1 regardless of
-			// input-sequence length; chained rules are the rule author's
-			// responsibility to design without self-overlap loops.
-			break
-		}
+	i := 0
+	for i < len(out) {
+		out = g.applyChainContextAt(out, i, table, 0)
+		i++
 	}
 	return out
+}
+
+// applyChainContextAt tests every rule bucketed under the trigger glyph
+// at position i and, on the first matching rule, dispatches each of
+// its SubstLookupRecord actions via applyLookup. Returns the gids slice
+// (possibly reallocated by a ligature splice). depth counts how many
+// nested ChainContext applies we are inside; applyLookup enforces the
+// maxChainDepth ceiling.
+func (g *GSUBSubstitutions) applyChainContextAt(gids []uint16, i int, table map[uint16][]ChainContextSubst, depth int) []uint16 {
+	if i < 0 || i >= len(gids) {
+		return gids
+	}
+	rules := table[gids[i]]
+	if len(rules) == 0 {
+		return gids
+	}
+	for ri := range rules {
+		rule := &rules[ri]
+		if !chainRuleMatches(gids, i, rule) {
+			continue
+		}
+		for _, act := range rule.Actions {
+			pos := i + int(act.SequenceIndex)
+			if pos < 0 || pos >= len(gids) {
+				continue
+			}
+			gids = g.applyLookup(gids, act.LookupListIndex, pos, depth)
+		}
+		// OpenType does not specify a post-match advance for the outer
+		// loop; the existing behavior advances by 1 regardless of the
+		// input sequence length, which matches both the spec's silence
+		// and the historic Folio behavior. We keep that to avoid
+		// changing the dispatch shape for Single-only rules.
+		return gids
+	}
+	return gids
+}
+
+// applyLookup dispatches a ChainContext action into the target lookup
+// at the given gid position. It mutates gids according to the target
+// lookup's type (Single: point substitution; Ligature: greedy splice;
+// ChainContext: recursive match with depth+1). Returns the possibly
+// reallocated gids slice. Recursion is capped at maxChainDepth.
+func (g *GSUBSubstitutions) applyLookup(gids []uint16, lookupIdx uint16, position, depth int) []uint16 {
+	if depth >= maxChainDepth {
+		return gids
+	}
+	if int(lookupIdx) >= len(g.lookupTable) {
+		return gids
+	}
+	rec := g.lookupTable[lookupIdx]
+	if rec == nil {
+		return gids
+	}
+	if position < 0 || position >= len(gids) {
+		return gids
+	}
+	switch rec.Type {
+	case 1:
+		if repl, found := rec.Single[gids[position]]; found {
+			gids[position] = repl
+		}
+		return gids
+	case 4:
+		next, _ := applyLigatureAt(gids, position, rec.Lig)
+		return next
+	case 6:
+		return g.applyChainContextAt(gids, position, rec.Chain, depth+1)
+	}
+	return gids
 }
 
 // chainRuleMatches tests a single ChainContextSubst rule against gids
