@@ -310,6 +310,16 @@ type Word struct {
 	// Used to honor explicit \n characters in paragraph text.
 	LineBreak bool
 
+	// OriginalText holds the pre-shaping Unicode text for this word when a
+	// shaper (currently ShapeArabic) substituted glyph-form codepoints. The
+	// renderer wraps such words in an ISO 32000-2 §14.9.4 /Span /ActualText
+	// marked-content sequence so that copy/paste and accessibility tools
+	// recover the original codepoints rather than the shaped Presentation
+	// Forms-B substitutions. Empty when no shaping happened. Words split by
+	// breakLongWords lose this field on subsequent chunks because there is
+	// no per-chunk slice of the original text.
+	OriginalText string
+
 	// LinkURI is the hyperlink target for this word. If non-empty, the
 	// renderer creates a link annotation covering this word's area.
 	LinkURI string

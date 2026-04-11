@@ -268,18 +268,13 @@ func (p *Paragraph) Layout(maxWidth float64) []Line {
 				nextLineBreak = true
 				continue
 			}
-			// Apply Arabic contextual shaping before measurement so the
-			// shaped codepoints (which may have different glyph widths)
-			// are measured correctly.
-			w = ShapeArabic(w)
-			wordW := measurer.MeasureString(w, run.FontSize)
-			// Account for letter-spacing: adds extra space after each character except last.
-			if run.LetterSpacing != 0 && len([]rune(w)) > 1 {
-				wordW += run.LetterSpacing * float64(len([]rune(w))-1)
-			}
+			// Build the word from the unshaped text first so that
+			// splitMixedBidiWord can split on the original codepoints.
+			// Each piece is then shaped independently and its pre-shape
+			// text is captured into OriginalText so the renderer can
+			// emit ISO 32000-2 §14.9.4 /Span /ActualText markers.
 			word := Word{
 				Text:            w,
-				Width:           wordW,
 				Font:            run.Font,
 				Embedded:        run.Embedded,
 				FontSize:        run.FontSize,
@@ -302,10 +297,14 @@ func (p *Paragraph) Layout(maxWidth float64) []Line {
 			// between Hebrew and digit characters.
 			if subs := splitMixedBidiWord(word); subs != nil {
 				for si, sub := range subs {
+					subOrig := sub.Text
 					sub.Text = ShapeArabic(sub.Text)
 					sub.Width = measurer.MeasureString(sub.Text, run.FontSize)
 					if run.LetterSpacing != 0 && len([]rune(sub.Text)) > 1 {
 						sub.Width += run.LetterSpacing * float64(len([]rune(sub.Text))-1)
+					}
+					if sub.Text != subOrig {
+						sub.OriginalText = subOrig
 					}
 					if si == 0 {
 						sub.LineBreak = nextLineBreak
@@ -313,6 +312,15 @@ func (p *Paragraph) Layout(maxWidth float64) []Line {
 					measured = append(measured, sub)
 				}
 			} else {
+				origW := word.Text
+				word.Text = ShapeArabic(word.Text)
+				word.Width = measurer.MeasureString(word.Text, run.FontSize)
+				if run.LetterSpacing != 0 && len([]rune(word.Text)) > 1 {
+					word.Width += run.LetterSpacing * float64(len([]rune(word.Text))-1)
+				}
+				if word.Text != origW {
+					word.OriginalText = origW
+				}
 				measured = append(measured, word)
 			}
 			nextLineBreak = false
@@ -1212,14 +1220,11 @@ func (p *Paragraph) measureWords(maxWidth float64) ([]Word, float64) {
 				nextLineBreak = true
 				continue
 			}
-			w = ShapeArabic(w)
-			wordW := measurer.MeasureString(w, run.FontSize)
-			if run.LetterSpacing != 0 && len([]rune(w)) > 1 {
-				wordW += run.LetterSpacing * float64(len([]rune(w))-1)
-			}
+			// Build the word from the unshaped text first so the bidi
+			// split sees the original codepoints; each piece is then
+			// shaped and its pre-shape text recorded for /ActualText.
 			word := Word{
 				Text:            w,
-				Width:           wordW,
 				Font:            run.Font,
 				Embedded:        run.Embedded,
 				FontSize:        run.FontSize,
@@ -1238,10 +1243,14 @@ func (p *Paragraph) measureWords(maxWidth float64) ([]Word, float64) {
 			}
 			if subs := splitMixedBidiWord(word); subs != nil {
 				for si, sub := range subs {
+					subOrig := sub.Text
 					sub.Text = ShapeArabic(sub.Text)
 					sub.Width = measurer.MeasureString(sub.Text, run.FontSize)
 					if run.LetterSpacing != 0 && len([]rune(sub.Text)) > 1 {
 						sub.Width += run.LetterSpacing * float64(len([]rune(sub.Text))-1)
+					}
+					if sub.Text != subOrig {
+						sub.OriginalText = subOrig
 					}
 					if si == 0 {
 						sub.LineBreak = nextLineBreak
@@ -1249,6 +1258,15 @@ func (p *Paragraph) measureWords(maxWidth float64) ([]Word, float64) {
 					measured = append(measured, sub)
 				}
 			} else {
+				origW := word.Text
+				word.Text = ShapeArabic(word.Text)
+				word.Width = measurer.MeasureString(word.Text, run.FontSize)
+				if run.LetterSpacing != 0 && len([]rune(word.Text)) > 1 {
+					word.Width += run.LetterSpacing * float64(len([]rune(word.Text))-1)
+				}
+				if word.Text != origW {
+					word.OriginalText = origW
+				}
 				measured = append(measured, word)
 			}
 			nextLineBreak = false

@@ -98,6 +98,7 @@ type Renderer struct {
 	elements         []Element
 	absolutes        []absoluteItem
 	tagged           bool            // if true, emit BDC/EMC marked content
+	actualText       bool            // if true, emit ISO 32000-2 §14.9.4 /ActualText for shaped Arabic
 	structTags       []StructTagInfo // collected during rendering
 
 	// Running string values for CSS string-set / string() support.
@@ -149,11 +150,14 @@ func (r *Renderer) marginsForPage(pageIdx int) Margins {
 }
 
 // NewRenderer creates a renderer for the given page dimensions and margins.
+// /ActualText emission for shaped Arabic words is enabled by default; call
+// SetActualText(false) to opt out (e.g. to minimise content stream size).
 func NewRenderer(pageWidth, pageHeight float64, margins Margins) *Renderer {
 	return &Renderer{
 		pageWidth:  pageWidth,
 		pageHeight: pageHeight,
 		margins:    margins,
+		actualText: true,
 	}
 }
 
@@ -315,6 +319,17 @@ func (r *Renderer) resolveStringRefs(text string, pageIdx int) string {
 // for the document layer to build the structure tree.
 func (r *Renderer) SetTagged(enabled bool) {
 	r.tagged = enabled
+}
+
+// SetActualText controls whether the renderer emits ISO 32000-2 §14.9.4
+// /Span /ActualText marked-content sequences around words whose text was
+// substituted by the Arabic shaper. When enabled (the default), copy/paste
+// and accessibility consumers see the original Unicode codepoints rather
+// than the Presentation Forms-B substitutions. Disabling shaves a few
+// dozen bytes per shaped Arabic word and is appropriate for size-sensitive
+// documents that do not require text round-tripping.
+func (r *Renderer) SetActualText(enabled bool) {
+	r.actualText = enabled
 }
 
 // StructTags returns the structure tags collected during rendering.

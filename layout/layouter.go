@@ -94,6 +94,14 @@ type PlacedBlock struct {
 type DrawContext struct {
 	Stream *content.Stream
 	Page   *PageResult
+	// ActualText, when true, allows drawTextLine to emit ISO 32000-2
+	// §14.9.4 /Span /ActualText marked-content sequences around shaped
+	// Arabic words so that copy/paste and accessibility tools recover the
+	// original Unicode codepoints rather than the Presentation Forms-B
+	// substitutions emitted by ShapeArabic. The Renderer sets this from
+	// its actualText field; tests that build a DrawContext directly may
+	// leave it false to suppress emission.
+	ActualText bool
 }
 
 // measureConsumed returns the height an element consumes at the given width.

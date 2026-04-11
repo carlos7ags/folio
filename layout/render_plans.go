@@ -64,6 +64,7 @@ func (r *Renderer) renderWithPlans() []PageResult {
 				Images: curImages,
 				Links:  curLinks,
 			},
+			ActualText: r.actualText,
 		}
 		for _, block := range curBlocks {
 			drawBlock(block, curMargins.Left, r.pageHeight-curMargins.Top, &ctx, r.tagged, &r.structTags, pageIdx)
@@ -444,13 +445,13 @@ func (r *Renderer) renderAbsolutes(pages []PageResult, defaultWidth float64) {
 		if item.zIndex < 0 {
 			// Render into a temporary stream and prepend to draw behind flow content.
 			bgStream := content.NewStream()
-			bgCtx := DrawContext{Stream: bgStream, Page: page}
+			bgCtx := DrawContext{Stream: bgStream, Page: page, ActualText: r.actualText}
 			for _, block := range plan.Blocks {
 				drawBlock(block, x, item.y, &bgCtx, r.tagged, &r.structTags, pageIdx)
 			}
 			page.Stream.PrependBytes(bgStream.Bytes())
 		} else {
-			ctx := DrawContext{Stream: page.Stream, Page: page}
+			ctx := DrawContext{Stream: page.Stream, Page: page, ActualText: r.actualText}
 			for _, block := range plan.Blocks {
 				drawBlock(block, x, item.y, &ctx, r.tagged, &r.structTags, pageIdx)
 			}
