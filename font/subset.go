@@ -205,9 +205,14 @@ func resolveComposites(glyfData []byte, offsets []uint32, glyphSet map[uint16]bo
 			if numContours >= 0 {
 				continue // simple glyph
 			}
-			// Composite glyph — parse components.
+			// Composite glyph — parse components. Filter component GIDs
+			// that point past numGlyphs; a malformed composite referring
+			// to a non-existent glyph must not pollute the glyph set.
 			components := parseCompositeComponents(data)
 			for _, cid := range components {
+				if int(cid) >= numGlyphs {
+					continue
+				}
 				if !glyphSet[cid] {
 					glyphSet[cid] = true
 					added = true

@@ -245,7 +245,7 @@ func TestParseJPEGHeaderTruncatedSOF(t *testing.T) {
 		0x00, 0x01, 0x00, 0x01, // height=1, width=1 — but no ncomp byte
 	}
 	// Must not panic.
-	_, _, _, err := parseJPEGHeader(data)
+	_, _, _, _, err := parseJPEGHeader(data)
 	if err == nil {
 		t.Error("expected error for truncated SOF segment, got nil")
 	}
@@ -263,7 +263,7 @@ func TestParseJPEGHeaderSegmentCap(t *testing.T) {
 	for range maxJPEGSegments + 10 {
 		buf.Write(app0)
 	}
-	_, _, _, err := parseJPEGHeader(buf.Bytes())
+	_, _, _, _, err := parseJPEGHeader(buf.Bytes())
 	if err == nil || !strings.Contains(err.Error(), "too many segments") {
 		t.Errorf("expected 'too many segments' error, got %v", err)
 	}

@@ -20,6 +20,7 @@ type Image struct {
 	smask      []byte // soft mask (alpha channel) for PNG with transparency
 	smaskW     int    // smask width (same as image width for alpha)
 	smaskH     int    // smask height
+	adobeCMYK  bool   // Adobe-style inverted CMYK (APP14 marker, ncomp==4)
 }
 
 // Width returns the image width in pixels.
@@ -129,6 +130,18 @@ func (img *Image) BuildXObject(addObject func(core.PdfObject) *core.PdfIndirectR
 	stream.Dict.Set("Height", core.NewPdfInteger(img.height))
 	stream.Dict.Set("ColorSpace", core.NewPdfName(img.colorSpace))
 	stream.Dict.Set("BitsPerComponent", core.NewPdfInteger(img.bpc))
+
+	// Adobe-written CMYK JPEGs store components in inverted form relative
+	// to the PDF default DeviceCMYK decode range. Flip every channel via
+	// the Decode array so viewers render the intended colors.
+	if img.adobeCMYK {
+		stream.Dict.Set("Decode", core.NewPdfArray(
+			core.NewPdfInteger(1), core.NewPdfInteger(0),
+			core.NewPdfInteger(1), core.NewPdfInteger(0),
+			core.NewPdfInteger(1), core.NewPdfInteger(0),
+			core.NewPdfInteger(1), core.NewPdfInteger(0),
+		))
+	}
 
 	// Handle SMask (alpha channel).
 	var smaskRef *core.PdfIndirectReference
