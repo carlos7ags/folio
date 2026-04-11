@@ -87,10 +87,12 @@ func (s *SVG) DrawWithOptions(stream *content.Stream, x, y, w, h float64, opts R
 		return
 	}
 
-	// Scale from viewBox units to target (w, h) in PDF points.
-	sx := w / vbW
-	sy := h / vbH
-	stream.ConcatMatrix(sx, 0, 0, sy, 0, 0)
+	// Map viewBox to target rectangle per preserveAspectRatio. For
+	// "none" this collapses to the legacy non-uniform scale. For every
+	// other setting the scale is uniform and a translation offset is
+	// folded in so the scaled viewBox is aligned within (w, h).
+	sx, sy, tx, ty := computeViewportTransform(s.aspectRatio, w, h, vbW, vbH)
+	stream.ConcatMatrix(sx, 0, 0, sy, tx, ty)
 
 	// Flip Y axis: SVG is top-down, PDF is bottom-up.
 	// After this transform, SVG (0,0) is at the top-left of the target rect.

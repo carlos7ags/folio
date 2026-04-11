@@ -13,11 +13,12 @@ import (
 
 // SVG is a parsed SVG document ready to be rendered.
 type SVG struct {
-	root    *Node
-	width   float64 // from width attribute (0 if not set)
-	height  float64 // from height attribute (0 if not set)
-	viewBox ViewBox
-	defs    map[string]*Node // reusable elements indexed by id
+	root        *Node
+	width       float64 // from width attribute (0 if not set)
+	height      float64 // from height attribute (0 if not set)
+	viewBox     ViewBox
+	aspectRatio PreserveAspectRatio
+	defs        map[string]*Node // reusable elements indexed by id
 }
 
 // ViewBox defines the SVG coordinate system.
@@ -111,8 +112,18 @@ func (s *SVG) Root() *Node {
 	return s.root
 }
 
-// extractDimensions reads width, height, and viewBox from the root <svg> element.
+// PreserveAspectRatio returns the parsed preserveAspectRatio attribute
+// from the root element, or the SVG default (xMidYMid meet) if the
+// attribute was absent.
+func (s *SVG) PreserveAspectRatio() PreserveAspectRatio {
+	return s.aspectRatio
+}
+
+// extractDimensions reads width, height, viewBox, and preserveAspectRatio
+// from the root <svg> element. When preserveAspectRatio is absent it
+// falls back to the SVG 1.1 default (xMidYMid meet).
 func (s *SVG) extractDimensions() {
+	s.aspectRatio = DefaultPreserveAspectRatio()
 	if s.root == nil {
 		return
 	}
@@ -125,6 +136,9 @@ func (s *SVG) extractDimensions() {
 	}
 	if vb, ok := s.root.Attrs["viewBox"]; ok {
 		s.viewBox = parseViewBox(vb)
+	}
+	if par, ok := s.root.Attrs["preserveAspectRatio"]; ok {
+		s.aspectRatio = parsePreserveAspectRatio(par)
 	}
 }
 
