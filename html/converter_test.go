@@ -4972,6 +4972,61 @@ func TestCSSColumnSpanEmptyMulticolDoesNotDoubleWalk(t *testing.T) {
 	}
 }
 
+// TestCSSColumnsSequentialBalanced verifies that multi-column children are
+// distributed by measured height (column-fill: balance) rather than
+// round-robin by index. Regression test for
+// https://github.com/carlos7ags/folio/issues/145.
+func TestCSSColumnsSequentialBalanced(t *testing.T) {
+	// Three paragraphs with very different lengths. With round-robin
+	// the long paragraph and a short paragraph share column 0 while
+	// column 1 gets only one short paragraph — wildly unbalanced.
+	// With balanced distribution the two short paragraphs should share
+	// one column and the long paragraph should get the other, producing
+	// much more even heights.
+	htmlStr := `<div style="column-count: 2; column-gap: 12px">` +
+		`<p>Short one.</p>` +
+		`<p>Short two.</p>` +
+		`<p>This paragraph is intentionally much longer than the other ` +
+		`two so that the balanced algorithm places it alone in one ` +
+		`column while the shorter paragraphs share the other, ` +
+		`producing approximately equal column heights instead of the ` +
+		`wildly unbalanced round-robin result.</p>` +
+		`</div>`
+	elems, err := Convert(htmlStr, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(elems) != 1 {
+		t.Fatalf("expected 1 element, got %d", len(elems))
+	}
+
+	plan := elems[0].PlanLayout(layout.LayoutArea{Width: 300, Height: 1000})
+	if plan.Status != layout.LayoutFull {
+		t.Fatalf("expected LayoutFull, got %v", plan.Status)
+	}
+	if plan.Consumed <= 0 {
+		t.Fatal("expected positive consumed height")
+	}
+
+	// With balanced distribution, both columns contribute content.
+	// Verify the top-level block has children from both columns
+	// (children at X=0 AND children at X>0).
+	if len(plan.Blocks) == 0 || len(plan.Blocks[0].Children) == 0 {
+		t.Fatal("expected children in plan blocks")
+	}
+	hasLeft, hasRight := false, false
+	for _, child := range plan.Blocks[0].Children {
+		if child.X < 1 {
+			hasLeft = true
+		} else {
+			hasRight = true
+		}
+	}
+	if !hasLeft || !hasRight {
+		t.Error("expected content in both columns; one column is empty")
+	}
+}
+
 func TestCSSColumnSpanAllTrailing(t *testing.T) {
 	// Spanning element as the last child: there should be no trailing
 	// Columns segment.

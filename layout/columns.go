@@ -18,6 +18,12 @@ type Columns struct {
 	widths   []float64   // optional explicit column widths (fractions 0–1)
 	elements [][]Element // elements[colIndex] = list of elements in that column
 	rule     ColumnRule  // vertical rule drawn between columns
+
+	// balanced enables height-based distribution. When true,
+	// PlanLayout measures all elements in column 0 and then
+	// redistributes them across columns to equalize heights.
+	// Set via [BalancedColumns].
+	balanced bool
 }
 
 // columnsLayoutRef carries per-column line data for the renderer.
@@ -69,6 +75,17 @@ func (c *Columns) SetColumnRuleWidth(width float64) *Columns {
 	if c.rule.Style == "" {
 		c.rule.Style = "solid"
 	}
+	return c
+}
+
+// SetBalanced enables height-based redistribution at layout time. When
+// true, PlanLayout measures all elements (regardless of which column
+// they were added to) and redistributes them across columns to equalize
+// heights. Elements are packed in document order using a greedy
+// algorithm that targets (totalHeight / numColumns) per column. This
+// is the CSS column-fill: balance behavior.
+func (c *Columns) SetBalanced(b bool) *Columns {
+	c.balanced = b
 	return c
 }
 
@@ -185,9 +202,14 @@ func (c *Columns) Layout(maxWidth float64) []Line {
 }
 
 // PlanLayout implements Element. Columns lay out each column independently
-// and combine them. If balanced is true, column heights are equalized.
+// and combine them. When balanced is set, elements are redistributed
+// across columns by measured height before final layout.
 func (c *Columns) PlanLayout(area LayoutArea) LayoutPlan {
 	colWidths := c.resolveWidths(area.Width)
+
+	if c.balanced {
+		c.redistribute(colWidths)
+	}
 
 	// Lay out each column with unlimited height to measure total content.
 	colBlocks, colHeights := c.layoutColumns(colWidths, 1e9)
@@ -205,6 +227,53 @@ func (c *Columns) PlanLayout(area LayoutArea) LayoutPlan {
 	}
 
 	return c.buildColumnsPlan(colBlocks, colWidths, totalH, area.Width)
+}
+
+// redistribute measures all elements from column 0 (where BalancedColumns
+// deposits them) and redistributes them across columns so that column
+// heights are approximately equal. Uses a greedy algorithm: fill each
+// column up to (totalHeight / numColumns), then spill to the next.
+func (c *Columns) redistribute(colWidths []float64) {
+	// Collect all elements from every column into a flat list.
+	var all []Element
+	for _, elems := range c.elements {
+		all = append(all, elems...)
+	}
+	if len(all) == 0 {
+		return
+	}
+
+	// Measure each element using the first column's width. All columns
+	// in balanced mode are equal-width, so colWidths[0] is representative.
+	measureWidth := colWidths[0]
+	heights := make([]float64, len(all))
+	totalH := 0.0
+	for i, elem := range all {
+		plan := elem.PlanLayout(LayoutArea{Width: measureWidth, Height: 1e9})
+		heights[i] = plan.Consumed
+		totalH += plan.Consumed
+	}
+
+	target := totalH / float64(c.cols)
+
+	// Reset column slots.
+	for i := range c.elements {
+		c.elements[i] = nil
+	}
+
+	col := 0
+	colH := 0.0
+	for i, elem := range all {
+		// If adding this element would exceed the target AND we haven't
+		// reached the last column AND the column already has content,
+		// advance to the next column.
+		if colH+heights[i] > target && col < c.cols-1 && colH > 0 {
+			col++
+			colH = 0
+		}
+		c.elements[col] = append(c.elements[col], elem)
+		colH += heights[i]
+	}
 }
 
 // layoutColumns lays out each column's elements and returns positioned blocks and heights.
@@ -295,18 +364,17 @@ func drawColumnRules(ctx DrawContext, colWidths []float64, gap float64, rule Col
 	ctx.Stream.RestoreState()
 }
 
-// BalancedColumns creates a multi-column layout that equalizes column heights.
-// Content is placed in columns sequentially but each column is limited to
-// approximately (totalHeight / numColumns) to balance the visual output.
+// BalancedColumns creates a multi-column layout that equalizes column
+// heights. All elements are placed into column 0 initially; at layout
+// time [Columns.PlanLayout] measures each element and redistributes
+// them across columns using a greedy packing algorithm that targets
+// (totalHeight / numColumns) per column. This produces visually
+// balanced output even when elements have different heights.
 func BalancedColumns(cols int, gap float64, elements ...Element) *Columns {
 	c := NewColumns(cols).SetGap(gap)
-
-	// Distribute elements round-robin across columns.
-	// For true balancing, we'd need to measure and redistribute,
-	// but round-robin is a good approximation for uniform content.
-	for i, elem := range elements {
-		c.Add(i%cols, elem)
+	c.balanced = true
+	for _, elem := range elements {
+		c.Add(0, elem)
 	}
-
 	return c
 }
