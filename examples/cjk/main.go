@@ -6,11 +6,22 @@
 // It exercises CJK-aware line breaking: ideographs, kana, and hangul
 // characters break at character boundaries, while kinsoku shori rules
 // keep opening punctuation grouped with the following character and
-// closing punctuation grouped with the preceding character.
+// closing punctuation grouped with the preceding character. Font
+// embedding uses CIDFont Type0 with Identity-H encoding and ToUnicode
+// mapping for copy/paste, so extracted text round-trips cleanly.
 //
-// This example requires a Unicode font with CJK coverage. It searches
-// common system font paths; if no CJK font is found, the example exits
-// with a message indicating which paths were checked.
+// Required fonts (the example exits with a message if none resolve):
+//
+//	macOS   /Library/Fonts/Arial Unicode.ttf
+//	        /System/Library/Fonts/STHeiti Light.ttc
+//	        /System/Library/Fonts/Hiragino Sans GB.ttc
+//	        /System/Library/Fonts/PingFang.ttc
+//	Linux   /usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc
+//	        /usr/share/fonts/noto-cjk/NotoSansCJK-Regular.ttc
+//	        /usr/share/fonts/truetype/noto/NotoSansCJK-Regular.ttc
+//	Windows C:\Windows\Fonts\msyh.ttc
+//	        C:\Windows\Fonts\msgothic.ttc
+//	        C:\Windows\Fonts\malgun.ttf
 //
 // Usage:
 //

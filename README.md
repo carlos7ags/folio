@@ -486,6 +486,9 @@ Each [`examples/`](examples/) subdirectory is a self-contained `go run` demo:
 | Example | What it shows |
 |---|---|
 | [`hello`](examples/hello/) | Minimal one-page PDF |
+| [`rtl`](examples/rtl/) | Right-to-left script shaping (Arabic, Hebrew) |
+| [`indic`](examples/indic/) | Indic script shaping (Devanagari first) |
+| [`cjk`](examples/cjk/) | Chinese, Japanese, Korean text with font subsetting |
 | [`fonts`](examples/fonts/) | Standard, custom, and Unicode fonts (CJK, Cyrillic) |
 | [`links`](examples/links/) | Hyperlinks, bookmarks, internal navigation |
 | [`forms`](examples/forms/) | Interactive AcroForm fields |
