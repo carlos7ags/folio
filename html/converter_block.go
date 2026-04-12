@@ -399,9 +399,12 @@ func (c *converter) buildMulticolSegments(n *html.Node, style computedStyle) []l
 
 // buildColumnsSegment creates a single layout.Columns element from a slice
 // of children, applying gap and column-rule from the parent multicol style.
-// Children are distributed round-robin across columns.
+// Children flow sequentially into column 0 and are redistributed at layout
+// time via the balanced-fill algorithm so that column heights are equalized
+// while preserving document order (CSS Multi-column §3.4, column-fill:
+// balance). See https://github.com/carlos7ags/folio/issues/145.
 func (c *converter) buildColumnsSegment(children []layout.Element, style computedStyle) layout.Element {
-	cols := layout.NewColumns(style.ColumnCount)
+	cols := layout.NewColumns(style.ColumnCount).SetBalanced(true)
 	if style.ColumnGap > 0 {
 		cols.SetGap(style.ColumnGap)
 	}
@@ -412,8 +415,8 @@ func (c *converter) buildColumnsSegment(children []layout.Element, style compute
 			Style: style.ColumnRuleStyle,
 		})
 	}
-	for i, child := range children {
-		cols.Add(i%style.ColumnCount, child)
+	for _, child := range children {
+		cols.Add(0, child)
 	}
 	return cols
 }
