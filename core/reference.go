@@ -14,14 +14,15 @@ import (
 type PdfIndirectReference struct {
 	// ObjectNumber is the object number of the referenced indirect object.
 	//
-	// Deprecated: direct field access is retained for backward compatibility.
-	// Prefer [PdfIndirectReference.Num] in new code.
+	// Deprecated: since v0.7.0, scheduled for removal at v1.0. Use
+	// [PdfIndirectReference.Num] for reads and [PdfIndirectReference.SetNum]
+	// for writes.
 	ObjectNumber int
 
 	// GenerationNumber is the generation number of the referenced object.
 	//
-	// Deprecated: direct field access is retained for backward compatibility.
-	// Prefer [PdfIndirectReference.Gen] in new code.
+	// Deprecated: since v0.7.0, scheduled for removal at v1.0. Use
+	// [PdfIndirectReference.Gen] in new code.
 	GenerationNumber int
 }
 
@@ -42,10 +43,9 @@ func (r *PdfIndirectReference) Num() int { return r.ObjectNumber }
 // Gen returns the generation number of the referenced object.
 func (r *PdfIndirectReference) Gen() int { return r.GenerationNumber }
 
-// SetNum updates the object number this reference points to. Used by
-// writer-side passes that renumber objects (e.g., the orphan-sweep
-// renumbering in package document) without forcing callers to touch
-// the deprecated ObjectNumber field directly.
+// SetNum updates the object number this reference points to. Writer-side
+// passes that renumber objects (e.g., orphan sweep, deduplication) use
+// this in place of mutating the deprecated ObjectNumber field directly.
 func (r *PdfIndirectReference) SetNum(objNum int) { r.ObjectNumber = objNum }
 
 // WriteTo serializes the indirect reference as "objNum genNum R" to w.

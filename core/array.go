@@ -14,10 +14,10 @@ import (
 type PdfArray struct {
 	// Elements is the underlying slice of array elements.
 	//
-	// Deprecated: direct field access is retained for backward compatibility.
-	// Prefer [PdfArray.All], [PdfArray.At], [PdfArray.Len], and [PdfArray.Add]
-	// for new code so that internal representation changes remain invisible
-	// to callers.
+	// Deprecated: since v0.7.0, scheduled for removal at v1.0. Use
+	// [PdfArray.All], [PdfArray.At], [PdfArray.Len], [PdfArray.Add],
+	// [PdfArray.Set], [PdfArray.RemoveAt], and [PdfArray.Replace] so
+	// internal representation changes remain invisible to callers.
 	Elements []PdfObject
 }
 

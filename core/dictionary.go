@@ -26,9 +26,10 @@ type DictEntry struct {
 type PdfDictionary struct {
 	// Entries is the ordered list of key-value pairs.
 	//
-	// Deprecated: direct field access is retained for backward compatibility.
-	// Prefer [PdfDictionary.All] or [PdfDictionary.Get] in new code so that
-	// the internal index stays consistent with any mutations.
+	// Deprecated: since v0.7.0, scheduled for removal at v1.0. Use
+	// [PdfDictionary.All], [PdfDictionary.Get], [PdfDictionary.Set],
+	// and [PdfDictionary.Remove] so the internal index stays consistent
+	// with mutations.
 	Entries []DictEntry
 
 	// index maps key name → position in Entries. It is lazily built on

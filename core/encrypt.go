@@ -48,9 +48,9 @@ type EncryptionRevision int
 
 const (
 	// RevisionRC4128 selects the RC4-128 Standard Security Handler (V=2, R=3).
-	//
-	// Deprecated: RC4 is cryptographically broken and kept only for backward
-	// compatibility with legacy readers. Use [RevisionAES256] for new documents.
+	// RC4 is cryptographically broken; prefer [RevisionAES256] for new
+	// documents. The constant remains supported for reading and writing
+	// legacy RC4-encrypted PDFs and is not scheduled for removal.
 	RevisionRC4128 EncryptionRevision = 3
 	RevisionAES128 EncryptionRevision = 4 // AES-128-CBC (V=4, R=4)
 	RevisionAES256 EncryptionRevision = 6 // AES-256-CBC (V=5, R=6)
