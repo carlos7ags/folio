@@ -10,7 +10,9 @@ import (
 )
 
 // ParseFont parses a font from raw bytes, auto-detecting the format.
-// Supports TTF, OTF, and WOFF1 fonts.
+// Supports TTF, OTF, WOFF1, and TrueType Collection (TTC) fonts. For
+// collections, the first face is selected — matching the convention used
+// by browsers and font tools for url() references without a `#` fragment.
 //
 // Errors returned by this function wrap one of the sentinel errors
 // [ErrUnknownFormat], [ErrTruncated], or [ErrCorruptTable] so callers
@@ -27,11 +29,16 @@ func ParseFont(data []byte) (Face, error) {
 			return nil, fmt.Errorf("decode WOFF: %w", err)
 		}
 		return ParseTTF(ttfData)
+	case ttcMagic:
+		ttfData, err := extractTTCFont(data, 0)
+		if err != nil {
+			return nil, fmt.Errorf("decode TTC: %w", err)
+		}
+		return ParseTTF(ttfData)
 	case 0x00010000, // TrueType
 		0x4F54544F, // "OTTO" (OpenType/CFF)
 		0x74727565, // "true"
-		0x74797031, // "typ1"
-		0x74746366: // "ttcf" (TrueType Collection)
+		0x74797031: // "typ1"
 		return ParseTTF(data)
 	}
 	return nil, fmt.Errorf("unknown font magic 0x%08X: %w", sig, ErrUnknownFormat)

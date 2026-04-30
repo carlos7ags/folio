@@ -374,10 +374,19 @@ type pendingOverlay struct {
 
 // loadFontFaces loads @font-face fonts into the converter's embeddedFonts map.
 // Supports base64-encoded data URIs, http(s) URLs (fetched via Options.Client),
-// and BaseFS-relative paths. Paths are resolved relative to the stylesheet
-// they were declared in (its origin), so url("../fonts/x.ttf") inside
-// styles/site.css resolves to fonts/x.ttf at the BaseFS root. Inline <style>
-// blocks resolve from the BaseFS root.
+// BaseFS-relative paths, and absolute filesystem paths. Relative paths are
+// resolved relative to the stylesheet they were declared in (its origin), so
+// url("../fonts/x.ttf") inside styles/site.css resolves to fonts/x.ttf at the
+// BaseFS root. Inline <style> blocks resolve from the BaseFS root.
+//
+// When Options.BaseFS is nil, an absolute filesystem path
+// (filepath.IsAbs for the host OS) bypasses asset resolution and loads
+// directly from the OS — typically a system font like
+// /System/Library/Fonts/STHeiti Light.ttc or C:\Windows\Fonts\msyh.ttc.
+// When BaseFS is set, the leading "/" is interpreted as the BaseFS root,
+// matching how root-anchored asset paths work elsewhere; programs that
+// need a system font alongside a BaseFS asset tree should pass it via
+// Options.FallbackFontPath, which has its own OS-vs-BaseFS resolution.
 //
 // Failures (missing data, invalid font bytes, fetch errors) are reported
 // through Options.Logger at warn level and skipped — they never abort the
@@ -404,6 +413,8 @@ func (c *converter) loadFontFaces(faces []fontFaceRule) {
 			if err == nil {
 				face, err = font.ParseFont(data)
 			}
+		case c.opts.BaseFS == nil && filepath.IsAbs(src):
+			face, err = font.LoadFont(src)
 		default:
 			resolved := joinFSPath(ff.origin, src)
 			data, err = readAsset(c.opts.BaseFS, resolved)
