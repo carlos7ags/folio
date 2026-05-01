@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"math"
 	"os"
+	"strings"
 
 	xfont "golang.org/x/image/font"
 	"golang.org/x/image/font/sfnt"
@@ -24,6 +25,14 @@ type sfntFace struct {
 	rawData []byte
 	buf     sfnt.Buffer // reusable buffer for sfnt operations
 	ppem    fixed.Int26_6
+
+	// folioCmap is set when ParseTTF detected an oversized cmap that
+	// sfnt's hardcoded maxCmapSegments=20000 limit rejected. In that
+	// path the sfnt.Font holds a stub cmap and Folio supplies the real
+	// rune→glyphID mapping from raw bytes via [parseCmapTable].
+	// GlyphIndex consults this map first when present; nil means use
+	// sfnt's GlyphIndex unchanged.
+	folioCmap cmapTable
 
 	// Cached table data from raw TTF (parsed lazily).
 	tables       map[string][]byte
@@ -54,9 +63,22 @@ type sfntFace struct {
 
 // ParseTTF parses a TrueType (.ttf) or OpenType (.otf) font from raw bytes.
 // Returns a Face that can be used for PDF embedding.
+//
+// When sfnt.Parse rejects the font with "unsupported number of cmap
+// segments" (sfnt has a hardcoded maxCmapSegments=20000 limit that
+// rejects most CJK fonts including Microsoft YaHei, Noto Sans CJK, and
+// STHeiti), ParseTTF falls back to a recovery path: it parses the cmap
+// directly via [parseCmapTable], substitutes a minimal stub cmap so
+// sfnt accepts the rest of the font, and stores the real mapping on
+// the Face for GlyphIndex to consult. All other sfnt operations
+// (metrics, advances, names, glyph data) continue to use the
+// upstream parser; only cmap is replaced.
 func ParseTTF(data []byte) (Face, error) {
 	f, err := sfnt.Parse(data)
 	if err != nil {
+		if isUnsupportedCmapErr(err) {
+			return parseTTFWithStubbedCmap(data)
+		}
 		return nil, fmt.Errorf("parse font: %w", err)
 	}
 	// Set ppem to UnitsPerEm so that all metrics are returned in
@@ -66,6 +88,50 @@ func ParseTTF(data []byte) (Face, error) {
 		font:    f,
 		rawData: data,
 		ppem:    ppem,
+	}, nil
+}
+
+// isUnsupportedCmapErr reports whether err originated from sfnt's
+// maxCmapSegments rejection. The check is on the rendered message
+// because sfnt does not export the sentinel; the message is stable
+// across the package versions Folio supports (v0.19.0 through current).
+func isUnsupportedCmapErr(err error) bool {
+	if err == nil {
+		return false
+	}
+	return strings.Contains(err.Error(), "unsupported number of cmap segments")
+}
+
+// parseTTFWithStubbedCmap is the fallback path when sfnt rejects the
+// font's cmap as oversized. It parses the cmap from the original raw
+// bytes (which has no segment-count limit), then patches the directory
+// to point at a 22-byte stub cmap so sfnt's parser is satisfied. The
+// resulting [sfntFace] has folioCmap populated; downstream calls to
+// GlyphIndex consult that map rather than sfnt's empty stub mapping.
+//
+// rawData stored on the Face is the ORIGINAL bytes — embedding,
+// subsetting, and table reads (head, hhea, OS/2, name, hmtx, loca,
+// glyf) all see the unmodified font. Only the in-memory sfnt.Font
+// holds the stubbed view.
+func parseTTFWithStubbedCmap(data []byte) (Face, error) {
+	cmap, err := parseCmapTable(data)
+	if err != nil {
+		return nil, fmt.Errorf("parse font (oversized cmap fallback): %w", err)
+	}
+	stubbed, err := appendStubCmap(data)
+	if err != nil {
+		return nil, fmt.Errorf("parse font (stub cmap append): %w", err)
+	}
+	f, err := sfnt.Parse(stubbed)
+	if err != nil {
+		return nil, fmt.Errorf("parse font (after stub cmap): %w", err)
+	}
+	ppem := fixed.I(int(f.UnitsPerEm()))
+	return &sfntFace{
+		font:      f,
+		rawData:   data,
+		ppem:      ppem,
+		folioCmap: cmap,
 	}, nil
 }
 
@@ -94,7 +160,17 @@ func (f *sfntFace) UnitsPerEm() int {
 }
 
 // GlyphIndex returns the glyph ID for r, or 0 if the rune is not in the font.
+//
+// When the Face was built via the stubbed-cmap fallback path (folioCmap
+// is non-nil, set by [parseTTFWithStubbedCmap] for fonts that exceeded
+// sfnt's maxCmapSegments limit), the lookup goes through Folio's own
+// cmap parser. The sfnt.Font's GlyphIndex would consult the 22-byte
+// stub installed during parsing and always return 0 — which is exactly
+// what we want to bypass.
 func (f *sfntFace) GlyphIndex(r rune) uint16 {
+	if f.folioCmap != nil {
+		return f.folioCmap[r]
+	}
 	idx, err := f.font.GlyphIndex(&f.buf, r)
 	if err != nil {
 		return 0
