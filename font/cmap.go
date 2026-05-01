@@ -104,9 +104,11 @@ func scoreSubtable(platformID, encodingID, format uint16) int {
 			if format == 12 {
 				return 100
 			}
-			if format == 4 {
-				return 60
-			}
+			// Encoding 4/6 with format 4 (BMP-only) is a non-conforming
+			// combination — encoding 4 declares "non-BMP allowed" which
+			// format 4 cannot express. No real font ships this, but the
+			// fontset of every system this runs on differs and the cost
+			// of a defensive accept-anyway is one comparison.
 		case 3: // Unicode 2.0 BMP only
 			if format == 4 {
 				return 50

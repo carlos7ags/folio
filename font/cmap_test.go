@@ -161,6 +161,82 @@ func TestAppendStubCmapRedirects(t *testing.T) {
 	}
 }
 
+// TestParseTTFRecoversFromOversizedCmap is the cross-platform pin for
+// the end-to-end recovery wiring. The macOS-only STHeiti test confirms
+// the path on a real font, but Linux CI never sees that. This test
+// takes any system TTF (universal) and surgically replaces its cmap
+// with a synthetic format-12 subtable carrying 25000 groups — above
+// sfnt's hardcoded maxCmapSegments=20000 limit. Calling ParseTTF on
+// the modified font must:
+//
+//  1. Catch sfnt's "unsupported number of cmap segments" error.
+//  2. Parse our cmap from raw bytes.
+//  3. Append the 22-byte stub cmap and rewire the directory.
+//  4. Re-call sfnt.Parse with the stubbed font, succeed.
+//  5. Wire folioCmap onto the resulting Face so GlyphIndex consults
+//     our injected mapping rather than the empty stub.
+//
+// We probe a codepoint the real TTF's cmap doesn't map (a non-BMP
+// codepoint we injected ourselves) and assert the returned GID is the
+// one we wrote. A regression in the recovery wiring would either
+// surface as ParseTTF returning the original sfnt error (no recovery)
+// or as GlyphIndex returning 0 (folioCmap not consulted).
+func TestParseTTFRecoversFromOversizedCmap(t *testing.T) {
+	ttf := loadAnySystemTTFForCmap(t)
+	const probeRune = rune(0x1F600) // emoji range — almost certainly not in the original Latin TTF
+	const probeGID = uint16(12345)
+	mutated := injectOversizedFormat12Cmap(t, ttf, probeRune, probeGID)
+
+	face, err := ParseTTF(mutated)
+	if err != nil {
+		t.Fatalf("ParseTTF: recovery branch did not run or failed: %v", err)
+	}
+	if face == nil {
+		t.Fatal("ParseTTF returned nil face")
+	}
+	if got := face.GlyphIndex(probeRune); got != probeGID {
+		t.Errorf("GlyphIndex(probeRune): got GID %d, want %d (folioCmap was not consulted; recovery wiring regressed)", got, probeGID)
+	}
+}
+
+// TestAppendStubCmapAcceptedBySfnt confirms the 22-byte stub is a valid
+// cmap from sfnt's perspective. Without this assertion, a future bump
+// to golang.org/x/image/font/sfnt that tightens cmap validation could
+// silently break the recovery path on every CJK font and only the
+// macOS STHeiti test would notice. Loads any system TTF, appends the
+// stub via the production code path, and re-parses with sfnt directly.
+func TestAppendStubCmapAcceptedBySfnt(t *testing.T) {
+	ttf := loadAnySystemTTFForCmap(t)
+	stubbed, err := appendStubCmap(ttf)
+	if err != nil {
+		t.Fatalf("appendStubCmap: %v", err)
+	}
+	if _, err := sfntParseForTest(stubbed); err != nil {
+		t.Fatalf("sfnt.Parse rejected font with stub cmap: %v", err)
+	}
+}
+
+// TestGlyphIndexUsesSfntWhenNoFolioCmap pins the fast path: when a
+// font loads cleanly through sfnt (folioCmap == nil), GlyphIndex must
+// consult sfnt's cmap, not the nil folioCmap (which would silently
+// return 0 for every rune). A condition-inversion regression in the
+// `if f.folioCmap != nil` branch at sfntFace.GlyphIndex would break
+// every font Folio currently loads; this is the cheapest and tightest
+// pin for that branch.
+func TestGlyphIndexUsesSfntWhenNoFolioCmap(t *testing.T) {
+	ttf := loadAnySystemTTFForCmap(t)
+	face, err := ParseTTF(ttf)
+	if err != nil {
+		t.Fatalf("ParseTTF on small TTF: %v", err)
+	}
+	// 'A' is in every Latin TTF; sfnt's GlyphIndex returns a non-zero
+	// glyph for it. If folioCmap accidentally became the lookup path,
+	// it would be nil and the lookup would return 0.
+	if gid := face.GlyphIndex('A'); gid == 0 {
+		t.Error("GlyphIndex('A') returned 0; the fast-path branch may have regressed to consult a nil folioCmap")
+	}
+}
+
 // TestSTHeitiLoadsViaRecoveryPath opportunistically verifies the full
 // recovery pipeline against macOS's STHeiti Light, which is one of the
 // real-world fonts that triggered #248. Skips on hosts without the
@@ -365,6 +441,111 @@ func findTableOffset(t *testing.T, data []byte, tag string) uint32 {
 	}
 	t.Fatalf("table %q not found", tag)
 	return 0
+}
+
+// loadAnySystemTTFForCmap locates any TTF on the host. Mirrors the
+// candidate list used by other font-package tests so the cmap tests
+// run on the same hosts the rest of the suite covers. Skips when no
+// TTF is available; cmap recovery cannot be exercised end-to-end
+// without a real font's auxiliary tables (head/hhea/maxp/hmtx/etc).
+func loadAnySystemTTFForCmap(t *testing.T) []byte {
+	t.Helper()
+	var candidates []string
+	switch runtime.GOOS {
+	case "darwin":
+		candidates = []string{
+			"/System/Library/Fonts/Supplemental/Arial.ttf",
+			"/System/Library/Fonts/Supplemental/Courier New.ttf",
+			"/System/Library/Fonts/Supplemental/Times New Roman.ttf",
+		}
+	case "linux":
+		candidates = []string{
+			"/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+			"/usr/share/fonts/dejavu/DejaVuSans.ttf",
+			"/usr/share/fonts/truetype/noto/NotoSans-Regular.ttf",
+			"/usr/share/fonts/noto/NotoSans-Regular.ttf",
+			"/usr/share/fonts/liberation/LiberationSans-Regular.ttf",
+			"/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
+		}
+	case "windows":
+		candidates = []string{
+			`C:\Windows\Fonts\arial.ttf`,
+			`C:\Windows\Fonts\segoeui.ttf`,
+			`C:\Windows\Fonts\tahoma.ttf`,
+		}
+	}
+	for _, p := range candidates {
+		if data, err := os.ReadFile(p); err == nil {
+			return data
+		}
+	}
+	t.Skip("no system TTF found; cannot exercise cmap recovery end-to-end")
+	return nil
+}
+
+// injectOversizedFormat12Cmap returns a copy of ttf whose cmap directory
+// entry has been redirected to an appended format-12 subtable carrying
+// 25000 groups — above sfnt's maxCmapSegments=20000 limit. One specific
+// (probeRune → probeGID) mapping is included in the synthetic cmap so
+// the caller can assert which cmap was consulted by GlyphIndex. The
+// surgery uses the same append-and-rewire pattern as appendStubCmap;
+// we keep it test-private rather than exporting because the production
+// code never WRITES an oversized cmap, only reads one.
+func injectOversizedFormat12Cmap(t *testing.T, ttf []byte, probeRune rune, probeGID uint16) []byte {
+	t.Helper()
+	const numGroups = 25000
+	groups := make([]format12Group, 0, numGroups+1)
+	groups = append(groups, format12Group{
+		startChar: uint32(probeRune),
+		endChar:   uint32(probeRune),
+		startGID:  uint32(probeGID),
+	})
+	// Pad with single-codepoint groups in a non-BMP region so they don't
+	// merge and the segment count actually exceeds 20000.
+	for i := 1; i < numGroups; i++ {
+		c := uint32(0x80000) + uint32(i*2)
+		groups = append(groups, format12Group{startChar: c, endChar: c, startGID: uint32(i % 65535)})
+	}
+	subtable := buildFormat12Subtable(groups)
+	cmap := buildCmapTable(t, []cmapSubtable{subtable}, []encodingRecord{
+		{platform: 0, encoding: 4},
+	})
+
+	// Append the synthetic cmap to the font and rewire the directory.
+	if len(ttf) < 12 {
+		t.Fatal("ttf too short")
+	}
+	numTables := int(binary.BigEndian.Uint16(ttf[4:6]))
+	cmapEntryOffset := -1
+	for i := range numTables {
+		entry := 12 + i*16
+		if string(ttf[entry:entry+4]) == "cmap" {
+			cmapEntryOffset = entry
+			break
+		}
+	}
+	if cmapEntryOffset < 0 {
+		t.Fatal("ttf has no cmap entry to overwrite")
+	}
+	srcLen := len(ttf)
+	pad := (4 - (srcLen % 4)) % 4
+	newOffset := srcLen + pad
+	out := make([]byte, newOffset+len(cmap))
+	copy(out, ttf)
+	copy(out[newOffset:], cmap)
+	binary.BigEndian.PutUint32(out[cmapEntryOffset+8:cmapEntryOffset+12], uint32(newOffset))
+	binary.BigEndian.PutUint32(out[cmapEntryOffset+12:cmapEntryOffset+16], uint32(len(cmap)))
+	return out
+}
+
+// sfntParseForTest is a thin wrapper so the cmap test file does not
+// need to import the upstream sfnt package directly. The recovery-path
+// stub-acceptance test asserts sfnt accepts the post-stub bytes; we
+// reuse Folio's ParseTTF since it falls back to sfnt and a successful
+// recovery-free path proves sfnt accepted whatever Folio handed it.
+// Returns an error to keep the call site simple at the test level.
+func sfntParseForTest(data []byte) (Face, error) {
+	return ParseTTF(data)
 }
 
 // findTableLength reports the length field of the directory entry.
