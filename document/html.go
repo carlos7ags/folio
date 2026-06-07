@@ -36,6 +36,19 @@ func (d *Document) AddHTMLWithContext(ctx context.Context, htmlStr string, opts 
 	if err != nil {
 		return err
 	}
+	return d.AddConvertResult(result)
+}
+
+// AddConvertResult feeds a raw [html.ConvertResult] into the document:
+// elements, absolutes, @page geometry/margins, margin boxes, and metadata
+// (existing non-empty Info fields are kept). AddHTML is exactly ConvertFull
+// followed by AddConvertResult; call this directly only to inspect or modify
+// the result first. Adding result.Elements by hand instead drops
+// result.Absolutes and the @page configuration.
+func (d *Document) AddConvertResult(result *foliohtml.ConvertResult) error {
+	if result == nil {
+		return fmt.Errorf("document: AddConvertResult: nil result")
+	}
 
 	// Apply metadata from <title> and <meta> tags.
 	m := result.Metadata
@@ -112,14 +125,14 @@ func (d *Document) AddHTMLWithContext(ctx context.Context, htmlStr string, opts 
 		if pc.Left != nil && len(pc.Left.MarginBoxes) > 0 {
 			boxes := make(map[string]layout.MarginBox)
 			for name, mbc := range pc.Left.MarginBoxes {
-				boxes[name] = layout.MarginBox{Content: mbc.Content, FontSize: mbc.FontSize, Color: mbc.Color}
+				boxes[name] = layout.MarginBox{Content: mbc.Content, FontSize: mbc.FontSize, Color: mbc.Color, HasColor: mbc.HasColor, Embedded: mbc.Embedded}
 			}
 			d.SetLeftMarginBoxes(boxes)
 		}
 		if pc.Right != nil && len(pc.Right.MarginBoxes) > 0 {
 			boxes := make(map[string]layout.MarginBox)
 			for name, mbc := range pc.Right.MarginBoxes {
-				boxes[name] = layout.MarginBox{Content: mbc.Content, FontSize: mbc.FontSize, Color: mbc.Color}
+				boxes[name] = layout.MarginBox{Content: mbc.Content, FontSize: mbc.FontSize, Color: mbc.Color, HasColor: mbc.HasColor, Embedded: mbc.Embedded}
 			}
 			d.SetRightMarginBoxes(boxes)
 		}

@@ -112,6 +112,19 @@ func NewDocument(ps PageSize) *Document {
 	}
 }
 
+// SetPageSize overrides the page dimensions set by NewDocument. AddHTML and
+// AddConvertResult also set this from @page rules, so call it after them to
+// force a size.
+func (d *Document) SetPageSize(ps PageSize) {
+	d.pageSize = ps
+}
+
+// PageSize returns the current page dimensions, including any size derived
+// from an @page rule.
+func (d *Document) PageSize() PageSize {
+	return d.pageSize
+}
+
 // SetTagged enables tagged PDF output (PDF/UA foundation).
 // When enabled, the document includes a structure tree with semantic tags
 // (P, H1-H6, Table, Figure, etc.) and marked content operators in the

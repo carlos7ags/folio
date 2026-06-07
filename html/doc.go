@@ -92,4 +92,23 @@
 // @import (use inline <style> or Options.ExternalCSS). :has() selector.
 // CSS animations, transitions. clip-path, mask.
 // Vertical writing modes. ::first-line, ::first-letter pseudo-elements.
+//
+// # Loading local assets
+//
+// Local references (images, fonts, linked stylesheets, background-image url())
+// resolve through [Options.BaseFS] — an os.DirFS, embed.FS, or fstest.MapFS;
+// when nil, local references fail and assets must be inlined as data: URIs.
+// Set [Options.FallbackFontPath] for glyphs outside WinAnsiEncoding.
+//
+// A failed asset load is logged ([Options.Logger]) and skipped by default, so
+// broken paths silently degrade output. Set [Options.StrictAssets] to return
+// those failures as an error (with the partial result) — use it in dev and CI.
+//
+// # Feeding the result into a document
+//
+// Prefer [github.com/carlos7ags/folio/document.Document.AddHTML], which wires
+// the whole conversion into a document in one call. Use [ConvertFull] only to
+// inspect the raw [ConvertResult] first, then pass it to
+// [github.com/carlos7ags/folio/document.Document.AddConvertResult] — adding
+// result.Elements by hand drops result.Absolutes and the @page configuration.
 package html
