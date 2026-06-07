@@ -48,45 +48,24 @@ headers/footers, or every `position: fixed`/`absolute` element — with no error
 This is the single most common folio mistake.
 
 **Only reach for `ConvertFull` when you genuinely need the raw result** (e.g.
-to inspect or post-process elements before they reach the document). If you do,
-you must forward *all* of it. Page size is fixed at `NewDocument`, so resolve
-`@page` geometry first:
+to inspect or adjust elements before they reach the document). When you do, add
+it back with `Document.AddConvertResult` — never wire `result.Elements` by hand:
 
 ```go
 result, err := html.ConvertFull(htmlString, nil)
 if err != nil { return err }
 
-// Resolve @page geometry BEFORE NewDocument (page size cannot change after).
-ps := document.PageSizeA4
-if pc := result.PageConfig; pc != nil {
-    w, h, _ := pc.Resolve(ps.Width, ps.Height)
-    ps = document.PageSize{Width: w, Height: h}
-}
-doc := document.NewDocument(ps)
+// ... inspect or modify result here ...
 
-if pc := result.PageConfig; pc != nil && pc.HasMargins {
-    doc.SetMargins(layout.Margins{Top: pc.MarginTop, Right: pc.MarginRight,
-        Bottom: pc.MarginBottom, Left: pc.MarginLeft})
-}
-if result.MarginBoxes != nil      { doc.SetMarginBoxes(result.MarginBoxes) }
-if result.FirstMarginBoxes != nil { doc.SetFirstMarginBoxes(result.FirstMarginBoxes) }
-if result.LeftMarginBoxes != nil  { doc.SetLeftMarginBoxes(result.LeftMarginBoxes) }
-if result.RightMarginBoxes != nil { doc.SetRightMarginBoxes(result.RightMarginBoxes) }
-
-for _, e := range result.Elements { doc.Add(e) }
-
-// EASY TO FORGET: absolutely/fixed-positioned elements live in a separate
-// slice and must be forwarded too, or position:fixed/absolute content (page
-// watermarks, pinned footers) silently vanishes.
-for _, a := range result.Absolutes {
-    doc.AddAbsoluteWithOpts(a.Element, a.X, a.Y, a.Width, layout.AbsoluteOpts{
-        RightAligned: a.RightAligned, ZIndex: a.ZIndex, Fixed: a.Fixed, PageIndex: -1,
-    })
-}
+doc := document.NewDocument(document.PageSizeA4)
+if err := doc.AddConvertResult(result); err != nil { return err }
 ```
 
-If you find yourself replicating the block above, switch to `AddHTML` — it does
-exactly this, kept in sync with the converter.
+`AddConvertResult` forwards everything (elements, absolutes, `@page`
+geometry/margins, margin boxes, metadata) and sets the page size from any
+`@page` rule, so you don't pre-resolve geometry. `AddHTML` is exactly
+`ConvertFull` + `AddConvertResult`. Use `SetPageSize`/`PageSize()` if you need
+to read or override the size afterward.
 
 ## Options worth knowing (`*html.Options`)
 

@@ -1,8 +1,8 @@
 // Copyright 2026 Carlos Munoz and the Folio Authors
 // SPDX-License-Identifier: Apache-2.0
 
-// HTML-to-PDF demonstrates converting a rich HTML document with CSS
-// into a polished, multi-page PDF using the html.ConvertFull API.
+// HTML-to-PDF demonstrates converting a rich HTML document with CSS into a
+// polished, multi-page PDF via html.ConvertFull + Document.AddConvertResult.
 //
 // CSS features exercised:
 //   - @page rules with custom margins
@@ -32,7 +32,6 @@ import (
 
 	"github.com/carlos7ags/folio/document"
 	"github.com/carlos7ags/folio/html"
-	"github.com/carlos7ags/folio/layout"
 )
 
 const reportHTML = `<!DOCTYPE html>
@@ -252,61 +251,15 @@ func buildDocument(htmlSource string) (*document.Document, error) {
 		return nil, fmt.Errorf("convert: %w", err)
 	}
 
-	// Resolve @page geometry + orientation-only swap + margin percentages /
-	// calc through the shared helper (before NewDocument, which fixes the
-	// page size) so this path matches AddHTML (B-1).
-	ps := document.PageSizeA4
-	if pc := result.PageConfig; pc != nil {
-		w, h, _ := pc.Resolve(ps.Width, ps.Height)
-		ps = document.PageSize{Width: w, Height: h}
-	}
-
-	doc := document.NewDocument(ps)
-	doc.SetMargins(layout.Margins{Top: 0, Right: 0, Bottom: 0, Left: 0})
-	doc.Info.Title = "Q4 2026 Quarterly Report"
-	doc.Info.Author = "Apex Capital Partners"
+	// ConvertFull hands back the raw result so it can be inspected or adjusted
+	// first; AddConvertResult then wires all of it — elements, absolutes,
+	// @page geometry/margins, margin boxes, and metadata — into the document.
+	// Adding result.Elements by hand instead would drop the absolutes and the
+	// @page configuration. (Document.AddHTML is exactly this pair.)
+	doc := document.NewDocument(document.PageSizeA4)
 	doc.SetAutoBookmarks(true)
-
-	// Apply @page margins (resolved above by pc.Resolve).
-	if pc := result.PageConfig; pc != nil {
-		if pc.HasMargins {
-			doc.SetMargins(layout.Margins{
-				Top: pc.MarginTop, Right: pc.MarginRight,
-				Bottom: pc.MarginBottom, Left: pc.MarginLeft,
-			})
-		}
-	}
-	if result.MarginBoxes != nil {
-		doc.SetMarginBoxes(result.MarginBoxes)
-	}
-	if result.FirstMarginBoxes != nil {
-		doc.SetFirstMarginBoxes(result.FirstMarginBoxes)
-	}
-
-	for _, e := range result.Elements {
-		doc.Add(e)
-	}
-
-	// Forward absolutely/fixed-positioned elements. These live in a separate
-	// slice from the normal flow, so a manual ConvertFull pipeline that only
-	// adds result.Elements silently drops every position:fixed/absolute box
-	// (page watermarks, pinned footers). Document.AddHTML does this for you;
-	// when wiring ConvertFull by hand, this loop is mandatory.
-	for _, a := range result.Absolutes {
-		doc.AddAbsoluteWithOpts(a.Element, a.X, a.Y, a.Width, layout.AbsoluteOpts{
-			RightAligned: a.RightAligned,
-			ZIndex:       a.ZIndex,
-			Fixed:        a.Fixed,
-			PageIndex:    -1,
-		})
-	}
-
-	// Apply metadata from <title> and <meta> tags.
-	if result.Metadata.Title != "" {
-		doc.Info.Title = result.Metadata.Title
-	}
-	if result.Metadata.Author != "" {
-		doc.Info.Author = result.Metadata.Author
+	if err := doc.AddConvertResult(result); err != nil {
+		return nil, fmt.Errorf("add: %w", err)
 	}
 	return doc, nil
 }
