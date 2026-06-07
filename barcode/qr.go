@@ -24,6 +24,22 @@ const (
 	qrModeByte         qrMode = 4 // 0100
 )
 
+// ECI (Extended Channel Interpretation) constants for byte mode.
+const (
+	eciUTF8 = 26 // ECI assignment number for UTF-8
+	eciBits = 12 // ECI segment size: 4-bit mode indicator + 8-bit assignment number
+)
+
+// isASCII reports whether data contains only bytes in the ASCII range (0-127).
+func isASCII(data string) bool {
+	for i := range len(data) {
+		if data[i] >= 0x80 {
+			return false
+		}
+	}
+	return true
+}
+
 // alphanumericValues maps characters to their alphanumeric mode values.
 var alphanumericValues = map[byte]int{
 	'0': 0, '1': 1, '2': 2, '3': 3, '4': 4, '5': 5, '6': 6, '7': 7, '8': 8, '9': 9,
@@ -92,11 +108,15 @@ func charCountBits(mode qrMode, version int) int {
 	}
 }
 
-// dataCapacity returns the number of characters that fit in the given version/level/mode.
-func dataCapacity(version int, level ECCLevel, mode qrMode) int {
+// dataCapacity returns the number of characters that fit in the given
+// version/level/mode. eci accounts for a leading ECI segment (12 bits).
+func dataCapacity(version int, level ECCLevel, mode qrMode, eci bool) int {
 	dataCW := qrDataCodewords[version][level]
 	countBits := charCountBits(mode, version)
 	totalDataBits := dataCW*8 - 4 - countBits // subtract mode indicator and count bits
+	if eci {
+		totalDataBits -= eciBits
+	}
 
 	switch mode {
 	case qrModeNumeric:
@@ -143,10 +163,14 @@ func NewQRWithECC(data string, level ECCLevel) (*Barcode, error) {
 
 	mode := detectMode(data)
 
+	// Byte-mode data that is not plain ASCII is declared UTF-8 with an ECI
+	// segment so readers do not have to guess the encoding.
+	eci := mode == qrModeByte && !isASCII(data)
+
 	// Find the smallest version that fits.
 	version := 0
 	for v := 1; v <= 40; v++ {
-		cap := dataCapacity(v, level, mode)
+		cap := dataCapacity(v, level, mode, eci)
 		if len(data) <= cap {
 			version = v
 			break
@@ -214,7 +238,7 @@ func NewQRWithECC(data string, level ECCLevel) (*Barcode, error) {
 	}
 
 	// Encode data.
-	bits := encodeQRData(data, version, level, mode)
+	bits := encodeQRData(data, version, level, mode, eci)
 
 	// Place data bits.
 	placeData(modules, reserved, bits, size)
@@ -629,9 +653,16 @@ func encodeAlphanumericData(data string, version int) []bool {
 	return bits
 }
 
-// encodeByteData encodes data in byte mode.
-func encodeByteData(data string, version int) []bool {
+// encodeByteData encodes data in byte mode, optionally preceded by a UTF-8 ECI
+// segment.
+func encodeByteData(data string, version int, eci bool) []bool {
 	var bits []bool
+
+	if eci {
+		// ECI mode indicator (0111) followed by the UTF-8 assignment number.
+		bits = append(bits, false, true, true, true)
+		bits = appendBitsN(bits, eciUTF8, 8)
+	}
 
 	// Mode indicator: byte mode = 0100.
 	bits = append(bits, false, true, false, false)
@@ -652,7 +683,7 @@ func encodeByteData(data string, version int) []bool {
 
 // encodeQRData encodes data with the specified ECC level and encoding mode,
 // returning the complete bitstream including interleaved error correction codewords.
-func encodeQRData(data string, version int, level ECCLevel, mode qrMode) []bool {
+func encodeQRData(data string, version int, level ECCLevel, mode qrMode, eci bool) []bool {
 	var bits []bool
 
 	switch mode {
@@ -661,7 +692,7 @@ func encodeQRData(data string, version int, level ECCLevel, mode qrMode) []bool 
 	case qrModeAlphanumeric:
 		bits = encodeAlphanumericData(data, version)
 	default:
-		bits = encodeByteData(data, version)
+		bits = encodeByteData(data, version, eci)
 	}
 
 	// Terminator (up to 4 zero bits).
