@@ -270,3 +270,36 @@ func TestNestedElementMarkerIndentsPerLevel(t *testing.T) {
 		}
 	}
 }
+
+// TestNestedMarkerFlush verifies SetMarkerFlush keeps every nesting level's
+// marker in the container's left column (x=0) while body text still cascades,
+// the inverse of the per-level indent default (#358 follow-up).
+func TestNestedMarkerFlush(t *testing.T) {
+	l := NewList(font.Helvetica, 12).SetStyle(ListOrdered)
+	l.SetMarkerFlush(true)
+	a := l.AddItemWithSubList("Level one")
+	a.SetStyle(ListOrdered)
+	b := a.AddItemWithSubList("Level two")
+	b.SetStyle(ListOrdered)
+	b.AddItem("Level three")
+
+	plan := l.PlanLayout(LayoutArea{Width: 400, Height: 1000})
+
+	// Collect every marker token (the leading "1." of each level). In flush
+	// mode all three must share the container's left column (x=0), whereas the
+	// nested default (TestNestedMarkerIndentsPerLevel) puts them at 0/18/36.
+	var markerX []float64
+	for _, ln := range drawnLines(t, plan) {
+		if len(ln) > 0 && ln[0].text == "1." {
+			markerX = append(markerX, ln[0].x)
+		}
+	}
+	if len(markerX) != 3 {
+		t.Fatalf("expected 3 '1.' markers, got %d: %+v", len(markerX), markerX)
+	}
+	for i, x := range markerX {
+		if !approxEqual(x, 0, 0.01) {
+			t.Errorf("flush: level %d marker x = %v, want 0 (all markers share the left column)", i+1, x)
+		}
+	}
+}

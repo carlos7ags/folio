@@ -35,6 +35,7 @@ type List struct {
 	markerColor    *Color    // optional override color for markers
 	markerFontSize float64   // optional override font size for markers (0 = use list fontSize)
 	markerInside   bool      // CSS list-style-position: inside (marker flows inline)
+	markerFlush    bool      // draw every nested marker in the container's left column instead of indenting per level
 
 	// start is the ordinal offset for marker numbering. The marker for the
 	// item at slice index i is numbered (i + 1 + start). It defaults to 0 so
@@ -184,6 +185,18 @@ func (l *List) SetMarkerInside(inside bool) *List {
 	return l
 }
 
+// SetMarkerFlush controls how nested-list markers align. When flush is true,
+// every level's marker is drawn in the container's left column (all numbers
+// share one left edge) while the body text still cascades per level — the
+// "outline" style common in legal documents. The default (false) indents each
+// level's marker under its parent's content. Applies to the left-to-right
+// outside path; it is inherited by sub-lists. Sub-lists created later inherit
+// the value set on the parent at creation time.
+func (l *List) SetMarkerFlush(flush bool) *List {
+	l.markerFlush = flush
+	return l
+}
+
 // AddItem adds a text item to the list.
 func (l *List) AddItem(text string) *List {
 	l.items = append(l.items, listItem{text: normalizeText(text)})
@@ -209,12 +222,13 @@ func (l *List) AddItemRuns(runs []TextRun) *List {
 // not mutated and List measurement sees canonical text.
 func (l *List) AddItemRunsWithSubList(runs []TextRun) *List {
 	sub := &List{
-		style:    ListUnordered,
-		font:     l.font,
-		embedded: l.embedded,
-		fontSize: l.fontSize,
-		indent:   l.indent,
-		leading:  l.leading,
+		style:       ListUnordered,
+		font:        l.font,
+		embedded:    l.embedded,
+		fontSize:    l.fontSize,
+		indent:      l.indent,
+		leading:     l.leading,
+		markerFlush: l.markerFlush,
 	}
 	l.items = append(l.items, listItem{runs: normalizeRuns(runs), subList: sub})
 	return sub
@@ -234,12 +248,13 @@ func (l *List) AddItemElement(elem Element) *List {
 // sub-list under it. The sub-list inherits the parent's font and font size.
 func (l *List) AddItemElementWithSubList(elem Element) *List {
 	sub := &List{
-		style:    ListUnordered,
-		font:     l.font,
-		embedded: l.embedded,
-		fontSize: l.fontSize,
-		indent:   l.indent,
-		leading:  l.leading,
+		style:       ListUnordered,
+		font:        l.font,
+		embedded:    l.embedded,
+		fontSize:    l.fontSize,
+		indent:      l.indent,
+		leading:     l.leading,
+		markerFlush: l.markerFlush,
 	}
 	l.items = append(l.items, listItem{element: elem, subList: sub})
 	return sub
@@ -249,12 +264,13 @@ func (l *List) AddItemElementWithSubList(elem Element) *List {
 // under that item. The sub-list inherits the parent's font and font size.
 func (l *List) AddItemWithSubList(text string) *List {
 	sub := &List{
-		style:    ListUnordered,
-		font:     l.font,
-		embedded: l.embedded,
-		fontSize: l.fontSize,
-		indent:   l.indent,
-		leading:  l.leading,
+		style:       ListUnordered,
+		font:        l.font,
+		embedded:    l.embedded,
+		fontSize:    l.fontSize,
+		indent:      l.indent,
+		leading:     l.leading,
+		markerFlush: l.markerFlush,
 	}
 	l.items = append(l.items, listItem{text: normalizeText(text), subList: sub})
 	return sub
@@ -706,8 +722,12 @@ func (l *List) planAt(area LayoutArea, baseIndent float64) LayoutPlan {
 			// Indent the marker by the accumulated parent indent so each
 			// nesting level's marker steps right under its parent's content
 			// rather than stacking at the container's left edge (issue #358).
-			// (RTL already steps via its depth-dependent x term below.)
+			// markerFlush keeps every level's marker in the container's left
+			// column (outline style). RTL steps via its depth-dependent x term.
 			capturedBase := baseIndent
+			if l.markerFlush {
+				capturedBase = 0
+			}
 			capturedIsLast := j == len(wordLines)-1
 			capturedRTL := l.direction == DirectionRTL
 			capturedInside := inside
@@ -866,6 +886,7 @@ func (l *List) cloneWithItems(items []listItem) *List {
 		markerColor:    l.markerColor,
 		markerFontSize: l.markerFontSize,
 		markerInside:   l.markerInside,
+		markerFlush:    l.markerFlush,
 	}
 }
 
@@ -915,8 +936,11 @@ func (l *List) planElementItem(item listItem, index int, area LayoutArea, totalI
 		capturedRTL := l.direction == DirectionRTL
 		// Indent the marker by the accumulated parent indent so nested element
 		// items step right under their parent's content, matching the text-item
-		// path in planAt (issue #358).
+		// path in planAt (issue #358). markerFlush keeps it in the left column.
 		capturedBase := totalIndent - l.effectiveIndent()
+		if l.markerFlush {
+			capturedBase = 0
+		}
 
 		// The marker is drawn relative to its block's top, which sits at the
 		// element's top (curY). markerBaseline is measured from that top.
