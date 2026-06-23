@@ -152,65 +152,36 @@ func (c *converter) convertCSSTable(n *html.Node, style computedStyle) []layout.
 		tbl.SetMinWidthUnit(cssLengthToUnitValue(style.Width, c.containerWidth, style.FontSize))
 	}
 
+	// anonRow accumulates consecutive bare table-cell children into a
+	// single CSS anonymous table-row box. Reset to nil on any non-cell
+	// child so only consecutive cells share a row (per CSS table fixup).
+	var anonRow *layout.Row
 	for child := n.FirstChild; child != nil; child = child.NextSibling {
 		if child.Type != html.ElementNode {
 			continue
 		}
 		childStyle := c.computeElementStyle(child, style)
 
-		if childStyle.Display == "table-row" {
+		switch childStyle.Display {
+		case "table-row":
+			anonRow = nil
 			row := tbl.AddRow()
 			for cell := child.FirstChild; cell != nil; cell = cell.NextSibling {
 				if cell.Type != html.ElementNode {
 					continue
 				}
 				cellStyle := c.computeElementStyle(cell, childStyle)
-				cellElems := c.walkChildren(cell, cellStyle)
-
-				var layoutCell *layout.Cell
-				if len(cellElems) == 0 {
-					f := resolveFont(cellStyle)
-					layoutCell = row.AddCell(" ", f, cellStyle.FontSize)
-				} else if len(cellElems) == 1 {
-					layoutCell = row.AddCellElement(cellElems[0])
-				} else {
-					div := layout.NewDiv()
-					for _, e := range cellElems {
-						div.Add(e)
-					}
-					layoutCell = row.AddCellElement(div)
-				}
-				layoutCell.SetAlign(resolveTextAlign(cellStyle))
-				if cellStyle.hasPadding() {
-					layoutCell.SetPaddingSides(layout.Padding{
-						Top:    cellStyle.PaddingTopAt(c.containerWidth),
-						Right:  cellStyle.PaddingRightAt(c.containerWidth),
-						Bottom: cellStyle.PaddingBottomAt(c.containerWidth),
-						Left:   cellStyle.PaddingLeftAt(c.containerWidth),
-					})
-				}
-				if cellStyle.BackgroundColor != nil {
-					layoutCell.SetBackground(*cellStyle.BackgroundColor)
-					// The cell owns and draws the rounded box fill; clear the
-					// same block-level background on its content Paragraph(s)
-					// to avoid a square-cornered overdraw (issue #329).
-					clearCellParagraphBackground(layoutCell, *cellStyle.BackgroundColor)
-				}
-				if cellStyle.hasBorder() {
-					layoutCell.SetBorders(buildCellBorders(cellStyle))
-				}
-				if !tbl.BorderCollapse() {
-					if cellStyle.BorderRadiusTL > 0 || cellStyle.BorderRadiusTR > 0 ||
-						cellStyle.BorderRadiusBR > 0 || cellStyle.BorderRadiusBL > 0 {
-						layoutCell.SetBorderRadiusPerCorner(
-							cellStyle.BorderRadiusTL, cellStyle.BorderRadiusTR,
-							cellStyle.BorderRadiusBR, cellStyle.BorderRadiusBL)
-					} else if cellStyle.BorderRadius > 0 {
-						layoutCell.SetBorderRadius(cellStyle.BorderRadius)
-					}
-				}
+				c.addCSSTableCell(tbl, row, cell, cellStyle)
 			}
-		} else {
+		case "table-cell":
+			// Bare table-cell with no table-row parent: wrap consecutive
+			// cells in an anonymous table-row box (CSS table fixup).
+			if anonRow == nil {
+				anonRow = tbl.AddRow()
+			}
+			c.addCSSTableCell(tbl, anonRow, child, childStyle)
+		default:
+			anonRow = nil
 			// Non-row children — treat as a single-cell row.
 			childElems := c.convertNode(child, style)
 			if len(childElems) > 0 {
@@ -240,6 +211,55 @@ func (c *converter) convertCSSTable(n *html.Node, style computedStyle) []layout.
 	}
 
 	return []layout.Element{tbl}
+}
+
+// addCSSTableCell builds a single display:table-cell into row, applying the
+// cell's content, alignment, padding, background, borders, and border-radius.
+func (c *converter) addCSSTableCell(tbl *layout.Table, row *layout.Row, cell *html.Node, cellStyle computedStyle) {
+	cellElems := c.walkChildren(cell, cellStyle)
+
+	var layoutCell *layout.Cell
+	if len(cellElems) == 0 {
+		f := resolveFont(cellStyle)
+		layoutCell = row.AddCell(" ", f, cellStyle.FontSize)
+	} else if len(cellElems) == 1 {
+		layoutCell = row.AddCellElement(cellElems[0])
+	} else {
+		div := layout.NewDiv()
+		for _, e := range cellElems {
+			div.Add(e)
+		}
+		layoutCell = row.AddCellElement(div)
+	}
+	layoutCell.SetAlign(resolveTextAlign(cellStyle))
+	if cellStyle.hasPadding() {
+		layoutCell.SetPaddingSides(layout.Padding{
+			Top:    cellStyle.PaddingTopAt(c.containerWidth),
+			Right:  cellStyle.PaddingRightAt(c.containerWidth),
+			Bottom: cellStyle.PaddingBottomAt(c.containerWidth),
+			Left:   cellStyle.PaddingLeftAt(c.containerWidth),
+		})
+	}
+	if cellStyle.BackgroundColor != nil {
+		layoutCell.SetBackground(*cellStyle.BackgroundColor)
+		// The cell owns and draws the rounded box fill; clear the
+		// same block-level background on its content Paragraph(s)
+		// to avoid a square-cornered overdraw (issue #329).
+		clearCellParagraphBackground(layoutCell, *cellStyle.BackgroundColor)
+	}
+	if cellStyle.hasBorder() {
+		layoutCell.SetBorders(buildCellBorders(cellStyle))
+	}
+	if !tbl.BorderCollapse() {
+		if cellStyle.BorderRadiusTL > 0 || cellStyle.BorderRadiusTR > 0 ||
+			cellStyle.BorderRadiusBR > 0 || cellStyle.BorderRadiusBL > 0 {
+			layoutCell.SetBorderRadiusPerCorner(
+				cellStyle.BorderRadiusTL, cellStyle.BorderRadiusTR,
+				cellStyle.BorderRadiusBR, cellStyle.BorderRadiusBL)
+		} else if cellStyle.BorderRadius > 0 {
+			layoutCell.SetBorderRadius(cellStyle.BorderRadius)
+		}
+	}
 }
 
 // parseColWidth extracts the width from a <col> element, respecting the span attribute.
