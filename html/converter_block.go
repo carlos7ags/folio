@@ -149,10 +149,15 @@ func (c *converter) convertBlock(n *html.Node, style computedStyle) []layout.Ele
 	children := c.walkChildren(n, style)
 	restore()
 
+	// A clear-only div (e.g. <div style="clear:both">) must survive as a Div
+	// so it carries the Clearable behavior that pushes following content below
+	// the floats; otherwise the clearing element silently disappears.
+	hasClear := style.Clear != "" && style.Clear != "none"
+
 	// Allow empty divs that have visual properties (height, background, border).
 	hasVisualBox := style.Height != nil || style.BackgroundColor != nil ||
 		style.hasBorder() || style.hasPadding()
-	if len(children) == 0 && !hasVisualBox {
+	if len(children) == 0 && !hasVisualBox && !hasClear {
 		return nil
 	}
 
@@ -164,7 +169,7 @@ func (c *converter) convertBlock(n *html.Node, style computedStyle) []layout.Ele
 	hasOutline := style.OutlineWidth > 0
 	hasTransform := style.Transform != "" && strings.ToLower(strings.TrimSpace(style.Transform)) != "none"
 	hasBgImage := style.BackgroundImage != ""
-	if !style.hasPadding() && !style.hasBorder() && !style.hasMargin() && style.BackgroundColor == nil && !hasWidthConstraints && !hasHeightConstraints && !hasVisualEffects && !hasBoxShadow && !hasOutline && !hasTransform && !hasBgImage {
+	if !style.hasPadding() && !style.hasBorder() && !style.hasMargin() && style.BackgroundColor == nil && !hasWidthConstraints && !hasHeightConstraints && !hasVisualEffects && !hasBoxShadow && !hasOutline && !hasTransform && !hasBgImage && !hasClear {
 		return children
 	}
 

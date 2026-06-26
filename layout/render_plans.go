@@ -173,27 +173,72 @@ func (r *Renderer) renderWithPlans() []PageResult {
 		}
 
 		availWidth, leftOffset := effectiveWidth()
+
+		// A float resolves its width against the containing block, not the
+		// space remaining beside sibling floats (CSS 2.1 10.3.5). In-flow
+		// content uses the float-reduced width.
+		_, isFloatElem := elem.(*Float)
+
+		// No room beside the active floats: drop this in-flow block below
+		// them (same mechanics as clear:both). A block whose minimum content
+		// width exceeds the space left by the floats cannot sit beside them.
+		if !isFloatElem && len(floats) > 0 {
+			if m, ok := elem.(Measurable); ok && m.MinWidth() > availWidth+0.01 {
+				maxRemain := 0.0
+				for _, f := range floats {
+					if f.remainHeight > maxRemain {
+						maxRemain = f.remainHeight
+					}
+				}
+				if maxRemain > 0 {
+					curY += maxRemain
+					remainingHeight -= maxRemain
+					consumeFloatHeight(maxRemain)
+					availWidth, leftOffset = effectiveWidth()
+				}
+			}
+		}
+
+		planWidth := availWidth
+		if isFloatElem {
+			planWidth = maxWidth
+		}
 		area := LayoutArea{
-			Width:  availWidth,
+			Width:  planWidth,
 			Height: remainingHeight,
 		}
 
 		plan := elem.PlanLayout(area)
 
-		// Check if this element is a float.
+		// If this element is a float, place it beside any floats already
+		// active on the same side so multiple floats stack instead of
+		// overlapping (left floats from the left edge, right from the right).
 		isFloat := false
-		for _, b := range plan.Blocks {
-			if b.floatInfo != nil {
-				isFloat = true
-				floats = append(floats, activeFloat{
-					side:         b.floatInfo.side,
-					width:        b.floatInfo.floatWidth,
-					remainHeight: b.floatInfo.height,
-				})
+		for bi := range plan.Blocks {
+			b := &plan.Blocks[bi]
+			if b.floatInfo == nil {
+				continue
 			}
+			isFloat = true
+			var sameSide float64
+			for _, f := range floats {
+				if f.side == b.floatInfo.side {
+					sameSide += f.width
+				}
+			}
+			if b.floatInfo.side == FloatLeft {
+				b.X += sameSide
+			} else {
+				b.X -= sameSide
+			}
+			floats = append(floats, activeFloat{
+				side:         b.floatInfo.side,
+				width:        b.floatInfo.floatWidth,
+				remainHeight: b.floatInfo.height,
+			})
 		}
 
-		// Offset blocks by float left margin.
+		// Offset in-flow blocks past active left floats.
 		if leftOffset > 0 && !isFloat {
 			for i := range plan.Blocks {
 				plan.Blocks[i].X += leftOffset

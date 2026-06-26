@@ -648,15 +648,116 @@ func (d *Div) PlanLayout(area LayoutArea) LayoutPlan {
 		}
 	}
 
+	// Detect floats among the children up front. The float-free path (the
+	// vast majority of containers) MUST behave exactly as before, so every
+	// float-aware operation below is gated behind hasFloat.
+	hasFloat := false
+	for _, e := range d.elements {
+		if _, ok := e.(*Float); ok {
+			hasFloat = true
+			break
+		}
+	}
+
 	// Lay out children within the inner area.
 	var fittedBlocks []PlacedBlock
 	var overflowElements []Element
 	curY := d.padding.Top
 	remaining := innerHeight
 
+	// fc tracks floats placed inside this container (content coordinates,
+	// origin at content-box top-left). Only used when hasFloat is true.
+	var fc floatContext
+
 	allFit := true
 	overflowStartIdx := -1
 	for idx, elem := range d.elements {
+		// Float child: place it beside same-side floats (stacking shift),
+		// register its extent, and consume no in-flow height.
+		if hasFloat {
+			if _, isFloat := elem.(*Float); isFloat {
+				plan := elem.PlanLayout(LayoutArea{Width: innerWidth, Height: remaining})
+				for bi := range plan.Blocks {
+					block := plan.Blocks[bi]
+					if block.floatInfo == nil {
+						continue
+					}
+					fi := block.floatInfo
+					shift := fc.place(fi.side, fi.floatWidth, fi.height, curY)
+					if fi.side == FloatLeft {
+						block.X += d.padding.Left + shift
+					} else {
+						block.X -= shift
+						block.X += d.padding.Left
+					}
+					block.Y += curY
+					fittedBlocks = append(fittedBlocks, block)
+				}
+				continue
+			}
+		}
+
+		// In-flow child.
+		if hasFloat {
+			// CSS clear: advance past matching active floats first.
+			if cl, ok := elem.(Clearable); ok {
+				cv := cl.ClearValue()
+				if cv == "left" || cv == "right" || cv == "both" {
+					if ny := fc.clear(cv, curY); ny > curY {
+						remaining -= ny - curY
+						curY = ny
+					}
+				}
+			}
+
+			avail, leftOff := fc.available(innerWidth, curY)
+
+			// A block whose minimum width exceeds the space beside the floats
+			// cannot sit there: drop it below all active floats.
+			if m, ok := elem.(Measurable); ok && m.MinWidth() > avail+0.01 {
+				if ny := fc.dropBelowAll(curY); ny > curY {
+					remaining -= ny - curY
+					curY = ny
+					avail, leftOff = fc.available(innerWidth, curY)
+				}
+			}
+
+			plan := elem.PlanLayout(LayoutArea{Width: avail, Height: remaining})
+			xOff := d.padding.Left + leftOff
+			switch plan.Status {
+			case LayoutFull:
+				for _, block := range plan.Blocks {
+					block.X += xOff
+					block.Y += curY
+					fittedBlocks = append(fittedBlocks, block)
+				}
+				curY += plan.Consumed
+				remaining -= plan.Consumed
+
+			case LayoutPartial:
+				for _, block := range plan.Blocks {
+					block.X += xOff
+					block.Y += curY
+					fittedBlocks = append(fittedBlocks, block)
+				}
+				allFit = false
+				overflowStartIdx = idx
+				if plan.Overflow != nil {
+					overflowElements = append(overflowElements, plan.Overflow)
+				}
+
+			case LayoutNothing:
+				allFit = false
+				overflowStartIdx = idx
+				overflowElements = append(overflowElements, elem)
+			}
+
+			if !allFit {
+				break
+			}
+			continue
+		}
+
 		plan := elem.PlanLayout(LayoutArea{Width: innerWidth, Height: remaining})
 
 		switch plan.Status {
@@ -697,7 +798,17 @@ func (d *Div) PlanLayout(area LayoutArea) LayoutPlan {
 		overflowElements = append(overflowElements, d.elements[overflowStartIdx+1:]...)
 	}
 
-	totalH := curY + d.padding.Bottom
+	// Grow the container to enclose its floats (display:flow-root model): the
+	// reported height includes the floats so following siblings sit below the
+	// container and overflow:hidden clips to the grown box.
+	contentBottom := curY
+	if hasFloat {
+		if b := fc.lowestBottom(); b > contentBottom {
+			contentBottom = b
+		}
+	}
+
+	totalH := contentBottom + d.padding.Bottom
 
 	// Apply explicit height if set (CSS height property).
 	if d.heightUnit != nil {
