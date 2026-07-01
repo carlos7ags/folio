@@ -16,6 +16,7 @@ func TestCorrupted(t *testing.T) {
 	for nm, u := range map[string]string{
 		"poppler":     "https://gitlab.freedesktop.org/poppler/test/-/archive/master/test-master.zip?ref_type=heads&path=tests",
 		"klausnitzer": "https://github.com/klausnitzer/pentest-pdf-collection/archive/refs/heads/main.zip",
+		"pdfcpu":      "https://github.com/pdfcpu/pdfcpu/archive/refs/heads/master.zip",
 	} {
 		t.Run(nm, func(t *testing.T) {
 			resp, err := http.Get(u)
