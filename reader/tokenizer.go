@@ -80,33 +80,37 @@ func (t *Tokenizer) Next() Token {
 	pos := int64(t.pos)
 	ch := t.data[t.pos]
 
-	switch {
-	case ch == '/':
+	switch ch {
+	case '/':
 		return t.readName(pos)
-	case ch == '(':
+	case '(':
 		return t.readLiteralString(pos)
-	case ch == '<':
+	case ')': // not really correct, but helps advancing
+		t.pos++
+		return Token{Type: TokenString, Value: "", Pos: pos}
+	case '<':
 		if t.pos+1 < t.len && t.data[t.pos+1] == '<' {
 			t.pos += 2
 			return Token{Type: TokenDictOpen, Value: "<<", Pos: pos}
 		}
 		return t.readHexString(pos)
-	case ch == '>':
+	case '>':
 		if t.pos+1 < t.len && t.data[t.pos+1] == '>' {
 			t.pos += 2
 			return Token{Type: TokenDictClose, Value: ">>", Pos: pos}
 		}
 		t.pos++
 		return Token{Type: TokenKeyword, Value: ">", Pos: pos}
-	case ch == '[':
+	case '[':
 		t.pos++
 		return Token{Type: TokenArrayOpen, Value: "[", Pos: pos}
-	case ch == ']':
+	case ']':
 		t.pos++
 		return Token{Type: TokenArrayClose, Value: "]", Pos: pos}
-	case isDigit(ch) || ch == '+' || ch == '-' || ch == '.':
-		return t.readNumber(pos)
 	default:
+		if isDigit(ch) || ch == '+' || ch == '-' || ch == '.' {
+			return t.readNumber(pos)
+		}
 		return t.readKeywordOrBool(pos)
 	}
 }
