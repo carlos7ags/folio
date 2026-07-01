@@ -1,4 +1,7 @@
-package folio
+// Copyright 2026 Tamás Gulácsi and the Folio Authors
+// SPDX-License-Identifier: Apache-2.0
+
+package reader
 
 import (
 	"archive/zip"
@@ -10,8 +13,6 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-
-	"github.com/carlos7ags/folio/reader"
 )
 
 func downloadZIP(zipFn, url string) (*zip.ReadCloser, error) {
@@ -39,7 +40,12 @@ func downloadZIP(zipFn, url string) (*zip.ReadCloser, error) {
 	return zip.OpenReader(zipFn)
 }
 
-func downloadPDFs(t testing.TB) iter.Seq[[]byte] {
+type file struct {
+	Name string
+	Data []byte
+}
+
+func downloadPDFs(t testing.TB) iter.Seq[file] {
 	cacheDir, _ := os.UserCacheDir()
 	if cacheDir == "" {
 		cacheDir = t.TempDir()
@@ -48,7 +54,7 @@ func downloadPDFs(t testing.TB) iter.Seq[[]byte] {
 	}
 	os.MkdirAll(cacheDir, 0775)
 
-	return func(yield func([]byte) bool) {
+	return func(yield func(file) bool) {
 		errExit := errors.New("exit")
 		for nm, url := range map[string]string{
 			"poppler":     "https://gitlab.freedesktop.org/poppler/test/-/archive/master/test-master.zip?ref_type=heads&path=tests",
@@ -75,7 +81,7 @@ func downloadPDFs(t testing.TB) iter.Seq[[]byte] {
 						if err != nil {
 							return err
 						}
-						if !yield(b) {
+						if !yield(file{Data: b, Name: nm + "/" + f.Name}) {
 							return errExit
 						}
 						return nil
@@ -99,26 +105,55 @@ func downloadPDFs(t testing.TB) iter.Seq[[]byte] {
 }
 
 func TestCorrupted(t *testing.T) {
-	for b := range downloadPDFs(t) {
-		rdr, err := reader.Parse(b)
+	for f := range downloadPDFs(t) {
+		rdr, err := Parse(f.Data)
 		if err != nil {
-			t.Log(err)
+			t.Log(f.Name, err)
 			return
 		}
-		t.Log("count:", rdr.PageCount())
+		t.Log(f.Name, "count:", rdr.PageCount())
 	}
 }
 
-func FuzzReader(f *testing.F) {
-	for b := range downloadPDFs(f) {
-		f.Add(b)
+func FuzzRealPDFTokenizer(f *testing.F) {
+	for file := range downloadPDFs(f) {
+		f.Add(file.Name, file.Data)
 	}
-	f.Fuzz(func(t *testing.T, b []byte) {
-		rdr, err := reader.Parse(b)
-		if err != nil {
-			t.Error(err)
+	f.Fuzz(func(t *testing.T, nm string, data []byte) {
+		tkz := NewTokenizer(data)
+		var pos int
+	Loop:
+		for !tkz.AtEnd() {
+			if token := tkz.Next(); token.Type == TokenEOF {
+				break
+			}
+			if pos == tkz.pos {
+				for range 3 {
+					if token := tkz.Next(); token.Type == TokenEOF {
+						break Loop
+					} else if token.Pos != int64(pos) {
+						break
+					}
+				}
+
+				if pos == tkz.pos {
+					t.Fatalf("%s: didn't advance from %d", nm, pos)
+				}
+			}
+			pos = tkz.pos
 		}
-		t.Log("count:", rdr.PageCount())
 	})
 
+}
+
+func FuzzRealPDFParser(f *testing.F) {
+	for file := range downloadPDFs(f) {
+		f.Add(file.Name, file.Data)
+	}
+	f.Fuzz(func(t *testing.T, nm string, data []byte) {
+		tok := NewTokenizer(data)
+		parser := NewParser(tok)
+		// Try to parse — must not panic (errors are fine).
+		_, _ = parser.ParseObject()
+	})
 }
