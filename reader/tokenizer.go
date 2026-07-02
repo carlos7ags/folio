@@ -77,42 +77,69 @@ func (t *Tokenizer) Next() Token {
 		return Token{Type: TokenEOF, Pos: int64(t.pos)}
 	}
 
-	pos := int64(t.pos)
-	ch := t.data[t.pos]
+	oldPos := t.pos
+	var did string
+	tok := func() Token {
+		pos := int64(t.pos)
+		ch := t.data[t.pos]
 
-	switch ch {
-	case '/':
-		return t.readName(pos)
-	case '(':
-		return t.readLiteralString(pos)
-	case ')': // not really correct, but helps advancing
-		t.pos++
-		return Token{Type: TokenString, Value: "", Pos: pos}
-	case '<':
-		if t.pos+1 < t.len && t.data[t.pos+1] == '<' {
-			t.pos += 2
-			return Token{Type: TokenDictOpen, Value: "<<", Pos: pos}
+		switch ch {
+		case '/':
+			did = "name"
+			return t.readName(pos)
+		case '(':
+			did = "literalString"
+			return t.readLiteralString(pos)
+		case ')': // not really correct, but helps advancing
+			did = ")"
+			t.pos++
+			return Token{Type: TokenString, Value: "", Pos: pos}
+		case '<':
+			if t.pos+1 < t.len && t.data[t.pos+1] == '<' {
+				did = "<<"
+				t.pos += 2
+				return Token{Type: TokenDictOpen, Value: "<<", Pos: pos}
+			}
+			did = "hexString"
+			return t.readHexString(pos)
+		case '>':
+			if t.pos+1 < t.len && t.data[t.pos+1] == '>' {
+				did = ">>"
+				t.pos += 2
+				return Token{Type: TokenDictClose, Value: ">>", Pos: pos}
+			}
+			did = ">"
+			t.pos++
+			return Token{Type: TokenKeyword, Value: ">", Pos: pos}
+		case '[':
+			did = "["
+			t.pos++
+			return Token{Type: TokenArrayOpen, Value: "[", Pos: pos}
+		case ']':
+			did = "]"
+			t.pos++
+			return Token{Type: TokenArrayClose, Value: "]", Pos: pos}
+		default:
+			if isDigit(ch) || ch == '+' || ch == '-' || ch == '.' {
+				did = "number"
+				return t.readNumber(pos)
+			}
+			did = "kwBool"
+			return t.readKeywordOrBool(pos)
 		}
-		return t.readHexString(pos)
-	case '>':
-		if t.pos+1 < t.len && t.data[t.pos+1] == '>' {
-			t.pos += 2
-			return Token{Type: TokenDictClose, Value: ">>", Pos: pos}
+	}()
+	if t.pos == oldPos {
+		t.skipWhitespaceAndComments()
+		if t.pos == oldPos {
+			if true {
+				t.pos++ // force skip of junk character
+			} else {
+				panic(fmt.Sprintf("%s didn't advance from %d [%d, %d] (len=%d)", did, oldPos, t.data[t.pos], t.data[t.pos+1], t.len))
+			}
 		}
-		t.pos++
-		return Token{Type: TokenKeyword, Value: ">", Pos: pos}
-	case '[':
-		t.pos++
-		return Token{Type: TokenArrayOpen, Value: "[", Pos: pos}
-	case ']':
-		t.pos++
-		return Token{Type: TokenArrayClose, Value: "]", Pos: pos}
-	default:
-		if isDigit(ch) || ch == '+' || ch == '-' || ch == '.' {
-			return t.readNumber(pos)
-		}
-		return t.readKeywordOrBool(pos)
 	}
+
+	return tok
 }
 
 // Peek returns the next token without advancing the position.
