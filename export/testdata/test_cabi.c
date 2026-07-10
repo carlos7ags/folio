@@ -1870,6 +1870,56 @@ int main(void) {
         folio_string_free(NULL); /* NULL is a documented no-op */
     }
 
+    /* ===== Stage 42: Error paths — handles, buffers, IO ===== */
+    printf("Testing error paths...\n");
+
+    /* Buffer lifecycle: freed and invalid handles are safe and inert */
+    doc = folio_document_new_letter();
+    folio_document_add_page(doc);
+    buf = folio_document_write_to_buffer(doc);
+    ASSERT(buf != 0, "write_to_buffer for error-path stage");
+    ASSERT(folio_buffer_len(buf) > 0, "buffer live before free");
+    folio_buffer_free(buf);
+    ASSERT(folio_buffer_data(buf) == NULL, "buffer_data on freed handle is NULL");
+    ASSERT(folio_buffer_len(buf) == 0, "buffer_len on freed handle is 0");
+    folio_buffer_free(buf); /* double-free: documented no-op, must not crash */
+    ASSERT(folio_buffer_data(0) == NULL, "buffer_data on handle 0 is NULL");
+    ASSERT(folio_buffer_len(99999) == 0, "buffer_len on unknown handle is 0");
+
+    /* Wrong-type handle: a document handle is not a buffer */
+    ASSERT(folio_buffer_data(doc) == NULL, "buffer_data on doc handle is NULL");
+    ASSERT(folio_buffer_len(doc) == 0, "buffer_len on doc handle is 0");
+
+    /* Invalid handles across modules return documented error values */
+    ASSERT(folio_document_add_page(99999) == 0, "add_page on bad doc returns 0 handle");
+    ASSERT(folio_document_page_count(99999) == 0, "page_count on bad doc returns 0"); /* pins current contract: errors are not encoded in this int32_t's sign */
+    ASSERT(folio_paragraph_set_leading(99999, 1.5) != 0, "paragraph op on bad handle errors");
+    ASSERT(folio_table_set_min_width(99999, 10) != 0, "table op on bad handle errors");
+    ASSERT(folio_div_set_padding(99999, 1, 1, 1, 1) != 0, "div op on bad handle errors");
+    ASSERT(folio_flex_set_gap(99999, 1) != 0, "flex op on bad handle errors");
+    ASSERT(folio_form_add_text_field(99999, "f", 0, 0, 10, 10, 0) != 0, "form op on bad handle errors");
+    ASSERT(folio_svg_width(99999) == 0, "svg_width on bad handle is 0");
+    ASSERT(folio_barcode_width(99999) == 0, "barcode_width on bad handle is 0");
+    ASSERT(folio_reader_page_count(99999) == 0, "reader_page_count on bad handle is 0"); /* pins current contract */
+
+    /* last_error is populated after a failing call; caller owns the copy */
+    folio_document_set_title(99999, "x");
+    const char* errPath = folio_last_error();
+    ASSERT(errPath != NULL, "last_error non-NULL after failure");
+    folio_string_free(errPath);
+
+    /* IO error: unwritable path */
+    rc = folio_document_save(doc, "/nonexistent-dir-folio-test/out.pdf");
+    ASSERT(rc != 0, "save to unwritable path returns error");
+
+    /* Type mismatch: pass a font handle where an element is expected */
+    helv = folio_font_helvetica();
+    rc = folio_document_add(doc, helv);
+    ASSERT(rc != 0, "document_add rejects non-element handle");
+
+    folio_document_free(doc);
+    folio_document_free(doc); /* double-free of document: must not crash */
+
     /* Summary */
     printf("\n%d passed, %d failed\n", passes, failures);
     return failures > 0 ? 1 : 0;
