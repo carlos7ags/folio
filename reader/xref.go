@@ -174,9 +174,14 @@ func parseXrefStream(data []byte, offset int, table *xrefTable) (*core.PdfDictio
 		pdfIntValue(wArr.At(1)),
 		pdfIntValue(wArr.At(2)),
 	}
+	for _, width := range w {
+		if width < 0 || width > 8 {
+			return nil, -1, fmt.Errorf("reader: xref stream /W width %d out of range [0,8]", width)
+		}
+	}
 	entrySize := w[0] + w[1] + w[2]
-	if entrySize == 0 {
-		return nil, -1, fmt.Errorf("reader: xref stream entry size is 0")
+	if entrySize <= 0 {
+		return nil, -1, fmt.Errorf("reader: xref stream entry size %d invalid", entrySize)
 	}
 
 	// Get /Size.
