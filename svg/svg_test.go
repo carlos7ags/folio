@@ -968,6 +968,53 @@ func TestParse_NegativeDimensions(t *testing.T) {
 	s.Draw(stream, 0, 0, 100, 100)
 }
 
+func TestAttrFloat(t *testing.T) {
+	tests := []struct {
+		val  string
+		def  float64
+		want float64
+	}{
+		{"10", 0, 10},
+		{"10px", 0, 10},
+		{"10pt", 0, 10},
+		// Any other unit is rejected and the default is returned, same as
+		// the old TrimSuffix(px)/TrimSuffix(pt) chain never matching "em".
+		{"10em", 5, 5},
+		{"", 5, 5},
+	}
+	for _, tt := range tests {
+		node := &Node{Tag: "rect", Attrs: map[string]string{"width": tt.val}}
+		if tt.val == "" {
+			node.Attrs = map[string]string{}
+		}
+		if got := attrFloat(node, "width", tt.def); got != tt.want {
+			t.Errorf("attrFloat(%q, def=%v) = %v, want %v", tt.val, tt.def, got, tt.want)
+		}
+	}
+}
+
+func TestParseDimension(t *testing.T) {
+	tests := []struct {
+		input string
+		want  float64
+	}{
+		{"100px", 100},
+		{"10cm", 10},
+		{"50%", 50},
+		{"100", 100},
+		{"", 0},
+		// Multi-suffix garbage is no longer accepted: "px" strips once
+		// leaving "10em", "em" strips next leaving "10" — the sequential
+		// TrimSuffix loop used to fall through to a clean parse.
+		{"10empx", 0},
+	}
+	for _, tt := range tests {
+		if got := parseDimension(tt.input); got != tt.want {
+			t.Errorf("parseDimension(%q) = %v, want %v", tt.input, got, tt.want)
+		}
+	}
+}
+
 func TestResolveStyle_UnrecognizedProperties(t *testing.T) {
 	// Unrecognized CSS properties in style attribute should not cause panic.
 	node := &Node{
@@ -981,6 +1028,31 @@ func TestResolveStyle_UnrecognizedProperties(t *testing.T) {
 		t.Fatal("Fill should not be nil after style with unrecognized properties")
 	}
 	assertColor(t, "fill with unrecognized props", *s.Fill, 1, 0, 0, 1)
+}
+
+func TestResolveStyle_FontSize(t *testing.T) {
+	tests := []struct {
+		style string
+		want  float64
+	}{
+		{"font-size:14px", 14},
+		{"font-size:14", 14},
+		// pt is now accepted as a user unit, matching the width/height/r
+		// attribute policy — previously only "px" parsed and a pt value
+		// silently left the inherited font size.
+		{"font-size:12pt", 12},
+		// Any other unit stays unhandled: the declaration is ignored and
+		// the parent's font size is inherited.
+		{"font-size:2em", 16},
+	}
+	for _, tt := range tests {
+		node := &Node{Tag: "text", Attrs: map[string]string{"style": tt.style}}
+		parent := defaultStyle()
+		s := resolveStyle(node, parent)
+		if s.FontSize != tt.want {
+			t.Errorf("resolveStyle(%q).FontSize = %v, want %v", tt.style, s.FontSize, tt.want)
+		}
+	}
 }
 
 func TestParseColor_RGBOverflow(t *testing.T) {

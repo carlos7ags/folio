@@ -9,6 +9,8 @@ import (
 	"io"
 	"strconv"
 	"strings"
+
+	"github.com/carlos7ags/folio/internal/cssunit"
 )
 
 // SVG is a parsed SVG document ready to be rendered.
@@ -260,16 +262,10 @@ func findSVGRoot(node *Node) *Node {
 }
 
 // parseDimension parses a dimension value like "100", "100px", "100.5px" into a float64.
-// Only "px" and unitless values are supported; other units are stripped and parsed as-is.
+// Every unit is treated as an SVG user unit 1:1; the suffix is stripped, not converted.
 func parseDimension(s string) float64 {
-	s = strings.TrimSpace(s)
-	// Strip known suffixes.
-	for _, suffix := range []string{"px", "pt", "em", "rem", "cm", "mm", "in", "%"} {
-		s = strings.TrimSuffix(s, suffix)
-	}
-	s = strings.TrimSpace(s)
-	v, err := strconv.ParseFloat(s, 64)
-	if err != nil {
+	v, _, ok := cssunit.Parse(s)
+	if !ok {
 		return 0
 	}
 	return v
