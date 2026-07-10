@@ -16,11 +16,12 @@ type resolver struct {
 	data       []byte
 	xref       *xrefTable
 	cache      map[int]core.PdfObject
-	maxCache   int            // max cached objects (0 = unlimited)
-	order      []int          // insertion order for LRU eviction
-	mem        *memoryTracker // memory safety limits
-	resolving  map[int]bool   // tracks objects currently being resolved (cycle detection)
-	strictness Strictness     // controls error handling behavior
+	maxCache   int             // max cached objects (0 = unlimited)
+	order      []int           // insertion order for LRU eviction
+	mem        *memoryTracker  // memory safety limits
+	resolving  map[int]bool    // tracks objects currently being resolved (cycle detection)
+	strictness Strictness      // controls error handling behavior
+	decryptor  *core.Decryptor // nil for unencrypted documents
 }
 
 // newResolver creates a resolver that fetches objects from data using the
@@ -41,6 +42,14 @@ func newResolver(data []byte, xref *xrefTable, mem *memoryTracker, strictness St
 // When exceeded, the oldest entries are evicted. 0 = unlimited.
 func (r *resolver) SetMaxCache(n int) {
 	r.maxCache = n
+}
+
+// SetDecryptor attaches a decryptor so subsequent Resolve calls decrypt
+// strings and stream payloads. Objects already cached before this call
+// (the /Encrypt dictionary itself) are left as-is — their strings are
+// never encrypted, so that is the correct plaintext value.
+func (r *resolver) SetDecryptor(d *core.Decryptor) {
+	r.decryptor = d
 }
 
 // Release removes a cached object, freeing memory.
@@ -112,7 +121,7 @@ func (r *resolver) Resolve(objNum int) (core.PdfObject, error) {
 	tok.SetPos(int(entry.offset))
 	parser := NewParser(tok)
 
-	parsedObjNum, _, obj, err := parser.ParseIndirectObject()
+	parsedObjNum, genNum, obj, err := parser.ParseIndirectObject()
 	if err != nil {
 		return nil, fmt.Errorf("reader: resolve object %d: %w", objNum, err)
 	}
@@ -122,9 +131,17 @@ func (r *resolver) Resolve(objNum int) (core.PdfObject, error) {
 
 	// If it's a stream, read the actual stream data from the file.
 	if stream, ok := obj.(*core.PdfStream); ok {
-		obj, err = r.resolveStream(stream, entry.offset)
+		obj, err = r.resolveStream(stream, entry.offset, objNum, genNum)
 		if err != nil {
 			return nil, err
+		}
+	} else if r.decryptor != nil {
+		// Non-stream objects: decrypt strings in place (Algorithm 1).
+		// Object-stream members never reach this path — they come back
+		// through resolveCompressed, which does not call DecryptObject,
+		// because the containing /ObjStm was already decrypted whole.
+		if err := r.decryptor.DecryptObject(obj, objNum, genNum); err != nil {
+			return nil, fmt.Errorf("reader: decrypt object %d: %w", objNum, err)
 		}
 	}
 
@@ -234,7 +251,17 @@ func (r *resolver) ResolveDeep(obj core.PdfObject) (core.PdfObject, error) {
 }
 
 // resolveStream reads and optionally decompresses stream data.
-func (r *resolver) resolveStream(stream *core.PdfStream, objOffset int64) (*core.PdfStream, error) {
+func (r *resolver) resolveStream(stream *core.PdfStream, objOffset int64, objNum, genNum int) (*core.PdfStream, error) {
+	// Decrypt strings in the stream dictionary itself (Algorithm 1).
+	// The raw payload is decrypted separately below, before
+	// decompression — on-disk order is compress-then-encrypt, so
+	// reading it back is decrypt-then-decompress.
+	if r.decryptor != nil {
+		if err := r.decryptor.DecryptObject(stream.Dict, objNum, genNum); err != nil {
+			return nil, fmt.Errorf("reader: decrypt stream dict (obj %d): %w", objNum, err)
+		}
+	}
+
 	// Resolve /Length if it's an indirect reference.
 	lengthObj := stream.Dict.Get("Length")
 	streamLen := 0
@@ -317,6 +344,14 @@ func (r *resolver) resolveStream(stream *core.PdfStream, objOffset int64) (*core
 			rawData := make([]byte, streamLen)
 			copy(rawData, tok.data[tok.pos:tok.pos+streamLen])
 
+			if streamNeedsDecryption(stream.Dict, r.decryptor) {
+				decrypted, err := r.decryptor.DecryptBytes(objNum, genNum, rawData)
+				if err != nil {
+					return nil, fmt.Errorf("reader: decrypt stream (obj %d): %w", objNum, err)
+				}
+				rawData = decrypted
+			}
+
 			// Decompress if needed.
 			data, err := decompressStreamLimited(rawData, stream.Dict, r.mem)
 			if err != nil {
@@ -354,6 +389,21 @@ func (r *resolver) resolveStream(stream *core.PdfStream, objOffset int64) (*core
 	}
 
 	return stream, nil
+}
+
+// streamNeedsDecryption reports whether a stream's raw payload should
+// be decrypted. Per ISO 32000-1 §7.6.1, when /EncryptMetadata is false
+// a /Type /Metadata stream is stored in the clear even though the rest
+// of the document is encrypted.
+func streamNeedsDecryption(dict *core.PdfDictionary, d *core.Decryptor) bool {
+	if d == nil {
+		return false
+	}
+	if d.EncryptMetadata {
+		return true
+	}
+	name, ok := dict.Get("Type").(*core.PdfName)
+	return !ok || name.Value != "Metadata"
 }
 
 // scanForEndstream searches for the "endstream" keyword starting from

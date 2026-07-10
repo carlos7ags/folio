@@ -448,8 +448,9 @@ func TestParseTooSmall(t *testing.T) {
 	}
 }
 
-func TestParseEncryptedPDF(t *testing.T) {
-	// Minimal PDF with /Encrypt in trailer — should fail with clear message.
+func TestParseEncryptedPDFUnsupportedRevision(t *testing.T) {
+	// /Encrypt dict without a recognized /R — a clean typed error, not a
+	// blanket refusal and not a panic.
 	pdf := []byte(`%PDF-1.4
 1 0 obj
 << /Type /Catalog /Pages 2 0 R >>
@@ -469,10 +470,10 @@ startxref
 %%EOF`)
 	_, err := Parse(pdf)
 	if err == nil {
-		t.Fatal("expected error for encrypted PDF")
+		t.Fatal("expected error for unsupported encryption revision")
 	}
-	if !strings.Contains(err.Error(), "encrypted") {
-		t.Errorf("expected 'encrypted' in error, got: %v", err)
+	if !errors.Is(err, ErrUnsupportedEncryption) {
+		t.Errorf("expected ErrUnsupportedEncryption, got: %v", err)
 	}
 }
 
