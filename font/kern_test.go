@@ -359,14 +359,16 @@ func TestKernCacheIdentity(t *testing.T) {
 	}
 }
 
-// TestKernCacheReparseGuard exercises the kernPairsParsed one-shot flag
-// by manually clearing kernPairs and confirming a second lookup does
-// not re-populate the cache from the raw table bytes.
+// TestKernCacheReparseGuard exercises the kernOnce one-shot guard by
+// manually clearing kernPairs and confirming a second lookup does not
+// re-populate the cache from the raw table bytes.
 func TestKernCacheReparseGuard(t *testing.T) {
 	face := loadTestFace(t).(*sfntFace)
 	_ = face.Kern(0, 0)
-	if !face.kernPairsParsed {
-		t.Fatal("expected kernPairsParsed=true after first Kern call")
+	fired := true
+	face.kernOnce.Do(func() { fired = false })
+	if !fired {
+		t.Fatal("expected kern cache Once to have fired after first Kern call")
 	}
 	face.kernPairs = nil
 	_ = face.Kern(1, 2)

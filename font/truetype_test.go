@@ -5,6 +5,7 @@ package font
 
 import (
 	"os"
+	"sync"
 	"testing"
 )
 
@@ -382,4 +383,69 @@ func TestBuildGIDToUnicodeInvalidData(t *testing.T) {
 	if len(m) != 0 {
 		t.Errorf("expected empty map for invalid data, got %d entries", len(m))
 	}
+}
+
+// TestSfntFaceConcurrentLazyCaches shares a single Face across goroutines
+// and hammers its lazy caches (Kern, GSUB, GPOS, GIDToUnicode). It only
+// proves anything under -race: the detector is the oracle here, not any
+// return value. The one value check is a baseline comparison, which
+// confirms synchronization didn't change what gets computed.
+func TestSfntFaceConcurrentLazyCaches(t *testing.T) {
+	exercise := func(t *testing.T, face Face) {
+		gsub, ok := face.(GSUBProvider)
+		if !ok {
+			t.Fatal("face should implement GSUBProvider")
+		}
+		gpos, ok := face.(GPOSProvider)
+		if !ok {
+			t.Fatal("face should implement GPOSProvider")
+		}
+
+		gidA, gidV := face.GlyphIndex('A'), face.GlyphIndex('V')
+		if gidA == 0 {
+			gidA = 1
+		}
+		if gidV == 0 {
+			gidV = 2
+		}
+
+		baseline := face.Kern(gidA, gidV)
+
+		var wg sync.WaitGroup
+		for i := 0; i < 8; i++ {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				for j := 0; j < 100; j++ {
+					_ = face.Kern(gidA, gidV)
+					_ = face.GlyphAdvance(gidA)
+					_ = gsub.GSUB()
+					_ = gsub.GIDToUnicode()
+					_ = gpos.GPOS()
+				}
+			}()
+		}
+		wg.Wait()
+
+		if got := face.Kern(gidA, gidV); got != baseline {
+			t.Errorf("Kern(%d,%d) after concurrent access = %d, want baseline %d", gidA, gidV, got, baseline)
+		}
+	}
+
+	t.Run("fixture", func(t *testing.T) {
+		face, err := LoadTTF("testdata/synthetic_cjk.ttf")
+		if err != nil {
+			t.Fatalf("LoadTTF(testdata/synthetic_cjk.ttf) failed: %v", err)
+		}
+		exercise(t, face)
+	})
+
+	t.Run("system", func(t *testing.T) {
+		path := testFontPath(t)
+		face, err := LoadTTF(path)
+		if err != nil {
+			t.Fatalf("LoadTTF(%s) failed: %v", path, err)
+		}
+		exercise(t, face)
+	})
 }

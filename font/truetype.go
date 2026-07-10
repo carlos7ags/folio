@@ -8,13 +8,15 @@ import (
 	"fmt"
 	"math"
 	"os"
+	"sync"
 )
 
 // sfntFace is the Face implementation backed by Folio's in-tree
 // TrueType / OpenType table parsers. Lazy caches (gsubResult,
-// gidToUnicodeMap, kernPairs) are unsynchronized; callers must not
-// share a single sfntFace across goroutines. This is an internal
-// implementation — callers use the Face interface.
+// gidToUnicodeMap, kernPairs) are each guarded by their own sync.Once,
+// so a single sfntFace may be shared and read concurrently across
+// goroutines. This is an internal implementation — callers use the
+// Face interface.
 //
 // The name "sfntFace" is retained for source compatibility with the
 // previous `golang.org/x/image/font/sfnt`-backed implementation; the
@@ -23,27 +25,25 @@ type sfntFace struct {
 	pf      *parsedFont
 	rawData []byte
 
-	// Cached GSUB substitution tables. gsubParsed distinguishes "not
-	// yet parsed" (false) from "parsed and empty" (true, gsubResult nil).
+	// Cached GSUB substitution tables. gsubOnce guards the single parse,
+	// covering both "parsed and empty" (gsubResult nil) and populated.
 	gsubResult *GSUBSubstitutions
-	gsubParsed bool
+	gsubOnce   sync.Once
 
 	// Cached GID→Unicode reverse map (nil = not yet built).
-	gidToUnicodeMap   map[uint16]rune
-	gidToUnicodeBuilt bool
+	gidToUnicodeMap  map[uint16]rune
+	gidToUnicodeOnce sync.Once
 
 	// Cached kern pairs: (leftGID, rightGID) → FUnit value. Populated on
 	// the first Kern() call. A nil map after parsing means the font has
-	// no kern table or no supported subtables; kernPairsParsed then
-	// guards re-parsing.
-	kernPairs       map[[2]uint16]int16
-	kernPairsParsed bool
+	// no kern table or no supported subtables; kernOnce guards re-parsing.
+	kernPairs map[[2]uint16]int16
+	kernOnce  sync.Once
 
-	// Cached GPOS adjustments. gposParsed distinguishes "not yet parsed"
-	// (false) from "parsed and empty" (true, gposResult nil). Populated
-	// on the first GPOS() call.
+	// Cached GPOS adjustments. gposOnce guards the single parse, covering
+	// both "parsed and empty" (gposResult nil) and populated.
 	gposResult *GPOSAdjustments
-	gposParsed bool
+	gposOnce   sync.Once
 }
 
 // ParseTTF parses a TrueType (.ttf) or OpenType (.otf) font from raw bytes.
@@ -197,12 +197,11 @@ func (f *sfntFace) Kern(left, right uint16) int {
 			return int(v)
 		}
 	}
-	if !f.kernPairsParsed {
+	f.kernOnce.Do(func() {
 		if kern, ok := f.pf.rawTables["kern"]; ok {
 			f.kernPairs = ParseKern(kern)
 		}
-		f.kernPairsParsed = true
-	}
+	})
 	if f.kernPairs == nil {
 		return 0
 	}
@@ -310,11 +309,7 @@ func (f *sfntFace) CFFData() []byte {
 // after the first call; a nil return means the font has no GSUB tables
 // for any of the recognized features.
 func (f *sfntFace) GSUB() *GSUBSubstitutions {
-	if f.gsubParsed {
-		return f.gsubResult
-	}
-	f.gsubResult = ParseGSUB(f.rawData)
-	f.gsubParsed = true
+	f.gsubOnce.Do(func() { f.gsubResult = ParseGSUB(f.rawData) })
 	return f.gsubResult
 }
 
@@ -323,11 +318,7 @@ func (f *sfntFace) GSUB() *GSUBSubstitutions {
 // GPOS data (no "kern"/"mark" features, or only unsupported lookup
 // types).
 func (f *sfntFace) GPOS() *GPOSAdjustments {
-	if f.gposParsed {
-		return f.gposResult
-	}
-	f.gposResult = ParseGPOS(f.rawData)
-	f.gposParsed = true
+	f.gposOnce.Do(func() { f.gposResult = ParseGPOS(f.rawData) })
 	return f.gposResult
 }
 
@@ -335,11 +326,7 @@ func (f *sfntFace) GPOS() *GPOSAdjustments {
 // Built lazily from the font's parsed cmap. Used to convert
 // GSUB-substituted GIDs back to codepoints for the text rendering pipeline.
 func (f *sfntFace) GIDToUnicode() map[uint16]rune {
-	if f.gidToUnicodeBuilt {
-		return f.gidToUnicodeMap
-	}
-	f.gidToUnicodeBuilt = true
-	f.gidToUnicodeMap = buildGIDToUnicodeFromCmap(f.pf.cmap)
+	f.gidToUnicodeOnce.Do(func() { f.gidToUnicodeMap = buildGIDToUnicodeFromCmap(f.pf.cmap) })
 	return f.gidToUnicodeMap
 }
 
