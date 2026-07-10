@@ -570,11 +570,9 @@ func (l *List) itemText(item listItem) string {
 }
 
 // measurer returns the text measurer for this list's font.
+// Fallback l.font preserves the historical typed-nil return when unset.
 func (l *List) measurer() font.TextMeasurer {
-	if l.embedded != nil {
-		return l.embedded
-	}
-	return l.font
+	return resolveMeasurer(l.embedded, l.font, l.font)
 }
 
 // PlanLayout implements Element. Lists split between items.
