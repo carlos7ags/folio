@@ -35,6 +35,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **`li::marker { content: counter(list-item) }` now numbers list items** — `<li>` implicitly increments the CSS `list-item` counter and `<ul>`/`<ol>` implicitly reset it, per CSS Lists Module 3, so `::marker` content driven by `counter(list-item)` (or `counters(list-item, sep)` for nested lists) resolves correctly instead of always reading `0`. `::marker { font-style: italic }` is also now honored.
 - **`@page` margin boxes (`@top-*`/`@bottom-*`) now honor `font-style`, `font-weight`, and `font-family`** — previously only `font-size` and `color` were applied to generated margin-box content; `font-style: italic` and similar declarations were silently dropped (#378).
 
 ## [0.9.1] - 2026-06-10
