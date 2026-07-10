@@ -5,6 +5,7 @@ package layout
 
 import (
 	"strings"
+	"unicode/utf8"
 
 	"github.com/carlos7ags/folio/font"
 )
@@ -61,8 +62,10 @@ func shapeAndMeasureWord(w *Word, run TextRun, measurer font.TextMeasurer) {
 		measureText = expandCountersForMeasure(measureText)
 	}
 	w.Width = measurer.MeasureString(measureText, run.FontSize)
-	if run.LetterSpacing != 0 && len([]rune(measureText)) > 1 {
-		w.Width += run.LetterSpacing * float64(len([]rune(measureText))-1)
+	if run.LetterSpacing != 0 {
+		if n := utf8.RuneCountInString(measureText); n > 1 {
+			w.Width += run.LetterSpacing * float64(n-1)
+		}
 	}
 	if w.Text != origText {
 		w.OriginalText = origText
@@ -100,8 +103,10 @@ func breakCJKWords(words []Word) []Word {
 			sub := w
 			sub.Text = tok
 			sub.Width = measure(tok)
-			if sub.LetterSpacing != 0 && len([]rune(tok)) > 1 {
-				sub.Width += sub.LetterSpacing * float64(len([]rune(tok))-1)
+			if sub.LetterSpacing != 0 {
+				if n := utf8.RuneCountInString(tok); n > 1 {
+					sub.Width += sub.LetterSpacing * float64(n-1)
+				}
 			}
 			if j < len(tokens)-1 {
 				sub.SpaceAfter = 0 // no inter-word space within CJK run

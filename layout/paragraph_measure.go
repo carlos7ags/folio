@@ -3,7 +3,11 @@
 
 package layout
 
-import "github.com/carlos7ags/folio/font"
+import (
+	"unicode/utf8"
+
+	"github.com/carlos7ags/folio/font"
+)
 
 // runMeasurer returns the text measurer for a run, defaulting to
 // Helvetica if no font is set (defensive).
@@ -143,8 +147,10 @@ func (p *Paragraph) MinWidth() float64 {
 		measurer := runMeasurer(run)
 		for _, w := range splitWords(run.Text) {
 			ww := measurer.MeasureString(w, run.FontSize)
-			if run.LetterSpacing != 0 && len([]rune(w)) > 1 {
-				ww += run.LetterSpacing * float64(len([]rune(w))-1)
+			if run.LetterSpacing != 0 {
+				if n := utf8.RuneCountInString(w); n > 1 {
+					ww += run.LetterSpacing * float64(n-1)
+				}
 			}
 			if ww > maxWordW {
 				maxWordW = ww
@@ -176,8 +182,10 @@ func (p *Paragraph) MaxWidth() float64 {
 		spaceW := measurer.MeasureString(" ", run.FontSize)
 		for i, w := range words {
 			ww := measurer.MeasureString(w, run.FontSize)
-			if run.LetterSpacing != 0 && len([]rune(w)) > 1 {
-				ww += run.LetterSpacing * float64(len([]rune(w))-1)
+			if run.LetterSpacing != 0 {
+				if n := utf8.RuneCountInString(w); n > 1 {
+					ww += run.LetterSpacing * float64(n-1)
+				}
 			}
 			total += ww
 			if i < len(words)-1 {
@@ -313,7 +321,7 @@ func (p *Paragraph) measureWords(maxWidth float64) ([]Word, float64) {
 					}
 					prev.Width = prevMeasurer.MeasureString(prevMeasureText, prev.FontSize)
 					if prev.LetterSpacing != 0 {
-						prev.Width += prev.LetterSpacing * float64(len([]rune(prevMeasureText))-1)
+						prev.Width += prev.LetterSpacing * float64(utf8.RuneCountInString(prevMeasureText)-1)
 					}
 					text = rest
 				}
