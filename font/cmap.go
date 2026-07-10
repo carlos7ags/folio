@@ -18,6 +18,13 @@ import (
 // what sfnt exposed and keeps the diff focused.
 type cmapTable map[rune]uint16
 
+// cmapMaxMappedCodes bounds the total number of code points expanded
+// across all groups/segments of one subtable. Non-overlapping coverage
+// cannot exceed 0x110000 (~1.1M) codes; overlapping ranges are only
+// produced by hostile or broken fonts. 1<<22 (~4.2M) leaves ~4x
+// headroom over the theoretical legitimate maximum.
+const cmapMaxMappedCodes = 1 << 22
+
 // parseCmapTable decodes a font's `cmap` table, picks the best Unicode
 // subtable available, and returns the resolved mapping.
 //
@@ -220,6 +227,7 @@ func parseCmapFormat4(data []byte, subOff uint64) (cmapTable, error) {
 	}
 
 	out := make(cmapTable)
+	var totalCodes uint64
 	for i := uint64(0); i < segCount; i++ {
 		end := binary.BigEndian.Uint16(data[endOff+i*2 : endOff+i*2+2])
 		start := binary.BigEndian.Uint16(data[startOff+i*2 : startOff+i*2+2])
@@ -227,6 +235,10 @@ func parseCmapFormat4(data []byte, subOff uint64) (cmapTable, error) {
 		idRangeOffset := binary.BigEndian.Uint16(data[rangeOff+i*2 : rangeOff+i*2+2])
 		if start > end {
 			continue
+		}
+		totalCodes += uint64(end) - uint64(start) + 1
+		if totalCodes > cmapMaxMappedCodes {
+			return nil, fmt.Errorf("font: cmap fmt4: total mapped codes exceed %d: %w", cmapMaxMappedCodes, ErrCorruptTable)
 		}
 		// The terminating sentinel segment (0xFFFF, 0xFFFF, idDelta=1)
 		// processes naturally: the resulting glyph ID is 0 and the
@@ -311,6 +323,7 @@ func parseCmapFormat12(data []byte, subOff uint64) (cmapTable, error) {
 	}
 
 	out := make(cmapTable)
+	var totalCodes uint64
 	for i := uint64(0); i < numGroups; i++ {
 		off := subOff + 16 + i*12
 		startChar := binary.BigEndian.Uint32(data[off : off+4])
@@ -323,6 +336,10 @@ func parseCmapFormat12(data []byte, subOff uint64) (cmapTable, error) {
 		// hostile fonts declare endChar past 0x10FFFF.
 		if endChar > 0x10FFFF {
 			endChar = 0x10FFFF
+		}
+		totalCodes += uint64(endChar) - uint64(startChar) + 1
+		if totalCodes > cmapMaxMappedCodes {
+			return nil, fmt.Errorf("font: cmap fmt12: total mapped codes exceed %d: %w", cmapMaxMappedCodes, ErrCorruptTable)
 		}
 		for c := startChar; c <= endChar; c++ {
 			gid32 := startGID + (c - startChar)
