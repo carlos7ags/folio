@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - **`sign.Verify(pdfBytes []byte, opts sign.VerifyOptions) (*sign.Report, error)`** — offline verification for PDFs signed with `sign.SignPDF`. For each signature it locates the signature dictionary, recomputes the `/ByteRange` digest and checks it against the CMS `messageDigest` signed attribute, verifies the CMS signature (RSA PKCS#1 v1.5 or ECDSA) over the signed attributes, checks that `/ByteRange` covers the whole file except the `/Contents` hex string, and — when `VerifyOptions.Roots` is supplied — builds a certificate chain. `sign.Report.Signatures` reports each check independently (`DigestValid`, `SignatureValid`, `ByteRangeCoversFile`, `ChainStatus`) so partial validity is never conflated with full validity. Revocation fetching, timestamp-token and `/DSS` content validation, and PAdES level classification are out of scope; presence of a timestamp token or `/DSS` is reported but not validated.
+- **`document.Page.SetDebugMediaBox` / `document.Document.SetDebugMediaBox`** — strokes a rectangle around a page's true MediaBox for visual layout debugging (#376). Drawn last, on top of all other page content including the watermark. A page-level call overrides the document-wide default for that page.
 
 ### Changed (breaking)
 
