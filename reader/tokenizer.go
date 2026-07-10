@@ -284,6 +284,15 @@ func (t *Tokenizer) readKeywordOrBool(pos int64) Token {
 		}
 		t.pos++
 	}
+	if t.pos == start {
+		// A stray delimiter byte with no dedicated case in Next() (')',
+		// '{', or '}' outside any string/dict context) reaches here and
+		// would otherwise match zero bytes, leaving pos unchanged. Emit
+		// it as a one-byte keyword so the tokenizer always makes forward
+		// progress — a caller looping on Next() until AtEnd() must never
+		// spin forever on malformed input.
+		t.pos++
+	}
 	word := string(t.data[start:t.pos])
 
 	switch word {
