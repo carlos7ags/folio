@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Added
+
+- **`sign.Verify(pdfBytes []byte, opts sign.VerifyOptions) (*sign.Report, error)`** — offline verification for PDFs signed with `sign.SignPDF`. For each signature it locates the signature dictionary, recomputes the `/ByteRange` digest and checks it against the CMS `messageDigest` signed attribute, verifies the CMS signature (RSA PKCS#1 v1.5 or ECDSA) over the signed attributes, checks that `/ByteRange` covers the whole file except the `/Contents` hex string, and — when `VerifyOptions.Roots` is supplied — builds a certificate chain. `sign.Report.Signatures` reports each check independently (`DigestValid`, `SignatureValid`, `ByteRangeCoversFile`, `ChainStatus`) so partial validity is never conflated with full validity. Revocation fetching, timestamp-token and `/DSS` content validation, and PAdES level classification are out of scope; presence of a timestamp token or `/DSS` is reported but not validated.
+
 ### Changed (breaking)
 
 - **`font.Face` now includes `GSUB()`, `GPOS()`, and `GIDToUnicode()`** — the optional `font.GSUBProvider` and `font.GPOSProvider` interfaces are removed, and every `Face` implementation must provide the three methods directly. A `Face` with no shaping data for a given table returns nil rather than omitting the method; `GIDToUnicode` returns nil when the font has no cmap-derived reverse map. This drops the type-assertion indirection that callers previously used to probe for shaping support (`face.(font.GSUBProvider)`, `face.(font.GPOSProvider)`) now that the seam is no longer needed pre-1.0.
@@ -15,6 +19,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - **`zugferd` package** — generates Factur-X/ZUGFeRD hybrid e-invoices: a typed `Invoice` renders EN 16931 UN/CEFACT Cross-Industry Invoice (CII) XML and `Invoice.Attach` embeds it into a `document.Document` as a PDF/A-3B associated file with the matching Factur-X XMP schema, keeping the attachment filename, `AFRelationship`, and XMP conformance level in sync. Covers the MINIMUM and BASIC Factur-X 1.0 profiles, with hand-written field-presence and totals-arithmetic validation (`Invoice.Validate`) and a fixed-point `Amount` type so money never touches a float. `examples/zugferd` is ported onto it. See `docs/design-zugferd.md` for profile coverage and known limitations.
+- **`optimize` package** — `optimize.Bytes(data []byte) ([]byte, optimize.Stats, error)` parses an existing PDF and re-serializes it through the writer's lossless passes (cross-reference streams, object streams, orphan sweep, stream recompression, object deduplication). The rewrite carries pages and their resources only — outlines, AcroForm fields, attachments, and other document-level structure are dropped — and falls back to the original bytes whenever the rewrite would not shrink the file, so output is never larger than input. Encrypted input returns `optimize.ErrEncrypted`.
 - **`html.Options.AllowRemoteFetch`** — opt-in for fetching `http(s)` assets referenced by the document. Default false.
 - **`html.Options.AllowAbsolutePaths`** — opt-in for reading absolute filesystem paths named in document content when `BaseFS` is nil. Default false; reads are size-capped like the HTTP path.
 - **`html.DenyInternalHosts`** — a `URLPolicy` that blocks non-http(s) schemes and targets resolving to loopback, private (RFC1918 / ULA), link-local, unspecified, or multicast addresses (plus carrier-grade NAT, and IPv4-compatible / NAT64 IPv6 forms that embed such addresses). Applied by default when `AllowRemoteFetch` is true and `URLPolicy` is nil, and re-checked on every redirect hop.
@@ -45,6 +50,9 @@ rowspan geometry (#357), `Document.AddConvertResult`, and
 - **Table `rowspan` vertical geometry** — a `rowspan` cell previously reserved grid occupancy (following rows skipped its columns) but was always drawn one row tall. The spanning cell now spans the full height of its rows: `buildGrid` excludes rowspanning cells from their starting row's natural height, then resolves span heights from the summed spanned-row heights plus inter-row gaps (growing the last spanned row when content needs more room), and vertical alignment centers across the full span. A rowspan straddling a page break is not yet handled (#357)
 
 ### Fixed
+
+- **`svg` dimension parsing no longer accepts multi-suffix garbage** — attribute values like `width="10empx"` were parsed by stripping every known unit suffix in sequence, so leftover garbage silently fell through to a clean number instead of failing. `svg` length parsing now consumes exactly one unit suffix; anything left over is rejected.
+- **`svg` `font-size` style now accepts `pt`-suffixed values** — `font-size: 12pt` previously failed to parse (only `px` was recognized) and silently left the inherited font size in place; it is now read as 12 user units, consistent with how the `width`/`height`/`r` attributes already treat `pt`.
 
 #### `border-radius` (#329)
 

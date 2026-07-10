@@ -6,6 +6,8 @@ package svg
 import (
 	"strconv"
 	"strings"
+
+	"github.com/carlos7ags/folio/internal/cssunit"
 )
 
 // BBox is an axis-aligned bounding box in SVG local user-space coordinates.
@@ -100,22 +102,18 @@ func (n *Node) RadialGradient() *RadialGradientInfo {
 // number, a percentage ("50%"), or empty. Returns def for empty/invalid.
 // Percentages are returned as fractions in [0, 1].
 func parseGradientCoord(s string, def float64) float64 {
-	s = strings.TrimSpace(s)
-	if s == "" {
+	v, unit, ok := cssunit.Parse(s)
+	if !ok {
 		return def
 	}
-	if strings.HasSuffix(s, "%") {
-		if v, err := strconv.ParseFloat(strings.TrimSuffix(s, "%"), 64); err == nil {
-			return v / 100
-		}
-		return def
-	}
-	// Strip unit suffix if present.
-	s = strings.TrimSuffix(s, "px")
-	if v, err := strconv.ParseFloat(s, 64); err == nil {
+	switch unit {
+	case "%":
+		return v / 100
+	case "", "px":
 		return v
+	default:
+		return def
 	}
-	return def
 }
 
 // parseStops walks the child <stop> elements of a gradient node and returns
