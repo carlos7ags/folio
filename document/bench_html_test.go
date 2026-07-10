@@ -246,3 +246,47 @@ func BenchmarkHTMLReport(b *testing.B) {
 		_, _ = doc.WriteTo(io.Discard)
 	}
 }
+
+// buildLargeStylesheetHTML produces a document with nRules CSS rules of
+// mixed shapes (class, tag, id, descendant, attribute) and nElems elements
+// spread across those classes, stressing per-node rule matching.
+func buildLargeStylesheetHTML(nRules, nElems int) string {
+	var sb strings.Builder
+	sb.WriteString(`<!DOCTYPE html><html><head><style>`)
+	sb.WriteString(`body { font-family: Helvetica; font-size: 9pt; }`)
+	for i := 0; i < nRules; i++ {
+		switch i % 5 {
+		case 0:
+			fmt.Fprintf(&sb, ".c%d { color: #333; padding: 1px; }", i)
+		case 1:
+			fmt.Fprintf(&sb, "div .c%d { margin-bottom: 2px; }", i)
+		case 2:
+			fmt.Fprintf(&sb, "#id%d { font-weight: bold; }", i)
+		case 3:
+			fmt.Fprintf(&sb, "p.c%d span { color: #666; }", i)
+		case 4:
+			fmt.Fprintf(&sb, "[data-k%d] { font-size: 8pt; }", i)
+		}
+	}
+	sb.WriteString(`</style></head><body>`)
+	for i := 0; i < nElems; i++ {
+		fmt.Fprintf(&sb, `<div class="c%d"><p class="c%d">Row %d <span>detail</span></p></div>`,
+			i%nRules, (i*7)%nRules, i)
+	}
+	sb.WriteString(`</body></html>`)
+	return sb.String()
+}
+
+func BenchmarkHTMLLargeStylesheet(b *testing.B) {
+	src := buildLargeStylesheetHTML(300, 600)
+	opts := &html.Options{
+		PageWidth:  PageSizeLetter.Width,
+		PageHeight: PageSizeLetter.Height,
+	}
+	b.ResetTimer()
+	for range b.N {
+		doc := NewDocument(PageSizeLetter)
+		_ = doc.AddHTML(src, opts)
+		_, _ = doc.WriteTo(io.Discard)
+	}
+}
