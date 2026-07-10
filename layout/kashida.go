@@ -404,7 +404,7 @@ func applyKashidaJustification(words []Word, slack float64) float64 {
 		// Re-measure with the same TextMeasurer used at layout time.
 		newWidth := words[e.idx].Embedded.MeasureString(newText, words[e.idx].FontSize)
 		if words[e.idx].LetterSpacing != 0 {
-			n := len([]rune(newText))
+			n := utf8.RuneCountInString(newText)
 			if n > 1 {
 				newWidth += words[e.idx].LetterSpacing * float64(n-1)
 			}
