@@ -92,10 +92,13 @@ func TestBuildBorderForSide3DStyles(t *testing.T) {
 }
 
 // TestBuildBorderForSidePassthroughStyles guards against regression
-// in the existing styles: solid / dashed / dotted / double / hidden
-// / unknown should produce identical output to pre-fix. The Color is
-// untouched (no light/dark modulation) and the Style enum maps to the
-// existing layout primitives.
+// in the existing styles: solid / dashed / dotted / double / unknown
+// should produce identical output to pre-fix, with Color untouched (no
+// light/dark modulation) and the Style enum mapping to the existing
+// layout primitives. hidden is a distinct case: it now maps to
+// layout.BorderHidden (a border-collapse conflict must be able to tell
+// "hidden" apart from "undeclared") and Color is irrelevant since a
+// hidden border never draws.
 func TestBuildBorderForSidePassthroughStyles(t *testing.T) {
 	base := layout.RGB(0.2, 0.4, 0.6)
 	w := 2.0
@@ -108,7 +111,6 @@ func TestBuildBorderForSidePassthroughStyles(t *testing.T) {
 		{"dashed", layout.BorderDashed},
 		{"dotted", layout.BorderDotted},
 		{"double", layout.BorderDouble},
-		{"hidden", layout.BorderSolid}, // unknown to layout, falls back
 		{"banana", layout.BorderSolid},
 	}
 	for _, tc := range tests {
@@ -122,6 +124,13 @@ func TestBuildBorderForSidePassthroughStyles(t *testing.T) {
 			}
 		})
 	}
+
+	t.Run("hidden", func(t *testing.T) {
+		b := buildBorderForSide(borderTop, w, "hidden", base)
+		if b.Style != layout.BorderHidden {
+			t.Errorf("style %q produced layout.Style %v, want %v", "hidden", b.Style, layout.BorderHidden)
+		}
+	})
 }
 
 // TestBorderStyleEndToEndThroughConvert verifies the new keywords

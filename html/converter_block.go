@@ -644,6 +644,9 @@ func buildCellBorders(style computedStyle) layout.CellBorders {
 // visually indistinguishable for thin borders. For wider borders the
 // bevel is less pronounced than a real browser would draw.
 func buildBorderForSide(side borderSide, width float64, style string, color layout.Color) layout.Border {
+	if style == "hidden" {
+		return layout.Border{Style: layout.BorderHidden}
+	}
 	if width <= 0 {
 		return layout.Border{}
 	}
