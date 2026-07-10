@@ -103,6 +103,13 @@ func (c *converter) convertList(n *html.Node, style computedStyle, ordered bool)
 		list.SetMarkerInside(true)
 	}
 
+	// FlushListMarkers (document-wide option) draws all nested markers in one
+	// left column instead of indenting per level. Sub-lists inherit it via the
+	// AddItem*WithSubList constructors.
+	if c.opts.FlushListMarkers {
+		list.SetMarkerFlush(true)
+	}
+
 	c.populateList(n, list, style)
 
 	return []layout.Element{list}

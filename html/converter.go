@@ -98,6 +98,13 @@ type Options struct {
 	// loop instead of letting them silently degrade the output.
 	StrictAssets bool
 
+	// FlushListMarkers draws every nested ordered/unordered list marker in the
+	// container's left column (all numbers share one left edge) instead of
+	// indenting each level's marker under its parent's content. Body text still
+	// cascades per level. This is the "outline" style common in legal
+	// documents. Default false (markers indent per nesting level).
+	FlushListMarkers bool
+
 	// MaxElements caps the number of HTML nodes converted into layout
 	// elements. 0 (the default) means unlimited. It guards against
 	// resource exhaustion from very large or programmatically-expanded
@@ -156,6 +163,7 @@ func (o *Options) defaults() Options {
 	out.Client = o.Client
 	out.Logger = o.Logger
 	out.StrictAssets = o.StrictAssets
+	out.FlushListMarkers = o.FlushListMarkers
 	out.MaxElements = o.MaxElements
 	out.MaxDepth = o.MaxDepth
 	out.MaxTotalAssetBytes = o.MaxTotalAssetBytes
