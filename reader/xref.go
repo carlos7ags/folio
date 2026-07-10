@@ -64,7 +64,7 @@ func findStartXref(data []byte) (int64, error) {
 
 // parseXrefTable reads the classic xref table and trailer dictionary.
 // Handles multiple xref sections (from incremental updates) by following /Prev.
-func parseXrefTable(data []byte) (*xrefTable, error) {
+func parseXrefTable(data []byte, maxXrefSize int64) (*xrefTable, error) {
 	startOffset, err := findStartXref(data)
 	if err != nil {
 		return nil, err
@@ -89,7 +89,7 @@ func parseXrefTable(data []byte) (*xrefTable, error) {
 		// Check if this is a classic xref or an xref stream.
 		firstTok := tok.Peek()
 		if firstTok.Type == TokenKeyword && firstTok.Value == "xref" {
-			trailer, prevOffset, err := parseOneXrefSection(tok, table, data)
+			trailer, prevOffset, err := parseOneXrefSection(tok, table, data, maxXrefSize)
 			if err != nil {
 				return nil, err
 			}
@@ -100,7 +100,7 @@ func parseXrefTable(data []byte) (*xrefTable, error) {
 		} else if firstTok.Type == TokenNumber {
 			// Xref stream: an indirect object whose stream contains the xref data.
 			// The object's dictionary serves as the trailer.
-			trailer, prevOffset, err := parseXrefStream(data, int(offset), table)
+			trailer, prevOffset, err := parseXrefStream(data, int(offset), table, maxXrefSize)
 			if err != nil {
 				return nil, err
 			}
@@ -136,7 +136,7 @@ func parseXrefTable(data []byte) (*xrefTable, error) {
 //   - 0: free object (field 2 = next free obj, field 3 = generation)
 //   - 1: in-use object (field 2 = byte offset, field 3 = generation)
 //   - 2: compressed object in object stream (field 2 = obj stream number, field 3 = index)
-func parseXrefStream(data []byte, offset int, table *xrefTable) (*core.PdfDictionary, int64, error) {
+func parseXrefStream(data []byte, offset int, table *xrefTable, maxXrefSize int64) (*core.PdfDictionary, int64, error) {
 	tok := NewTokenizer(data)
 	tok.SetPos(offset)
 	parser := NewParser(tok)
@@ -208,7 +208,7 @@ func parseXrefStream(data []byte, offset int, table *xrefTable) (*core.PdfDictio
 	// Decompress stream data.
 	// The stream was parsed by ParseIndirectObject which reads raw data.
 	// We need to decompress it ourselves since the resolver isn't available yet.
-	streamData, err := decompressXrefStream(data, offset, w, dict)
+	streamData, err := decompressXrefStream(data, offset, w, dict, maxXrefSize)
 	if err != nil {
 		return nil, -1, err
 	}
@@ -281,7 +281,7 @@ func parseXrefStream(data []byte, offset int, table *xrefTable) (*core.PdfDictio
 // decompressXrefStream reads and decompresses the stream data from an xref stream
 // object at the given file offset. This is needed before the resolver is
 // available (since the resolver needs the xref to function).
-func decompressXrefStream(data []byte, objOffset int, w [3]int, dict *core.PdfDictionary) ([]byte, error) {
+func decompressXrefStream(data []byte, objOffset int, w [3]int, dict *core.PdfDictionary, maxXrefSize int64) ([]byte, error) {
 	// Find "stream" keyword after the dictionary.
 	tok := NewTokenizer(data)
 	tok.SetPos(objOffset)
@@ -312,8 +312,8 @@ func decompressXrefStream(data []byte, objOffset int, w [3]int, dict *core.PdfDi
 
 	rawData := data[tok.pos : tok.pos+streamLen]
 
-	// Decompress with xref-specific limit (default 32 MB).
-	return decompressStreamWithLimit(rawData, dict, defaultMaxXrefSize)
+	// Decompress with the xref-specific limit (default 32 MB; -1 disables).
+	return decompressStreamWithLimit(rawData, dict, maxXrefSize)
 }
 
 // readXrefField reads a big-endian integer of the given byte width.
@@ -341,7 +341,7 @@ func pdfIntValue(obj core.PdfObject) int {
 // parseOneXrefSection reads one xref section and its trailer.
 // Returns the trailer dict and the /Prev offset (-1 if none).
 // data is the full file content, needed for hybrid xref support (/XRefStm).
-func parseOneXrefSection(tok *Tokenizer, table *xrefTable, data []byte) (*core.PdfDictionary, int64, error) {
+func parseOneXrefSection(tok *Tokenizer, table *xrefTable, data []byte, maxXrefSize int64) (*core.PdfDictionary, int64, error) {
 	// Skip "xref" keyword.
 	line := tok.ReadLine()
 	if strings.TrimSpace(line) != "xref" {
@@ -429,7 +429,7 @@ func parseOneXrefSection(tok *Tokenizer, table *xrefTable, data []byte) (*core.P
 			if stmOffset >= 0 && int(stmOffset) < len(data) {
 				// Errors from the supplemental stream are non-fatal; the
 				// classic table entries are sufficient for non-compressed objects.
-				_, _, _ = parseXrefStream(data, int(stmOffset), table)
+				_, _, _ = parseXrefStream(data, int(stmOffset), table, maxXrefSize)
 			}
 		}
 	}

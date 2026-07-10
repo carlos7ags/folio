@@ -807,6 +807,50 @@ func TestMemoryLimitsTinyTotalAlloc(t *testing.T) {
 	_ = err
 }
 
+func TestMemoryLimitsTinyXrefSize(t *testing.T) {
+	// Build a PDF whose xref is a compressed /Type /XRef stream, using the
+	// same recipe as TestParseFolioXRefStreamWriter (xref_stream_writer_test.go).
+	w := document.NewWriter("1.7")
+	catalog := core.NewPdfDictionary()
+	catalog.Set("Type", core.NewPdfName("Catalog"))
+	pages := core.NewPdfDictionary()
+	pages.Set("Type", core.NewPdfName("Pages"))
+	pages.Set("Kids", core.NewPdfArray())
+	pages.Set("Count", core.NewPdfInteger(0))
+	catalogRef := w.AddObject(catalog)
+	pagesRef := w.AddObject(pages)
+	catalog.Set("Pages", pagesRef)
+	w.SetRoot(catalogRef)
+
+	var buf bytes.Buffer
+	if _, err := w.WriteToWithOptions(&buf, document.WriteOptions{UseXRefStream: true}); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+
+	// Strict mode so the tolerant repairXref fallback cannot mask the error.
+	_, err := ParseWithOptions(buf.Bytes(), ReadOptions{
+		Strictness:   StrictnessStrict,
+		MemoryLimits: MemoryLimits{MaxXrefSize: 4}, // 4 bytes: any real xref stream exceeds this
+	})
+	if err == nil {
+		t.Fatal("expected error: 4-byte MaxXrefSize must reject the xref stream")
+	}
+	if !errors.Is(err, ErrMemoryLimitExceeded) {
+		t.Fatalf("expected ErrMemoryLimitExceeded, got: %v", err)
+	}
+
+	// Control: the same PDF parses fine with default and disabled limits.
+	if _, err := ParseWithOptions(buf.Bytes(), ReadOptions{Strictness: StrictnessStrict}); err != nil {
+		t.Fatalf("default MaxXrefSize should accept this PDF: %v", err)
+	}
+	if _, err := ParseWithOptions(buf.Bytes(), ReadOptions{
+		Strictness:   StrictnessStrict,
+		MemoryLimits: MemoryLimits{MaxXrefSize: -1},
+	}); err != nil {
+		t.Fatalf("disabled MaxXrefSize should accept this PDF: %v", err)
+	}
+}
+
 func TestMemoryLimitsMaxObjectCount(t *testing.T) {
 	data := generateTestPDF(t)
 
