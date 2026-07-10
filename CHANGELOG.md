@@ -14,6 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`optimize` package** — `optimize.Bytes(data []byte) ([]byte, optimize.Stats, error)` parses an existing PDF and re-serializes it through the writer's lossless passes (cross-reference streams, object streams, orphan sweep, stream recompression, object deduplication). The rewrite carries pages and their resources only — outlines, AcroForm fields, attachments, and other document-level structure are dropped — and falls back to the original bytes whenever the rewrite would not shrink the file, so output is never larger than input. Encrypted input returns `optimize.ErrEncrypted`.
 - **`html.Options.AllowRemoteFetch`** — opt-in for fetching `http(s)` assets referenced by the document. Default false.
 - **`html.Options.AllowAbsolutePaths`** — opt-in for reading absolute filesystem paths named in document content when `BaseFS` is nil. Default false; reads are size-capped like the HTTP path.
 - **`html.DenyInternalHosts`** — a `URLPolicy` that blocks non-http(s) schemes and targets resolving to loopback, private (RFC1918 / ULA), link-local, unspecified, or multicast addresses (plus carrier-grade NAT, and IPv4-compatible / NAT64 IPv6 forms that embed such addresses). Applied by default when `AllowRemoteFetch` is true and `URLPolicy` is nil, and re-checked on every redirect hop.
