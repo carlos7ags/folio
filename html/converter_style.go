@@ -551,6 +551,36 @@ func parseCounterEntries(val string, defaultVal int) []counterEntry {
 	return entries
 }
 
+// withImplicitListItemReset returns entries with an implicit "list-item"
+// counter-reset of 0 prepended, matching the CSS Lists 3 §6.1 user-agent
+// default (`ol, ul { counter-reset: list-item }`) that makes each list root
+// number its own items independently, including nested lists restarting at
+// 1. If the author already declared an explicit reset for "list-item",
+// theirs wins and no implicit entry is added.
+func withImplicitListItemReset(entries []counterEntry) []counterEntry {
+	for _, e := range entries {
+		if e.Name == "list-item" {
+			return entries
+		}
+	}
+	return append([]counterEntry{{Name: "list-item", Value: 0}}, entries...)
+}
+
+// withImplicitListItemIncrement returns entries with an implicit
+// "list-item" counter-increment of 1 prepended, matching the CSS Lists 3
+// §6.1 user-agent default (`li { counter-increment: list-item }`) — this is
+// what makes `content: counter(list-item)` in `::marker` number items
+// without any author counter-increment declaration. If the author already
+// declared an explicit increment for "list-item", theirs wins.
+func withImplicitListItemIncrement(entries []counterEntry) []counterEntry {
+	for _, e := range entries {
+		if e.Name == "list-item" {
+			return entries
+		}
+	}
+	return append([]counterEntry{{Name: "list-item", Value: 1}}, entries...)
+}
+
 // resetCounter pushes a new counter value onto the stack for the given name.
 func (c *converter) resetCounter(name string, value int) {
 	c.counters[name] = append(c.counters[name], value)

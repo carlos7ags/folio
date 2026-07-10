@@ -111,28 +111,28 @@ func (d *Document) AddConvertResult(result *foliohtml.ConvertResult) error {
 		if len(pc.MarginBoxes) > 0 {
 			boxes := make(map[string]layout.MarginBox)
 			for name, mbc := range pc.MarginBoxes {
-				boxes[name] = layout.MarginBox{Content: mbc.Content, FontSize: mbc.FontSize, Color: mbc.Color, HasColor: mbc.HasColor, Embedded: mbc.Embedded}
+				boxes[name] = layout.MarginBox{Content: mbc.Content, FontSize: mbc.FontSize, Color: mbc.Color, HasColor: mbc.HasColor, Font: mbc.Font, Embedded: mbc.Embedded}
 			}
 			d.SetMarginBoxes(boxes)
 		}
 		if pc.First != nil && len(pc.First.MarginBoxes) > 0 {
 			boxes := make(map[string]layout.MarginBox)
 			for name, mbc := range pc.First.MarginBoxes {
-				boxes[name] = layout.MarginBox{Content: mbc.Content, FontSize: mbc.FontSize, Color: mbc.Color, HasColor: mbc.HasColor, Embedded: mbc.Embedded}
+				boxes[name] = layout.MarginBox{Content: mbc.Content, FontSize: mbc.FontSize, Color: mbc.Color, HasColor: mbc.HasColor, Font: mbc.Font, Embedded: mbc.Embedded}
 			}
 			d.SetFirstMarginBoxes(boxes)
 		}
 		if pc.Left != nil && len(pc.Left.MarginBoxes) > 0 {
 			boxes := make(map[string]layout.MarginBox)
 			for name, mbc := range pc.Left.MarginBoxes {
-				boxes[name] = layout.MarginBox{Content: mbc.Content, FontSize: mbc.FontSize, Color: mbc.Color, HasColor: mbc.HasColor, Embedded: mbc.Embedded}
+				boxes[name] = layout.MarginBox{Content: mbc.Content, FontSize: mbc.FontSize, Color: mbc.Color, HasColor: mbc.HasColor, Font: mbc.Font, Embedded: mbc.Embedded}
 			}
 			d.SetLeftMarginBoxes(boxes)
 		}
 		if pc.Right != nil && len(pc.Right.MarginBoxes) > 0 {
 			boxes := make(map[string]layout.MarginBox)
 			for name, mbc := range pc.Right.MarginBoxes {
-				boxes[name] = layout.MarginBox{Content: mbc.Content, FontSize: mbc.FontSize, Color: mbc.Color, HasColor: mbc.HasColor, Embedded: mbc.Embedded}
+				boxes[name] = layout.MarginBox{Content: mbc.Content, FontSize: mbc.FontSize, Color: mbc.Color, HasColor: mbc.HasColor, Font: mbc.Font, Embedded: mbc.Embedded}
 			}
 			d.SetRightMarginBoxes(boxes)
 		}

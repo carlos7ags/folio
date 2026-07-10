@@ -216,6 +216,14 @@ func (c *converter) convertNode(n *html.Node, parentStyle computedStyle) []layou
 func (c *converter) convertElement(n *html.Node, parentStyle computedStyle) []layout.Element {
 	style := c.computeElementStyle(n, parentStyle)
 
+	// UA default (CSS Lists 3 §6.1): every list root implicitly resets the
+	// "list-item" counter to 0, so counter(list-item) in ::marker numbers
+	// items and nested lists restart at 1. An explicit author counter-reset
+	// for "list-item" overrides this.
+	if n.DataAtom == atom.Ul || n.DataAtom == atom.Ol {
+		style.CounterReset = withImplicitListItemReset(style.CounterReset)
+	}
+
 	if style.Display == "none" {
 		return nil
 	}

@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Added
+
+- **`sign.Verify(pdfBytes []byte, opts sign.VerifyOptions) (*sign.Report, error)`** — offline verification for PDFs signed with `sign.SignPDF`. For each signature it locates the signature dictionary, recomputes the `/ByteRange` digest and checks it against the CMS `messageDigest` signed attribute, verifies the CMS signature (RSA PKCS#1 v1.5 or ECDSA) over the signed attributes, checks that `/ByteRange` covers the whole file except the `/Contents` hex string, and — when `VerifyOptions.Roots` is supplied — builds a certificate chain. `sign.Report.Signatures` reports each check independently (`DigestValid`, `SignatureValid`, `ByteRangeCoversFile`, `ChainStatus`) so partial validity is never conflated with full validity. Revocation fetching, timestamp-token and `/DSS` content validation, and PAdES level classification are out of scope; presence of a timestamp token or `/DSS` is reported but not validated.
+- **`document.Page.SetDebugMediaBox` / `document.Document.SetDebugMediaBox`** — strokes a rectangle around a page's true MediaBox for visual layout debugging (#376). Drawn last, on top of all other page content including the watermark. A page-level call overrides the document-wide default for that page.
+
 ### Changed (breaking)
 
 - **`font.Face` now includes `GSUB()`, `GPOS()`, and `GIDToUnicode()`** — the optional `font.GSUBProvider` and `font.GPOSProvider` interfaces are removed, and every `Face` implementation must provide the three methods directly. A `Face` with no shaping data for a given table returns nil rather than omitting the method; `GIDToUnicode` returns nil when the font has no cmap-derived reverse map. This drops the type-assertion indirection that callers previously used to probe for shaping support (`face.(font.GSUBProvider)`, `face.(font.GPOSProvider)`) now that the seam is no longer needed pre-1.0.
@@ -15,6 +20,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - **`reader` can now open PDFs encrypted with the Standard security handler** — `reader.ReadOptions.Password` authenticates against the document's user or owner password (ISO 32000 §7.6.3-7.6.4); `reader.Parse` implicitly tries the empty password, the common case for files "protected" only to restrict permissions. Supports RC4-128 (R3, read-only legacy), AES-128 (R4/AESV2), and AES-256 (R6/AESV3); strings and stream payloads are decrypted transparently at object-resolve time, so every existing reader API (text extraction, merge, redact, page import) works unchanged against the decrypted content. `reader.PdfReader.Access()` reports whether the user or owner password matched. A wrong password returns `reader.ErrInvalidPassword`; unsupported security-handler configurations (public-key handlers, RC4-40, non-standard crypt filters) return `reader.ErrUnsupportedEncryption` instead of the previous blanket refusal. Decrypted documents are plaintext in memory and are written back out unencrypted unless the caller explicitly re-encrypts via `document.SetEncryption`.
+- **`zugferd` package** — generates Factur-X/ZUGFeRD hybrid e-invoices: a typed `Invoice` renders EN 16931 UN/CEFACT Cross-Industry Invoice (CII) XML and `Invoice.Attach` embeds it into a `document.Document` as a PDF/A-3B associated file with the matching Factur-X XMP schema, keeping the attachment filename, `AFRelationship`, and XMP conformance level in sync. Covers the MINIMUM and BASIC Factur-X 1.0 profiles, with hand-written field-presence and totals-arithmetic validation (`Invoice.Validate`) and a fixed-point `Amount` type so money never touches a float. `examples/zugferd` is ported onto it. See `docs/design-zugferd.md` for profile coverage and known limitations.
+- **`optimize` package** — `optimize.Bytes(data []byte) ([]byte, optimize.Stats, error)` parses an existing PDF and re-serializes it through the writer's lossless passes (cross-reference streams, object streams, orphan sweep, stream recompression, object deduplication). The rewrite carries pages and their resources only — outlines, AcroForm fields, attachments, and other document-level structure are dropped — and falls back to the original bytes whenever the rewrite would not shrink the file, so output is never larger than input. Encrypted input returns `optimize.ErrEncrypted`.
 - **`html.Options.AllowRemoteFetch`** — opt-in for fetching `http(s)` assets referenced by the document. Default false.
 - **`html.Options.AllowAbsolutePaths`** — opt-in for reading absolute filesystem paths named in document content when `BaseFS` is nil. Default false; reads are size-capped like the HTTP path.
 - **`html.DenyInternalHosts`** — a `URLPolicy` that blocks non-http(s) schemes and targets resolving to loopback, private (RFC1918 / ULA), link-local, unspecified, or multicast addresses (plus carrier-grade NAT, and IPv4-compatible / NAT64 IPv6 forms that embed such addresses). Applied by default when `AllowRemoteFetch` is true and `URLPolicy` is nil, and re-checked on every redirect hop.
@@ -26,6 +33,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - **CSS named colors now resolve to full-precision sRGB values in both `html` and `svg` output** — the two packages each carried an independent 148-entry named-color table stored as rounded decimal literals (3 decimals in `html`, 4 in `svg`), so the same keyword could render to different bytes depending on which package handled it. Both now share one table in `internal/csscolor` that computes each component as `x/255` at full `float64` precision, which changes the emitted bytes for named colors slightly versus the old decimal literals in both packages. `svg` color parsing also now accepts the full CSS color grammar (4/8-digit hex, CSS Color 4 space-separated `rgb()`, and `hsl()`/`hsla()`) that `html` already supported — previously-valid `svg` inputs are unaffected. As part of sharing the parser, malformed `svg` color literals (invalid hex digits, non-numeric `rgb()`/alpha components) are now treated leniently — the bad component defaults to 0 rather than rejecting the whole color, matching how `html` already handled them.
+
+### Fixed
+
+- **`li::marker { content: counter(list-item) }` now numbers list items** — `<li>` implicitly increments the CSS `list-item` counter and `<ul>`/`<ol>` implicitly reset it, per CSS Lists Module 3, so `::marker` content driven by `counter(list-item)` (or `counters(list-item, sep)` for nested lists) resolves correctly instead of always reading `0`. `::marker { font-style: italic }` is also now honored.
+- **`@page` margin boxes (`@top-*`/`@bottom-*`) now honor `font-style`, `font-weight`, and `font-family`** — previously only `font-size` and `color` were applied to generated margin-box content; `font-style: italic` and similar declarations were silently dropped (#378).
 
 ## [0.9.1] - 2026-06-10
 
@@ -45,6 +57,9 @@ rowspan geometry (#357), `Document.AddConvertResult`, and
 - **Table `rowspan` vertical geometry** — a `rowspan` cell previously reserved grid occupancy (following rows skipped its columns) but was always drawn one row tall. The spanning cell now spans the full height of its rows: `buildGrid` excludes rowspanning cells from their starting row's natural height, then resolves span heights from the summed spanned-row heights plus inter-row gaps (growing the last spanned row when content needs more room), and vertical alignment centers across the full span. A rowspan straddling a page break is not yet handled (#357)
 
 ### Fixed
+
+- **`svg` dimension parsing no longer accepts multi-suffix garbage** — attribute values like `width="10empx"` were parsed by stripping every known unit suffix in sequence, so leftover garbage silently fell through to a clean number instead of failing. `svg` length parsing now consumes exactly one unit suffix; anything left over is rejected.
+- **`svg` `font-size` style now accepts `pt`-suffixed values** — `font-size: 12pt` previously failed to parse (only `px` was recognized) and silently left the inherited font size in place; it is now read as 12 user units, consistent with how the `width`/`height`/`r` attributes already treat `pt`.
 
 #### `border-radius` (#329)
 

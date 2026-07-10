@@ -42,6 +42,13 @@ func (c *converter) convertList(n *html.Node, style computedStyle, ordered bool)
 						if fs > 0 {
 							list.SetMarkerFontSize(fs)
 						}
+					case "font-style":
+						if strings.EqualFold(strings.TrimSpace(d.value), "italic") {
+							markerStyle := style
+							markerStyle.FontStyle = "italic"
+							std, emb := c.resolveFontPair(markerStyle)
+							list.SetMarkerFont(std, emb)
+						}
 					}
 				}
 				break // only need to check the first <li>
@@ -139,6 +146,11 @@ func (c *converter) populateList(n *html.Node, list *layout.List, style computed
 		// the subtree. convertElement does this for the element path's block
 		// children, but the fast path and the li itself bypass it, so we mirror
 		// the reset-then-increment ordering here.
+		//
+		// UA default (CSS Lists 3 §6.1): every <li> implicitly increments
+		// "list-item" by 1. An explicit author counter-increment for
+		// "list-item" overrides this.
+		liStyle.CounterIncrement = withImplicitListItemIncrement(liStyle.CounterIncrement)
 		for _, cr := range liStyle.CounterReset {
 			c.resetCounter(cr.Name, cr.Value)
 		}
@@ -171,10 +183,13 @@ func (c *converter) populateList(n *html.Node, list *layout.List, style computed
 				}
 				// The fast path bypasses convertElement for the nested
 				// list, so apply the nested list's own counter-reset and
-				// counter-increment around the recursion. The element path's
-				// nested list goes through convertElement, which already
-				// handles both.
+				// counter-increment around the recursion, including the
+				// same implicit "list-item" reset convertElement applies
+				// (Step 2's equivalent) for nested lists reached here.
+				// The element path's nested list goes through
+				// convertElement, which already handles both.
 				nestedStyle := c.computeElementStyle(nestedList, style)
+				nestedStyle.CounterReset = withImplicitListItemReset(nestedStyle.CounterReset)
 				for _, cr := range nestedStyle.CounterReset {
 					c.resetCounter(cr.Name, cr.Value)
 				}
