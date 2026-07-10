@@ -14,6 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`zugferd` package** — generates Factur-X/ZUGFeRD hybrid e-invoices: a typed `Invoice` renders EN 16931 UN/CEFACT Cross-Industry Invoice (CII) XML and `Invoice.Attach` embeds it into a `document.Document` as a PDF/A-3B associated file with the matching Factur-X XMP schema, keeping the attachment filename, `AFRelationship`, and XMP conformance level in sync. Covers the MINIMUM and BASIC Factur-X 1.0 profiles, with hand-written field-presence and totals-arithmetic validation (`Invoice.Validate`) and a fixed-point `Amount` type so money never touches a float. `examples/zugferd` is ported onto it. See `docs/design-zugferd.md` for profile coverage and known limitations.
 - **`html.Options.AllowRemoteFetch`** — opt-in for fetching `http(s)` assets referenced by the document. Default false.
 - **`html.Options.AllowAbsolutePaths`** — opt-in for reading absolute filesystem paths named in document content when `BaseFS` is nil. Default false; reads are size-capped like the HTTP path.
 - **`html.DenyInternalHosts`** — a `URLPolicy` that blocks non-http(s) schemes and targets resolving to loopback, private (RFC1918 / ULA), link-local, unspecified, or multicast addresses (plus carrier-grade NAT, and IPv4-compatible / NAT64 IPv6 forms that embed such addresses). Applied by default when `AllowRemoteFetch` is true and `URLPolicy` is nil, and re-checked on every redirect hop.
