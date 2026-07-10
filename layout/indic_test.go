@@ -14,9 +14,9 @@ import (
 
 // --- Mock face for Devanagari shaping tests ---------------------------------
 
-// mockDevaFace implements font.Face and font.GSUBProvider for synthetic
-// Devanagari tests. Glyph advances are a fixed 500 units and UnitsPerEm
-// is 1000 so width math is trivial (500/1000 * fontSize per GID).
+// mockDevaFace implements font.Face for synthetic Devanagari tests.
+// Glyph advances are a fixed 500 units and UnitsPerEm is 1000 so width
+// math is trivial (500/1000 * fontSize per GID).
 type mockDevaFace struct {
 	glyphMap      map[rune]uint16
 	reverseMap    map[uint16]rune
@@ -44,6 +44,7 @@ func (m *mockDevaFace) RawData() []byte               { return nil }
 func (m *mockDevaFace) NumGlyphs() int                { return 1000 }
 func (m *mockDevaFace) GSUB() *font.GSUBSubstitutions { return m.substitutions }
 func (m *mockDevaFace) GIDToUnicode() map[uint16]rune { return m.reverseMap }
+func (m *mockDevaFace) GPOS() *font.GPOSAdjustments   { return nil }
 
 // newMockDevaFace returns a face with a small Devanagari cmap:
 //

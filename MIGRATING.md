@@ -4,6 +4,51 @@ For the full list of new features and fixes, see [CHANGELOG.md](CHANGELOG.md).
 
 ---
 
+## Upgrading from v0.9.x to v0.10.0
+
+### `font.Face` gains `GSUB()`, `GPOS()`, and `GIDToUnicode()`; `GSUBProvider`/`GPOSProvider` are removed
+
+Shaping support used to be an optional side-interface a `Face` could
+implement, discovered by callers via type assertion. Both provider
+interfaces are gone; `Face` now declares the three methods directly, so
+every implementation must provide them. Return nil to mean "no data for
+this font" — that was already the nil-return contract for the removed
+interfaces.
+
+Migration for external `Face` implementers:
+
+```go
+// before
+type myFace struct{ /* ... */ }
+
+// (GSUB/GPOS/GIDToUnicode only needed to satisfy the optional
+// GSUBProvider/GPOSProvider interfaces)
+
+// after
+type myFace struct{ /* ... */ }
+
+func (f *myFace) GSUB() *font.GSUBSubstitutions { return nil }
+func (f *myFace) GIDToUnicode() map[uint16]rune { return nil }
+func (f *myFace) GPOS() *font.GPOSAdjustments   { return nil }
+```
+
+Migration for callers that probed for shaping support:
+
+```go
+// before
+gp, ok := face.(font.GSUBProvider)
+if !ok {
+    // no shaping data
+}
+gsub := gp.GSUB()
+
+// after
+gsub := face.GSUB()
+if gsub == nil {
+    // no shaping data
+}
+```
+
 ## Upgrading from v0.7.x to v0.8.0
 
 ### `html.Options.BasePath` is removed

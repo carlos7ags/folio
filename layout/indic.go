@@ -1340,10 +1340,7 @@ func ShapeIndicWithEmbedded(s string, ef *font.EmbeddedFont, sc Script) ([]uint1
 	if face == nil {
 		return nil, false
 	}
-	var gsub *font.GSUBSubstitutions
-	if gp, ok := face.(font.GSUBProvider); ok {
-		gsub = gp.GSUB()
-	}
+	gsub := face.GSUB()
 	gids := ShapeIndic(s, face, gsub, cfg)
 	if len(gids) == 0 {
 		return nil, false

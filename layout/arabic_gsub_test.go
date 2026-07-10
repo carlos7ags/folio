@@ -11,10 +11,10 @@ import (
 	"github.com/carlos7ags/folio/font"
 )
 
-// --- Mock GSUBProvider for deterministic CI-safe tests ---
+// --- Mock face for deterministic CI-safe tests ---
 
-// mockGSUBFace implements font.Face and font.GSUBProvider with synthetic
-// data so tests don't depend on system fonts.
+// mockGSUBFace implements font.Face with synthetic GSUB data so tests
+// don't depend on system fonts.
 type mockGSUBFace struct {
 	glyphMap      map[rune]uint16         // cmap: rune -> GID
 	reverseMap    map[uint16]rune         // reverse cmap: GID -> rune
@@ -42,6 +42,7 @@ func (m *mockGSUBFace) RawData() []byte               { return nil }
 func (m *mockGSUBFace) NumGlyphs() int                { return 100 }
 func (m *mockGSUBFace) GSUB() *font.GSUBSubstitutions { return m.substitutions }
 func (m *mockGSUBFace) GIDToUnicode() map[uint16]rune { return m.reverseMap }
+func (m *mockGSUBFace) GPOS() *font.GPOSAdjustments   { return nil }
 
 // newMockArabicFace creates a mock face with synthetic GSUB data for
 // beh (U+0628) and alef (U+0627). The GSUB maps base GIDs to synthetic
@@ -163,16 +164,13 @@ func TestGSUBNilFaceMatchesPFB(t *testing.T) {
 	}
 }
 
-// TestGSUBFaceWithoutProvider verifies that a Face that does NOT
-// implement GSUBProvider falls back to PFB without error.
+// TestGSUBFaceWithoutProvider verifies that a face reporting no GSUB
+// tables falls back to PFB without error.
 func TestGSUBFaceWithoutProvider(t *testing.T) {
-	// Use a real face that implements Face but check the path works.
-	// Since we can't easily create a non-GSUBProvider face (sfntFace
-	// always implements it), just verify the nil GSUB path.
 	input := "\u0628"
 	shaped := ShapeArabicWithFont(input, nil)
 	if shaped == input {
-		t.Error("expected shaping even without GSUBProvider")
+		t.Error("expected shaping even without GSUB tables")
 	}
 }
 
@@ -185,11 +183,10 @@ func TestShapeArabicWithRealFontGSUB(t *testing.T) {
 	if face == nil {
 		t.Skip("no system Arabic font with GSUB found")
 	}
-	gp, ok := face.(font.GSUBProvider)
-	if !ok || gp.GSUB() == nil {
+	if face.GSUB() == nil {
 		t.Skip("no GSUB tables")
 	}
-	sub := gp.GSUB()
+	sub := face.GSUB()
 	t.Logf("GSUB features: init=%d medi=%d fina=%d isol=%d",
 		len(sub.Single[font.GSUBInit]), len(sub.Single[font.GSUBMedi]),
 		len(sub.Single[font.GSUBFina]), len(sub.Single[font.GSUBIsol]))
