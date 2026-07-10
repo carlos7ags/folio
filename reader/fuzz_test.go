@@ -57,6 +57,8 @@ func FuzzParse(f *testing.F) {
 func FuzzParsePDF(f *testing.F) {
 	// Minimal valid PDF.
 	f.Add([]byte("%PDF-1.4\n1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj\n2 0 obj<</Type/Pages/Kids[3 0 R]/Count 1>>endobj\n3 0 obj<</Type/Page/Parent 2 0 R/MediaBox[0 0 612 792]>>endobj\nxref\n0 4\n0000000000 65535 f \n0000000009 00000 n \n0000000058 00000 n \n0000000115 00000 n \ntrailer<</Size 4/Root 1 0 R>>\nstartxref\n190\n%%EOF"))
+	// Xref stream with a negative /W field width — regression seed.
+	f.Add(buildPDFWithXrefStreamW("[-5 3 1]"))
 
 	f.Fuzz(func(t *testing.T, data []byte) {
 		// Must not panic — errors are expected on random input.
