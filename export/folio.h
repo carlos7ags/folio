@@ -13,7 +13,8 @@
  *
  * 3. Strings returned FROM the library:
  *    - folio_version(): persistent pointer, do NOT free.
- *    - folio_last_error(): library-owned, valid until the next C ABI call.
+ *    - folio_last_error(): returns a fresh copy owned by the CALLER; release
+ *      it with folio_string_free(). Returns NULL when no error is set.
  *    - All other string data is returned as buffer handles (see below).
  *
  * 4. Buffer handles (folio_buffer_data / folio_buffer_len / folio_buffer_free):
@@ -159,6 +160,7 @@ typedef void (*folio_page_decorator_fn)(
 
 const char *folio_version(void);
 const char *folio_last_error(void);
+void        folio_string_free(const char *s);
 
 /* ── Buffer ────────────────────────────────────────────────────────── */
 
