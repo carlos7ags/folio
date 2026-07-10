@@ -16,7 +16,7 @@
     if (!(cond)) { \
         fprintf(stderr, "FAIL: %s (line %d)\n", msg, __LINE__); \
         const char* err = folio_last_error(); \
-        if (err) fprintf(stderr, "  last_error: %s\n", err); \
+        if (err) { fprintf(stderr, "  last_error: %s\n", err); folio_string_free(err); } \
         failures++; \
     } else { \
         passes++; \
@@ -97,7 +97,9 @@ int main(void) {
     /* Test 4: Invalid handle */
     rc = folio_document_set_title(99999, "bad");
     ASSERT(rc != 0, "invalid handle returns error");
-    ASSERT(folio_last_error() != NULL, "last_error set for invalid handle");
+    const char* e0 = folio_last_error();
+    ASSERT(e0 != NULL, "last_error set for invalid handle");
+    folio_string_free(e0);
 
     /* Test 5: Font lookup by name */
     uint64_t courier = folio_font_standard("Courier");
@@ -1815,7 +1817,9 @@ int main(void) {
     /* count above the 1<<20 cap: rejected, not a crash */
     rc = folio_table_set_column_widths(tblBounds, widthsBounds, (1 << 20) + 1);
     ASSERT(rc != 0, "oversized count rejected");
-    ASSERT(folio_last_error() != NULL, "last_error set for oversized count");
+    const char* eBounds = folio_last_error();
+    ASSERT(eBounds != NULL, "last_error set for oversized count");
+    folio_string_free(eBounds);
 
     /* NULL pointer with count > 0: rejected */
     rc = folio_table_set_column_widths(tblBounds, NULL, 3);
@@ -1834,6 +1838,30 @@ int main(void) {
     const char* boundsPaths[1] = {"nonexistent.pdf"};
     uint64_t mBounds = folio_merge_files((char**)boundsPaths, (1 << 20) + 1);
     ASSERT(mBounds == 0, "merge_files oversized count returns 0 handle");
+
+    /* ===== Stage 41: last_error copies are stable across subsequent errors ===== */
+    {
+        /* trigger error 1: invalid handle */
+        folio_document_set_title(0xDEAD, "x");
+        const char* e1 = folio_last_error();
+        ASSERT(e1 != NULL, "first error captured");
+        char first[256];
+        snprintf(first, sizeof first, "%s", e1 ? e1 : "");
+
+        /* trigger error 2: another invalid handle call replaces the stored message */
+        folio_document_add_page(0xBEEF);
+        const char* e2 = folio_last_error();
+        ASSERT(e2 != NULL, "second error captured");
+
+        /* e1 must still be a valid, unchanged C string (was freed under the
+           old contract; under ASan/valgrind this read would flag a UAF) */
+        ASSERT(strcmp(e1, first) == 0, "first error string still intact after second error");
+        ASSERT(e1 != e2, "each call returns a distinct allocation");
+
+        folio_string_free(e1);
+        folio_string_free(e2);
+        folio_string_free(NULL); /* NULL is a documented no-op */
+    }
 
     /* Summary */
     printf("\n%d passed, %d failed\n", passes, failures);

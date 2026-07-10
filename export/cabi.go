@@ -97,32 +97,25 @@ func (t *handleTable) count() int {
 	return len(t.handles)
 }
 
-// lastError stores the most recent error message per-thread (approximated
-// via a single global since cgo serializes calls through a single OS thread
-// by default). The returned C string is valid until the next C ABI call.
+// lastError stores the most recent error message. folio_last_error returns
+// a fresh caller-owned copy, so no C pointer is retained here.
 var (
 	lastErrorMu  sync.Mutex
-	lastErrorMsg *C.char
+	lastErrorMsg string
 )
 
 // setLastError stores an error message retrievable via folio_last_error.
 func setLastError(msg string) {
 	lastErrorMu.Lock()
 	defer lastErrorMu.Unlock()
-	if lastErrorMsg != nil {
-		C.free(unsafe.Pointer(lastErrorMsg))
-	}
-	lastErrorMsg = C.CString(msg)
+	lastErrorMsg = msg
 }
 
 // clearLastError clears any previous error.
 func clearLastError() {
 	lastErrorMu.Lock()
 	defer lastErrorMu.Unlock()
-	if lastErrorMsg != nil {
-		C.free(unsafe.Pointer(lastErrorMsg))
-		lastErrorMsg = nil
-	}
+	lastErrorMsg = ""
 }
 
 // setErr sets the last error from an error value and returns the error code.
@@ -158,13 +151,27 @@ func folio_version() *C.char {
 	return versionCStr
 }
 
-// folio_last_error returns the most recent error message, or nil if none.
+// folio_last_error returns the most recent error message as a fresh copy the
+// caller must release with folio_string_free, or nil if no error is set.
 //
 //export folio_last_error
 func folio_last_error() *C.char {
 	lastErrorMu.Lock()
 	defer lastErrorMu.Unlock()
-	return lastErrorMsg
+	if lastErrorMsg == "" {
+		return nil
+	}
+	return C.CString(lastErrorMsg)
+}
+
+// folio_string_free releases a string returned by folio_last_error.
+// Passing NULL is a no-op. Do NOT pass folio_version's return value.
+//
+//export folio_string_free
+func folio_string_free(s *C.char) {
+	if s != nil {
+		C.free(unsafe.Pointer(s))
+	}
 }
 
 func main() {}
