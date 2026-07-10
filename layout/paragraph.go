@@ -854,17 +854,42 @@ func breakLongWords(words []Word, maxWidth float64) []Word {
 		}
 
 		start := 0
+		byteStart := 0
 		for start < len(runes) {
-			end := start + 1
-			for end < len(runes) {
-				_, _, width, _ := shapeChunk(string(runes[start : end+1]))
-				if width > maxWidth {
-					break
+			var chunkSource, chunkText string
+			var chunkGIDs []uint16
+			var chunkWidth float64
+			var runeLen int
+			if !shaped {
+				// Unshaped words measure with MeasureString, which is prefix-
+				// summable (grapheme boundaries are prefix-stable) and carries no
+				// kerning across a chunk boundary. One walk from the chunk start
+				// finds the first-overflow break point and its width bit-
+				// identically, and stops there — so a token that splits into a few
+				// large chunks costs O(token) total rather than re-measuring every
+				// candidate prefix. The chunk is a zero-copy slice of the source.
+				byteLen, rl, cw := wordPrefixFit(&w, sourceText[byteStart:], maxWidth)
+				runeLen = rl
+				chunkSource = sourceText[byteStart : byteStart+byteLen]
+				chunkText = chunkSource
+				chunkWidth = cw
+				byteStart += byteLen
+			} else {
+				// Shaped words re-shape per candidate: Arabic/Indic widths are
+				// context-sensitive, not prefix-summable, so no cumulative
+				// shortcut applies.
+				end := start + 1
+				for end < len(runes) {
+					_, _, width, _ := shapeChunk(string(runes[start : end+1]))
+					if width > maxWidth {
+						break
+					}
+					end++
 				}
-				end++
+				runeLen = end - start
+				chunkSource = string(runes[start:end])
+				chunkText, chunkGIDs, chunkWidth, _ = shapeChunk(chunkSource)
 			}
-			chunkSource := string(runes[start:end])
-			chunkText, chunkGIDs, chunkWidth, _ := shapeChunk(chunkSource)
 			chunk := Word{
 				Text:          chunkText,
 				Width:         chunkWidth,
@@ -885,10 +910,32 @@ func breakLongWords(words []Word, maxWidth float64) []Word {
 				chunk.OriginalText = chunkSource
 			}
 			result = append(result, chunk)
-			start = end
+			start += runeLen
 		}
 	}
 	return result
+}
+
+// wordPrefixFit finds the first-overflow break for the unshaped chunk starting
+// at s, using the word's measurer. The measurer probe in breakLongWords
+// guarantees a Font or Embedded is set before this is reached.
+func wordPrefixFit(w *Word, s string, maxWidth float64) (byteLen, runeLen int, width float64) {
+	if w.Embedded != nil {
+		return w.Embedded.PrefixFit(s, w.FontSize, maxWidth)
+	}
+	return w.Font.PrefixFit(s, w.FontSize, maxWidth)
+}
+
+// wordPrefixWidths returns cumulative rune-boundary widths of s for the
+// word's measurer, or nil when the word has no measurer.
+func wordPrefixWidths(w *Word, s string) []float64 {
+	if w.Embedded != nil {
+		return w.Embedded.MeasureStringPrefixes(s, w.FontSize)
+	}
+	if w.Font != nil {
+		return w.Font.MeasureStringPrefixes(s, w.FontSize)
+	}
+	return nil
 }
 
 // shapedChunkBuilder returns a function that produces (post-shape text,
@@ -957,6 +1004,12 @@ func hyphenateWord(w Word, available float64) (part, rest Word, ok bool) {
 
 	hyphenW := measure("-")
 
+	// Cumulative rune-boundary widths of the whole word, computed once.
+	// Bit-identical to measure(string(runes[:i])) for every i (grapheme
+	// boundaries are prefix-stable), so both candidate loops below become
+	// O(1) array lookups instead of an O(prefix) re-measure per candidate.
+	prefixes := wordPrefixWidths(&w, w.Text)
+
 	// Get linguistically valid break points from the hyphenator.
 	// Only attempt pattern-based hyphenation for pure-alpha words;
 	// fall back to character-boundary splitting for others.
@@ -970,8 +1023,7 @@ func hyphenateWord(w Word, available float64) (part, rest Word, ok bool) {
 	if len(breakPoints) > 0 {
 		for i := len(breakPoints) - 1; i >= 0; i-- {
 			bp := breakPoints[i]
-			prefix := string(runes[:bp])
-			pw := measure(prefix) + hyphenW
+			pw := prefixes[bp] + hyphenW
 			if pw <= available {
 				bestSplit = bp
 				break
@@ -983,8 +1035,7 @@ func hyphenateWord(w Word, available float64) (part, rest Word, ok bool) {
 	// (at least 2 chars from each end) for very long words.
 	if bestSplit < 0 {
 		for i := len(runes) - 2; i >= 2; i-- {
-			prefix := string(runes[:i])
-			pw := measure(prefix) + hyphenW
+			pw := prefixes[i] + hyphenW
 			if pw <= available {
 				bestSplit = i
 				break
