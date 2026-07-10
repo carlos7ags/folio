@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/carlos7ags/folio/internal/csscolor"
 	"github.com/carlos7ags/folio/layout"
 )
 
@@ -27,237 +28,15 @@ func parseColorAlpha(value string) (layout.Color, float64, bool) {
 		return layout.Color{}, 0, false
 	}
 
-	// Named color.
-	if c, ok := cssColorNames[value]; ok {
-		return c, 1, true
-	}
-
-	// Hex color: #RGB, #RGBA, #RRGGBB, #RRGGBBAA.
-	if strings.HasPrefix(value, "#") {
-		hex := value[1:]
-		switch len(hex) {
-		case 3:
-			hex = string([]byte{hex[0], hex[0], hex[1], hex[1], hex[2], hex[2]})
-			return layout.Hex(hex), 1, true
-		case 4:
-			// #RGBA
-			a := hexVal(hex[3])*16 + hexVal(hex[3])
-			hex = string([]byte{hex[0], hex[0], hex[1], hex[1], hex[2], hex[2]})
-			return layout.Hex(hex), float64(a) / 255, true
-		case 6:
-			return layout.Hex(hex), 1, true
-		case 8:
-			// #RRGGBBAA
-			a := hexVal(hex[6])*16 + hexVal(hex[7])
-			return layout.Hex(hex[:6]), float64(a) / 255, true
-		}
+	c, ok := csscolor.Parse(value)
+	if !ok {
 		return layout.Color{}, 0, false
 	}
-
-	// rgb(r, g, b) / rgba(r, g, b, a)
-	// Also supports CSS Color Level 4 space-separated form:
-	//   rgb(255 0 0) / rgb(255 0 0 / 0.5)
-	if strings.HasPrefix(value, "rgb") {
-		inner, ok := extractFuncArgs(value, "rgba(")
-		if !ok {
-			inner, ok = extractFuncArgs(value, "rgb(")
-		}
-		if ok {
-			// Try comma-separated first (legacy form).
-			if strings.ContainsRune(inner, ',') {
-				parts := strings.Split(inner, ",")
-				if len(parts) >= 3 {
-					r := parseColorComponent(strings.TrimSpace(parts[0]))
-					g := parseColorComponent(strings.TrimSpace(parts[1]))
-					b := parseColorComponent(strings.TrimSpace(parts[2]))
-					a := 1.0
-					if len(parts) >= 4 {
-						if v, err := strconv.ParseFloat(strings.TrimSpace(parts[3]), 64); err == nil {
-							a = v
-						}
-					}
-					return layout.RGB(r, g, b), a, true
-				}
-			} else {
-				// Space-separated form: rgb(R G B) or rgb(R G B / A)
-				r, g, b, a, ok := parseSpaceColorArgs(inner)
-				if ok {
-					return layout.RGB(r, g, b), a, true
-				}
-			}
-		}
-		return layout.Color{}, 0, false
+	if c.CMYK != nil {
+		cmyk := *c.CMYK
+		return layout.CMYK(cmyk[0], cmyk[1], cmyk[2], cmyk[3]), 1, true
 	}
-
-	// cmyk(c, m, y, k) / device-cmyk(c, m, y, k)
-	if strings.HasPrefix(value, "cmyk(") || strings.HasPrefix(value, "device-cmyk(") {
-		prefix := "cmyk("
-		if strings.HasPrefix(value, "device-cmyk(") {
-			prefix = "device-cmyk("
-		}
-		inner, ok := extractFuncArgs(value, prefix)
-		if ok {
-			parts := strings.Split(inner, ",")
-			if len(parts) >= 4 {
-				c := parseCMYKComponent(strings.TrimSpace(parts[0]))
-				m := parseCMYKComponent(strings.TrimSpace(parts[1]))
-				y := parseCMYKComponent(strings.TrimSpace(parts[2]))
-				k := parseCMYKComponent(strings.TrimSpace(parts[3]))
-				return layout.CMYK(c, m, y, k), 1, true
-			}
-		}
-		return layout.Color{}, 0, false
-	}
-
-	// hsl(h, s%, l%) / hsla(h, s%, l%, a)
-	// Also supports CSS Color Level 4 space-separated form:
-	//   hsl(120 100% 50%) / hsl(120 100% 50% / 0.5)
-	if strings.HasPrefix(value, "hsl") {
-		inner, ok := extractFuncArgs(value, "hsla(")
-		if !ok {
-			inner, ok = extractFuncArgs(value, "hsl(")
-		}
-		if ok {
-			if strings.ContainsRune(inner, ',') {
-				parts := strings.Split(inner, ",")
-				if len(parts) >= 3 {
-					h := parseHue(strings.TrimSpace(parts[0]))
-					s := parsePercent(strings.TrimSpace(parts[1]))
-					l := parsePercent(strings.TrimSpace(parts[2]))
-					a := 1.0
-					if len(parts) >= 4 {
-						if v, err := strconv.ParseFloat(strings.TrimSpace(parts[3]), 64); err == nil {
-							a = v
-						}
-					}
-					r, g, b := hslToRGB(h, s, l)
-					return layout.RGB(r, g, b), a, true
-				}
-			} else {
-				// Space-separated: hsl(H S L) or hsl(H S L / A)
-				alpha, parts := splitSlashAlpha(inner)
-				if len(parts) >= 3 {
-					h := parseHue(parts[0])
-					s := parsePercent(parts[1])
-					l := parsePercent(parts[2])
-					r, g, b := hslToRGB(h, s, l)
-					return layout.RGB(r, g, b), alpha, true
-				}
-			}
-		}
-		return layout.Color{}, 0, false
-	}
-
-	return layout.Color{}, 0, false
-}
-
-// splitSlashAlpha splits "R G B / A" into (alpha, [R, G, B]).
-// If no slash, alpha defaults to 1.0. The returned parts are trimmed strings.
-func splitSlashAlpha(inner string) (float64, []string) {
-	alpha := 1.0
-	colorPart := inner
-	if slashIdx := strings.IndexByte(inner, '/'); slashIdx >= 0 {
-		colorPart = strings.TrimSpace(inner[:slashIdx])
-		alphaStr := strings.TrimSpace(inner[slashIdx+1:])
-		// Alpha can be a number (0.5) or percentage (50%).
-		if strings.HasSuffix(alphaStr, "%") {
-			if v, err := strconv.ParseFloat(alphaStr[:len(alphaStr)-1], 64); err == nil {
-				alpha = v / 100
-			}
-		} else if v, err := strconv.ParseFloat(alphaStr, 64); err == nil {
-			alpha = v
-		}
-	}
-	parts := strings.Fields(colorPart)
-	return alpha, parts
-}
-
-// parseSpaceColorArgs parses space-separated RGB args with optional / alpha.
-// Handles: "255 0 0", "255 0 0 / 0.5", "100% 0% 50%", "100% 0% 50% / 0.8"
-func parseSpaceColorArgs(inner string) (r, g, b, a float64, ok bool) {
-	a, parts := splitSlashAlpha(inner)
-	if len(parts) < 3 {
-		return 0, 0, 0, 0, false
-	}
-	return parseColorComponent(parts[0]), parseColorComponent(parts[1]),
-		parseColorComponent(parts[2]), a, true
-}
-
-// extractFuncArgs extracts the content inside a CSS function like "rgb(...)" or "rgba(...)".
-func extractFuncArgs(value, prefix string) (string, bool) {
-	if strings.HasPrefix(value, prefix) && strings.HasSuffix(value, ")") {
-		return value[len(prefix) : len(value)-1], true
-	}
-	return "", false
-}
-
-// parseColorComponent parses an RGB color component (0-255 or percentage).
-// The result is clamped to [0, 1].
-func parseColorComponent(s string) float64 {
-	var v float64
-	if strings.HasSuffix(s, "%") {
-		v, _ = strconv.ParseFloat(s[:len(s)-1], 64)
-		v /= 100
-	} else {
-		v, _ = strconv.ParseFloat(s, 64)
-		v /= 255
-	}
-	if v < 0 {
-		return 0
-	}
-	if v > 1 {
-		return 1
-	}
-	return v
-}
-
-// parseHue parses a CSS hue value (degrees, 0-360).
-func parseHue(s string) float64 {
-	s = strings.TrimSuffix(s, "deg")
-	v, _ := strconv.ParseFloat(s, 64)
-	// Normalize to 0-360.
-	v = v - float64(int(v/360))*360
-	if v < 0 {
-		v += 360
-	}
-	return v / 360 // return as 0-1
-}
-
-// parsePercent parses a percentage value like "50%".
-func parsePercent(s string) float64 {
-	s = strings.TrimSuffix(s, "%")
-	v, _ := strconv.ParseFloat(s, 64)
-	return v / 100
-}
-
-// hexVal returns the numeric value of a hex digit.
-func hexVal(c byte) byte {
-	switch {
-	case c >= '0' && c <= '9':
-		return c - '0'
-	case c >= 'a' && c <= 'f':
-		return c - 'a' + 10
-	case c >= 'A' && c <= 'F':
-		return c - 'A' + 10
-	}
-	return 0
-}
-
-// parseCMYKComponent parses a CMYK color component (0-1 or percentage).
-func parseCMYKComponent(s string) float64 {
-	if strings.HasSuffix(s, "%") {
-		v, _ := strconv.ParseFloat(s[:len(s)-1], 64)
-		return v / 100
-	}
-	v, _ := strconv.ParseFloat(s, 64)
-	// Clamp to 0-1 range.
-	if v < 0 {
-		return 0
-	}
-	if v > 1 {
-		return 1
-	}
-	return v
+	return layout.RGB(c.R, c.G, c.B), c.A, true
 }
 
 // parseAspectRatio parses a CSS aspect-ratio value.
@@ -362,43 +141,6 @@ func parseRadiusComponent(val string, fontSize float64) (abs float64, pct float6
 		return 0, l.Value / 100
 	}
 	return l.toPoints(0, fontSize), 0
-}
-
-// hslToRGB converts HSL values (each 0-1) to RGB values (each 0-1).
-func hslToRGB(h, s, l float64) (r, g, b float64) {
-	if s == 0 {
-		return l, l, l
-	}
-	var q float64
-	if l < 0.5 {
-		q = l * (1 + s)
-	} else {
-		q = l + s - l*s
-	}
-	p := 2*l - q
-	r = hueToRGB(p, q, h+1.0/3)
-	g = hueToRGB(p, q, h)
-	b = hueToRGB(p, q, h-1.0/3)
-	return
-}
-
-func hueToRGB(p, q, t float64) float64 {
-	if t < 0 {
-		t++
-	}
-	if t > 1 {
-		t--
-	}
-	switch {
-	case t < 1.0/6:
-		return p + (q-p)*6*t
-	case t < 1.0/2:
-		return q
-	case t < 2.0/3:
-		return p + (q-p)*(2.0/3-t)*6
-	default:
-		return p
-	}
 }
 
 // parseLength parses a CSS length value like "12px", "1.5em", "50%", "10pt",
