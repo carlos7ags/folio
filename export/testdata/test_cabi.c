@@ -1805,6 +1805,36 @@ int main(void) {
      * matrix against synthetic TTCs. Here we cover only the C-boundary
      * argument handling. */
 
+    /* ===== Stage 40: array-bounds rejection at the C ABI ===== */
+    printf("Testing oversized/NULL/negative array-count rejection...\n");
+
+    uint64_t tblBounds = folio_table_new();
+    ASSERT(tblBounds != 0, "table_new returns handle");
+    double widthsBounds[2] = {100.0, 200.0};
+
+    /* count above the 1<<20 cap: rejected, not a crash */
+    rc = folio_table_set_column_widths(tblBounds, widthsBounds, (1 << 20) + 1);
+    ASSERT(rc != 0, "oversized count rejected");
+    ASSERT(folio_last_error() != NULL, "last_error set for oversized count");
+
+    /* NULL pointer with count > 0: rejected */
+    rc = folio_table_set_column_widths(tblBounds, NULL, 3);
+    ASSERT(rc != 0, "NULL array with count>0 rejected");
+
+    /* negative count: rejected */
+    rc = folio_table_set_column_widths(tblBounds, widthsBounds, -1);
+    ASSERT(rc != 0, "negative count rejected");
+
+    /* sane call still works */
+    rc = folio_table_set_column_widths(tblBounds, widthsBounds, 2);
+    ASSERT(rc == 0, "valid widths still accepted");
+    folio_table_free(tblBounds);
+
+    /* handle-returning path: oversized count returns a 0 handle, not a crash */
+    const char* boundsPaths[1] = {"nonexistent.pdf"};
+    uint64_t mBounds = folio_merge_files((char**)boundsPaths, (1 << 20) + 1);
+    ASSERT(mBounds == 0, "merge_files oversized count returns 0 handle");
+
     /* Summary */
     printf("\n%d passed, %d failed\n", passes, failures);
     return failures > 0 ? 1 : 0;

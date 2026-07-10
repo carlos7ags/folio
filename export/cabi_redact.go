@@ -31,7 +31,10 @@ func folio_redact_text(rH C.uint64_t, targets **C.char, count C.int32_t, optsH C
 		setLastError("redact_text requires at least one target")
 		return 0
 	}
-	cTargets := (*[1 << 20]*C.char)(unsafe.Pointer(targets))[:n:n]
+	if !checkCArray(unsafe.Pointer(targets), n) {
+		return 0
+	}
+	cTargets := unsafe.Slice(targets, n)
 	goTargets := make([]string, n)
 	for i := 0; i < n; i++ {
 		goTargets[i] = C.GoString(cTargets[i])
@@ -83,11 +86,18 @@ func folio_redact_regions(rH C.uint64_t, pages *C.int32_t, x1s, y1s, x2s, y2s *C
 		setLastError("redact_regions requires at least one mark")
 		return 0
 	}
-	cPages := (*[1 << 20]C.int32_t)(unsafe.Pointer(pages))[:n:n]
-	cX1 := (*[1 << 20]C.double)(unsafe.Pointer(x1s))[:n:n]
-	cY1 := (*[1 << 20]C.double)(unsafe.Pointer(y1s))[:n:n]
-	cX2 := (*[1 << 20]C.double)(unsafe.Pointer(x2s))[:n:n]
-	cY2 := (*[1 << 20]C.double)(unsafe.Pointer(y2s))[:n:n]
+	if !checkCArray(unsafe.Pointer(pages), n) ||
+		!checkCArray(unsafe.Pointer(x1s), n) ||
+		!checkCArray(unsafe.Pointer(y1s), n) ||
+		!checkCArray(unsafe.Pointer(x2s), n) ||
+		!checkCArray(unsafe.Pointer(y2s), n) {
+		return 0
+	}
+	cPages := unsafe.Slice(pages, n)
+	cX1 := unsafe.Slice(x1s, n)
+	cY1 := unsafe.Slice(y1s, n)
+	cX2 := unsafe.Slice(x2s, n)
+	cY2 := unsafe.Slice(y2s, n)
 
 	marks := make([]reader.RedactionMark, n)
 	for i := 0; i < n; i++ {

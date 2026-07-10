@@ -219,12 +219,19 @@ func folio_grid_set_template_areas(gridH C.uint64_t, rows **C.char,
 		return errCode
 	}
 	n := int(rowCount)
+	if n < 0 || n > maxCArrayCount {
+		setLastError(fmt.Sprintf("array count %d out of range [0, %d]", n, maxCArrayCount))
+		return errInvalidArg
+	}
 	if n == 0 || rows == nil {
 		gr.SetTemplateAreas(nil)
 		return errOK
 	}
-	cRows := (*[1 << 20]*C.char)(unsafe.Pointer(rows))[:n:n]
-	cCols := (*[1 << 20]C.int32_t)(unsafe.Pointer(cols))[:n:n]
+	if !checkCArray(unsafe.Pointer(cols), n) {
+		return errInvalidArg
+	}
+	cRows := unsafe.Slice(rows, n)
+	cCols := unsafe.Slice(cols, n)
 	areas := make([][]string, n)
 	for i := 0; i < n; i++ {
 		// Each row is a space-separated string; split into cells.
