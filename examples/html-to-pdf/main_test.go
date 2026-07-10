@@ -91,11 +91,13 @@ func TestHTMLToPDFExampleMetadataFromHTML(t *testing.T) {
 // font-sharing fix landed in #300 (commit 61dc047). The example
 // styles body text as Helvetica and headings as Helvetica-Bold across
 // two pages; each variant must appear exactly once in the PDF, not
-// twice (pre-fix per-page embedding). The trailing space narrows the
-// match so /Helvetica does not falsely fire on /Helvetica-Bold.
+// twice (pre-fix per-page embedding). The trailing space narrows each
+// match so /Helvetica does not falsely fire on /Helvetica-Bold, and
+// /Helvetica-Bold does not falsely fire on /Helvetica-BoldOblique
+// (the margin-box footer's font).
 func TestHTMLToPDFExampleFontDedupAcrossPages(t *testing.T) {
 	pdf := string(examplePDFBytes())
-	for _, marker := range []string{"/BaseFont /Helvetica ", "/BaseFont /Helvetica-Bold"} {
+	for _, marker := range []string{"/BaseFont /Helvetica ", "/BaseFont /Helvetica-Bold "} {
 		if got := strings.Count(pdf, marker); got != 1 {
 			t.Errorf("count of %q = %d, want 1 (post-#300 single-embed-per-document)", marker, got)
 		}
@@ -117,5 +119,15 @@ func TestHTMLToPDFExampleLinkAnnotationTargetsRepo(t *testing.T) {
 	const wantURL = "https://github.com/carlos7ags/folio"
 	if !strings.Contains(pdf, wantURL) {
 		t.Errorf("link URI %q not present in PDF; check that the <a href> destination survives layout/serialization", wantURL)
+	}
+}
+
+// TestHTMLToPDFExampleMarginBoxFontStyleHonored pins issue #378 gap A: the
+// bottom-right footer declares font-style: italic; font-weight: bold and
+// must draw with Helvetica-BoldOblique, not plain Helvetica.
+func TestHTMLToPDFExampleMarginBoxFontStyleHonored(t *testing.T) {
+	pdf := string(examplePDFBytes())
+	if !strings.Contains(pdf, "/BaseFont /Helvetica-BoldOblique") {
+		t.Error("expected a Helvetica-BoldOblique font resource for the italic+bold margin box; font-style/font-weight were not honored")
 	}
 }

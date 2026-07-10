@@ -210,7 +210,8 @@ func newSeededMargins(pc *PageConfig) *PageMargins {
 	return pm
 }
 
-// parseMarginBoxDecls extracts content, font-size, and color from margin box declarations.
+// parseMarginBoxDecls extracts content, font-size, color, and font-style/
+// font-weight/font-family from margin box declarations.
 func parseMarginBoxDecls(decls []cssDecl, defaultFontSize float64) MarginBoxContent {
 	var mbc MarginBoxContent
 	for _, d := range decls {
@@ -229,6 +230,12 @@ func parseMarginBoxDecls(decls []cssDecl, defaultFontSize float64) MarginBoxCont
 				mbc.Color = [3]float64{c.R, c.G, c.B}
 				mbc.HasColor = true
 			}
+		case "font-style":
+			mbc.FontStyle = parseFontStyle(val)
+		case "font-weight":
+			mbc.FontWeight = parseFontWeight(val, 400)
+		case "font-family":
+			mbc.FontFamily = parseFontFamily(val)
 		}
 	}
 	return mbc

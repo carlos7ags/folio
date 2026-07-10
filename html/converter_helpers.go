@@ -104,6 +104,35 @@ func (c *converter) resolveFontPair(style computedStyle) (*font.Standard, *font.
 	return resolveFont(style), nil
 }
 
+// resolveMarginBoxFont resolves the font for one margin box's own
+// declarations, reusing exactly the same nearest-weight/style matching
+// body text uses (resolveFontPair) so margin-box and body-text font
+// selection cannot silently diverge.
+//
+// When the box declares no font-style/font-weight/font-family of its
+// own, it keeps issue #328's behavior verbatim: it inherits bodyEmbedded,
+// the document's default body embedded font instance, with no standard
+// fallback. Otherwise its own declared properties are resolved against a
+// plain Helvetica/normal/400 base (unset properties default to plain,
+// not to <body>'s style), which may return either a standard PDF-14 font
+// or an @font-face-matched embedded font.
+func (c *converter) resolveMarginBoxFont(mbc MarginBoxContent, bodyEmbedded *font.EmbeddedFont) (*font.Standard, *font.EmbeddedFont) {
+	if mbc.FontFamily == "" && mbc.FontStyle == "" && mbc.FontWeight == 0 {
+		return nil, bodyEmbedded
+	}
+	style := computedStyle{FontFamily: "helvetica", FontWeight: 400, FontStyle: "normal"}
+	if mbc.FontFamily != "" {
+		style.FontFamily = mbc.FontFamily
+	}
+	if mbc.FontWeight != 0 {
+		style.FontWeight = mbc.FontWeight
+	}
+	if mbc.FontStyle != "" {
+		style.FontStyle = mbc.FontStyle
+	}
+	return c.resolveFontPair(style)
+}
+
 // matchEmbeddedFont returns the @font-face whose declared weight is the
 // nearest match for `desired` within the given family + style, per
 // CSS Fonts L4 §5.2:
