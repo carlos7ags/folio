@@ -14,6 +14,14 @@ import (
 // soft mask if present. Dimensions are validated against [MaxDimension]
 // and [MaxPixels] before the pixel buffer is allocated.
 func NewWebP(data []byte) (*Image, error) {
+	cfg, err := webp.DecodeConfig(bytes.NewReader(data))
+	if err != nil {
+		return nil, fmt.Errorf("image: webp: %w", err)
+	}
+	if err := checkDimensions(cfg.Width, cfg.Height); err != nil {
+		return nil, fmt.Errorf("image: webp: %w", err)
+	}
+
 	img, err := webp.Decode(bytes.NewReader(data))
 	if err != nil {
 		return nil, fmt.Errorf("image: webp: %w", err)

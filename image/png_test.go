@@ -5,6 +5,9 @@ package image
 
 import (
 	"bytes"
+	"encoding/binary"
+	"errors"
+	"hash/crc32"
 	goimage "image"
 	"image/color"
 	"image/png"
@@ -14,6 +17,45 @@ import (
 
 	"github.com/carlos7ags/folio/core"
 )
+
+// craftPNGHeader builds a valid 8-byte signature plus an IHDR chunk (with
+// correct CRC) declaring the given dimensions. No pixel data follows, so a
+// full decode would fail; the header alone is enough for DecodeConfig.
+func craftPNGHeader(w, h uint32) []byte {
+	sig := []byte{0x89, 'P', 'N', 'G', 0x0D, 0x0A, 0x1A, 0x0A}
+	ihdr := make([]byte, 13)
+	binary.BigEndian.PutUint32(ihdr[0:4], w)
+	binary.BigEndian.PutUint32(ihdr[4:8], h)
+	ihdr[8] = 8 // bit depth
+	ihdr[9] = 2 // color type: truecolor
+	// ihdr[10..12] = 0 (compression, filter, interlace)
+	chunk := append([]byte("IHDR"), ihdr...)
+	crc := crc32.ChecksumIEEE(chunk)
+	out := append([]byte{}, sig...)
+	lenBuf := make([]byte, 4)
+	binary.BigEndian.PutUint32(lenBuf, uint32(len(ihdr)))
+	out = append(out, lenBuf...)
+	out = append(out, chunk...)
+	crcBuf := make([]byte, 4)
+	binary.BigEndian.PutUint32(crcBuf, crc)
+	return append(out, crcBuf...)
+}
+
+// TestNewPNGOversizedHeader verifies the pixel-count limit is enforced from
+// the header, before the full raster is decoded and allocated.
+func TestNewPNGOversizedHeader(t *testing.T) {
+	_, err := NewPNG(craftPNGHeader(16000, 16000))
+	if !errors.Is(err, ErrPixelCountTooLarge) {
+		t.Fatalf("expected ErrPixelCountTooLarge, got %v", err)
+	}
+}
+
+func TestNewPNGOversizedDimension(t *testing.T) {
+	_, err := NewPNG(craftPNGHeader(60000, 10))
+	if !errors.Is(err, ErrDimensionTooLarge) {
+		t.Fatalf("expected ErrDimensionTooLarge, got %v", err)
+	}
+}
 
 // createTestPNG generates a small PNG image in memory.
 func createTestPNG(t *testing.T, w, h int, withAlpha bool) []byte {
