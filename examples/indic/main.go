@@ -36,6 +36,19 @@ import (
 )
 
 func main() {
+	doc := buildDocument()
+	if err := doc.Save("indic.pdf"); err != nil {
+		fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		os.Exit(1)
+	}
+	fmt.Println("Created indic.pdf")
+}
+
+// buildDocument assembles the Indic shaping showcase and returns the
+// ready-to-write Document. Extracted from main() so the example test
+// (main_test.go) can exercise the same shaping pipeline against an
+// in-memory buffer instead of disk.
+func buildDocument() *document.Document {
 	doc := document.NewDocument(document.PageSizeLetter)
 	doc.Info.Title = "Indic Text Shaping"
 	doc.Info.Author = "Folio"
@@ -51,11 +64,7 @@ func main() {
 
 	devanagariSection(doc)
 
-	if err := doc.Save("indic.pdf"); err != nil {
-		fmt.Fprintf(os.Stderr, "error: %v\n", err)
-		os.Exit(1)
-	}
-	fmt.Println("Created indic.pdf")
+	return doc
 }
 
 // devanagariSection renders Devanagari paragraphs that exercise

@@ -31,6 +31,24 @@ import (
 )
 
 func main() {
+	doc, err := buildDocument()
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+
+	if err := doc.Save("zugferd-invoice.pdf"); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+	fmt.Println("Created zugferd-invoice.pdf")
+}
+
+// buildDocument assembles the PDF/A-3B Factur-X invoice and returns
+// the ready-to-write Document. Extracted from main() so the example
+// test (main_test.go) can exercise the same font-discovery, HTML, and
+// attachment pipeline against an in-memory buffer instead of disk.
+func buildDocument() (*document.Document, error) {
 	doc := document.NewDocument(document.PageSizeA4)
 	doc.SetMargins(layout.Margins{Top: 40, Right: 40, Bottom: 40, Left: 40})
 	doc.Info.Title = "Invoice 2024-001"
@@ -39,8 +57,7 @@ func main() {
 	// --- Discover a system font for embedding (PDF/A requires it) ---
 	fontPath := findSystemFont()
 	if fontPath == "" {
-		fmt.Fprintln(os.Stderr, "no suitable system font found for PDF/A embedding")
-		os.Exit(1)
+		return nil, fmt.Errorf("no suitable system font found for PDF/A embedding")
 	}
 
 	// --- Invoice content via HTML (auto-embeds fonts for PDF/A) ---
@@ -90,10 +107,9 @@ hr { margin: 8px 0; border: none; border-top: 1px solid #ccc; }
 
 </body></html>`
 
-	elems, err := html.Convert(invoiceHTML, nil)
+	elems, err := html.Convert(invoiceHTML, &html.Options{AllowAbsolutePaths: true})
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "html:", err)
-		os.Exit(1)
+		return nil, fmt.Errorf("html: %w", err)
 	}
 	for _, e := range elems {
 		doc.Add(e)
@@ -173,12 +189,7 @@ hr { margin: 8px 0; border: none; border-top: 1px solid #ccc; }
 		Data:           xmlData,
 	})
 
-	// --- Write ---
-	if err := doc.Save("zugferd-invoice.pdf"); err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		os.Exit(1)
-	}
-	fmt.Println("Created zugferd-invoice.pdf")
+	return doc, nil
 }
 
 // findSystemFont returns the path to a TrueType font available on the

@@ -30,6 +30,19 @@ import (
 )
 
 func main() {
+	doc := buildDocument()
+	if err := doc.Save("forms.pdf"); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+	fmt.Println("Created forms.pdf — open in Adobe Acrobat to interact with fields")
+}
+
+// buildDocument assembles the example's AcroForm showcase and returns
+// the ready-to-write Document. Extracted from main() so the example
+// test (main_test.go) can exercise the same field-building pipeline
+// against an in-memory buffer instead of disk.
+func buildDocument() *document.Document {
 	doc := document.NewDocument(document.PageSizeLetter)
 	doc.Info.Title = "Folio Forms Showcase"
 	doc.Info.Author = "Folio"
@@ -170,11 +183,7 @@ func main() {
 
 	doc.SetAcroForm(form)
 
-	if err := doc.Save("forms.pdf"); err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		os.Exit(1)
-	}
-	fmt.Println("Created forms.pdf — open in Adobe Acrobat to interact with fields")
+	return doc
 }
 
 // rect creates a field rectangle [x1, y1, x2, y2].
