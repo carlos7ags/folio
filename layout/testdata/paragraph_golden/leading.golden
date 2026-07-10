@@ -1,0 +1,5 @@
+line 0: width=27.3360 height=24.0000 spaceW=3.3360 isLast=false align=0 spaceBefore=0.0000
+  word 0: "Hello" w=27.3360 spaceAfter=3.3360 fontSize=12.0000 break=false embedded=false
+line 1: width=31.1520 height=24.0000 spaceW=3.3360 isLast=true align=0 spaceBefore=0.0000
+  word 0: "World" w=31.1520 spaceAfter=3.3360 fontSize=12.0000 break=false embedded=false
+minWidth=31.1520 maxWidth=65.1600 measureHeight(W)=48.0000 lines(W)=2

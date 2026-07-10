@@ -1,0 +1,11 @@
+line 0: width=96.0000 height=14.4000 spaceW=0.0000 isLast=false align=0 spaceBefore=0.0000
+  word 0: "xxxxxxxxxxxxxxxx" w=96.0000 spaceAfter=0.0000 fontSize=12.0000 break=false embedded=false
+line 1: width=96.0000 height=14.4000 spaceW=0.0000 isLast=false align=0 spaceBefore=0.0000
+  word 0: "xxxxxxxxxxxxxxxx" w=96.0000 spaceAfter=0.0000 fontSize=12.0000 break=false embedded=false
+line 2: width=96.0000 height=14.4000 spaceW=0.0000 isLast=false align=0 spaceBefore=0.0000
+  word 0: "xxxxxxxxxxxxxxxx" w=96.0000 spaceAfter=0.0000 fontSize=12.0000 break=false embedded=false
+line 3: width=96.0000 height=14.4000 spaceW=0.0000 isLast=false align=0 spaceBefore=0.0000
+  word 0: "xxxxxxxxxxxxxxxx" w=96.0000 spaceAfter=0.0000 fontSize=12.0000 break=false embedded=false
+line 4: width=96.0000 height=14.4000 spaceW=0.0000 isLast=true align=0 spaceBefore=0.0000
+  word 0: "xxxxxxxxxxxxxxxx" w=96.0000 spaceAfter=0.0000 fontSize=12.0000 break=false embedded=false
+minWidth=480.0000 maxWidth=483.3360 measureHeight(W)=72.0000 lines(W)=5

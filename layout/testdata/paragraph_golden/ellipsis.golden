@@ -1,0 +1,4 @@
+line 0: width=54.9960 height=14.4000 spaceW=3.3360 isLast=true align=0 spaceBefore=0.0000
+  word 0: "This" w=22.6680 spaceAfter=3.3360 fontSize=12.0000 break=false embedded=false
+  word 1: "text..." w=28.9920 spaceAfter=3.3360 fontSize=12.0000 break=false embedded=false
+minWidth=22.6800 maxWidth=211.3920 measureHeight(W)=14.4000 lines(W)=1
