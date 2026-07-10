@@ -156,7 +156,8 @@ func (cm *CMap) parseBfChars(s string) {
 	}
 }
 
-// parseBfRanges extracts beginbfrange...endbfrange blocks.
+// parseBfRanges extracts beginbfrange...endbfrange blocks. Both destination
+// forms are handled; array-form entries populate bfChars.
 func (cm *CMap) parseBfRanges(s string) {
 	for {
 		idx := strings.Index(s, "beginbfrange")
@@ -171,14 +172,30 @@ func (cm *CMap) parseBfRanges(s string) {
 		block := s[:end]
 		s = s[end:]
 
-		tokens := extractHexTokens(block)
+		tokens := extractBfTokens(block)
 		for i := 0; i+2 < len(tokens); i += 3 {
-			low, _ := decodeHexCode(tokens[i])
-			high, _ := decodeHexCode(tokens[i+1])
-			dst := decodeUnicodeHex(tokens[i+2])
-			cm.bfRanges = append(cm.bfRanges, bfRange{
-				low: low, high: high, dst: dst,
-			})
+			lowTok, highTok, dstTok := tokens[i], tokens[i+1], tokens[i+2]
+			if lowTok.isArr || highTok.isArr {
+				// Malformed: low/high must be plain hex codes.
+				break
+			}
+			low, _ := decodeHexCode(lowTok.hex)
+			high, _ := decodeHexCode(highTok.hex)
+			if low > high {
+				continue
+			}
+			if !dstTok.isArr {
+				cm.bfRanges = append(cm.bfRanges, bfRange{
+					low: low, high: high, dst: decodeUnicodeHex(dstTok.hex),
+				})
+				continue
+			}
+			for k, h := range dstTok.arr {
+				if uint32(k) > high-low {
+					break
+				}
+				cm.bfChars[low+uint32(k)] = decodeUnicodeHex(h)
+			}
 		}
 	}
 }
@@ -224,6 +241,52 @@ func extractHexTokens(block string) []string {
 		tokens = append(tokens, block[:end])
 		block = block[end+1:]
 	}
+}
+
+// bfToken is one operand in a bfrange block: either a hex string or a
+// bracketed group of hex strings.
+type bfToken struct {
+	hex   string   // set when isArr is false
+	arr   []string // set when isArr is true
+	isArr bool
+}
+
+// extractBfTokens tokenizes a bfrange block into hex tokens and bracketed
+// groups, preserving array structure that extractHexTokens discards. Content
+// between tokens (whitespace, stray bytes) is skipped, matching
+// extractHexTokens' tolerance.
+func extractBfTokens(block string) []bfToken {
+	var tokens []bfToken
+	for len(block) > 0 {
+		lt := strings.IndexByte(block, '<')
+		lb := strings.IndexByte(block, '[')
+		if lt < 0 && lb < 0 {
+			return tokens
+		}
+		if lb >= 0 && (lt < 0 || lb < lt) {
+			// Array: collect hex tokens up to the matching ']'.
+			block = block[lb+1:]
+			closeIdx := strings.IndexByte(block, ']')
+			var group string
+			if closeIdx < 0 {
+				group = block
+				block = ""
+			} else {
+				group = block[:closeIdx]
+				block = block[closeIdx+1:]
+			}
+			tokens = append(tokens, bfToken{arr: extractHexTokens(group), isArr: true})
+			continue
+		}
+		block = block[lt+1:]
+		end := strings.IndexByte(block, '>')
+		if end < 0 {
+			return tokens
+		}
+		tokens = append(tokens, bfToken{hex: block[:end]})
+		block = block[end+1:]
+	}
+	return tokens
 }
 
 // decodeHexCode decodes a hex string like "0041" into a uint32 code and byte count.

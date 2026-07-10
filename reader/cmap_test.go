@@ -252,6 +252,181 @@ func TestCMapNilDecode(t *testing.T) {
 	}
 }
 
+func TestParseCMapBfRangeArrayForm(t *testing.T) {
+	cmap := `
+1 begincodespacerange
+<0000> <FFFF>
+endcodespacerange
+1 beginbfrange
+<0041> <0043> [<0061> <0062> <0063>]
+endbfrange
+`
+	cm := ParseCMap([]byte(cmap))
+
+	tests := []struct {
+		code uint32
+		want string
+	}{
+		{0x0041, "a"},
+		{0x0042, "b"},
+		{0x0043, "c"},
+	}
+	for _, tc := range tests {
+		s, ok := cm.lookupCode(tc.code)
+		if !ok || s != tc.want {
+			t.Errorf("code 0x%04X = %q, want %q", tc.code, s, tc.want)
+		}
+	}
+}
+
+func TestParseCMapBfRangeArrayFormMisalignment(t *testing.T) {
+	// Regression: an array-form entry used to be flattened by
+	// extractHexTokens, misaligning every entry that followed it in the
+	// block.
+	cmap := `
+1 begincodespacerange
+<0000> <FFFF>
+endcodespacerange
+2 beginbfrange
+<0041> <0043> [<0061> <0062> <0063>]
+<0050> <0051> <0070>
+endbfrange
+`
+	cm := ParseCMap([]byte(cmap))
+
+	tests := []struct {
+		code uint32
+		want string
+	}{
+		{0x0041, "a"},
+		{0x0042, "b"},
+		{0x0043, "c"},
+		{0x0050, "p"},
+		{0x0051, "q"},
+	}
+	for _, tc := range tests {
+		s, ok := cm.lookupCode(tc.code)
+		if !ok || s != tc.want {
+			t.Errorf("code 0x%04X = %q, want %q", tc.code, s, tc.want)
+		}
+	}
+}
+
+func TestParseCMapBfRangeArrayFormLigature(t *testing.T) {
+	// Multi-rune destination inside an array (fi ligature).
+	cmap := `
+1 begincodespacerange
+<0000> <FFFF>
+endcodespacerange
+1 beginbfrange
+<FB01> <FB01> [<00660069>]
+endbfrange
+`
+	cm := ParseCMap([]byte(cmap))
+	s, ok := cm.lookupCode(0xFB01)
+	if !ok || s != "fi" {
+		t.Errorf("code 0xFB01 = %q, want %q", s, "fi")
+	}
+}
+
+func TestParseCMapBfRangeArrayFormSurrogatePair(t *testing.T) {
+	// Surrogate-pair destination inside an array: D835 DC00 → U+1D400
+	// (MATHEMATICAL BOLD CAPITAL A).
+	cmap := `
+1 begincodespacerange
+<0000> <FFFF>
+endcodespacerange
+1 beginbfrange
+<0001> <0001> [<D835DC00>]
+endbfrange
+`
+	cm := ParseCMap([]byte(cmap))
+	s, ok := cm.lookupCode(0x0001)
+	if !ok || s != "\U0001D400" {
+		t.Errorf("code 0x0001 = %q (%U), want U+1D400", s, []rune(s))
+	}
+}
+
+func TestParseCMapBfRangeArrayShorterThanRange(t *testing.T) {
+	cmap := `
+1 begincodespacerange
+<0000> <FFFF>
+endcodespacerange
+1 beginbfrange
+<0041> <0045> [<0061> <0062>]
+endbfrange
+`
+	cm := ParseCMap([]byte(cmap))
+
+	if s, ok := cm.lookupCode(0x0041); !ok || s != "a" {
+		t.Errorf("code 0x41 = %q, want %q", s, "a")
+	}
+	if s, ok := cm.lookupCode(0x0042); !ok || s != "b" {
+		t.Errorf("code 0x42 = %q, want %q", s, "b")
+	}
+	// Codes past the array's length are unmapped; Decode falls back to
+	// the raw rune.
+	for _, code := range []uint32{0x0043, 0x0044, 0x0045} {
+		if _, ok := cm.lookupCode(code); ok {
+			t.Errorf("code 0x%04X should be unmapped", code)
+		}
+	}
+	got := cm.Decode([]byte{0x00, 0x43, 0x00, 0x44, 0x00, 0x45})
+	want := "CDE"
+	if got != want {
+		t.Errorf("Decode = %q, want %q", got, want)
+	}
+}
+
+func TestParseCMapBfRangeArrayLongerThanRange(t *testing.T) {
+	cmap := `
+1 begincodespacerange
+<0000> <FFFF>
+endcodespacerange
+2 beginbfrange
+<0041> <0041> [<0061> <0062>]
+<0050> <0051> <0070>
+endbfrange
+`
+	cm := ParseCMap([]byte(cmap))
+
+	if s, ok := cm.lookupCode(0x0041); !ok || s != "a" {
+		t.Errorf("code 0x41 = %q, want %q", s, "a")
+	}
+	if _, ok := cm.lookupCode(0x0042); ok {
+		t.Error("code 0x42 should be unmapped; extra array destination must not leak")
+	}
+	// The extra destination must not shift the following entry.
+	if s, ok := cm.lookupCode(0x0050); !ok || s != "p" {
+		t.Errorf("code 0x50 = %q, want %q", s, "p")
+	}
+	if s, ok := cm.lookupCode(0x0051); !ok || s != "q" {
+		t.Errorf("code 0x51 = %q, want %q", s, "q")
+	}
+}
+
+func TestParseCMapBfRangeArrayUnterminated(t *testing.T) {
+	// Malformed: unterminated array at end of block. Must not panic, and
+	// entries before it are unaffected.
+	cmap := `
+1 begincodespacerange
+<0000> <FFFF>
+endcodespacerange
+2 beginbfrange
+<0050> <0051> <0070>
+<0041> <0042> [<0061>
+endbfrange
+`
+	cm := ParseCMap([]byte(cmap))
+
+	if s, ok := cm.lookupCode(0x0050); !ok || s != "p" {
+		t.Errorf("code 0x50 = %q, want %q", s, "p")
+	}
+	if s, ok := cm.lookupCode(0x0051); !ok || s != "q" {
+		t.Errorf("code 0x51 = %q, want %q", s, "q")
+	}
+}
+
 func TestExtractHexTokens(t *testing.T) {
 	tokens := extractHexTokens("<0041> <0042>")
 	if len(tokens) != 2 || tokens[0] != "0041" || tokens[1] != "0042" {
