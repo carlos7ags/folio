@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/carlos7ags/folio/internal/csscolor"
+	"github.com/carlos7ags/folio/internal/cssunit"
 	"github.com/carlos7ags/folio/layout"
 )
 
@@ -196,25 +197,14 @@ func parseLength(value string) *cssLength {
 
 // parsePlainLength parses a simple CSS length (no calc).
 func parsePlainLength(value string) *cssLength {
-	value = strings.TrimSpace(value)
-	// Check rem before em to avoid "1rem" matching "em" suffix first.
-	for _, unit := range []string{"px", "pt", "rem", "em", "mm", "cm", "in", "%"} {
-		if strings.HasSuffix(value, unit) {
-			numStr := strings.TrimSpace(value[:len(value)-len(unit)])
-			num, err := strconv.ParseFloat(numStr, 64)
-			if err != nil {
-				return nil
-			}
-			return &cssLength{Value: num, Unit: unit}
-		}
+	num, unit, ok := cssunit.Parse(value)
+	if !ok {
+		return nil
 	}
-
-	// Bare number — treat as px.
-	if num, err := strconv.ParseFloat(value, 64); err == nil {
-		return &cssLength{Value: num, Unit: "px"}
+	if unit == "" {
+		unit = "px" // bare number — treat as px
 	}
-
-	return nil
+	return &cssLength{Value: num, Unit: unit}
 }
 
 // parseCalcExpr parses the inside of a calc() expression.

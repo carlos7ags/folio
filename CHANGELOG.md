@@ -46,6 +46,9 @@ rowspan geometry (#357), `Document.AddConvertResult`, and
 
 ### Fixed
 
+- **`svg` dimension parsing no longer accepts multi-suffix garbage** — attribute values like `width="10empx"` were parsed by stripping every known unit suffix in sequence, so leftover garbage silently fell through to a clean number instead of failing. `svg` length parsing now consumes exactly one unit suffix; anything left over is rejected.
+- **`svg` `font-size` style now accepts `pt`-suffixed values** — `font-size: 12pt` previously failed to parse (only `px` was recognized) and silently left the inherited font size in place; it is now read as 12 user units, consistent with how the `width`/`height`/`r` attributes already treat `pt`.
+
 #### `border-radius` (#329)
 
 - **Percentage `border-radius` renders as a true rounded corner** — `border-radius: 50%` was resolving against a zero reference and collapsing to 0 (square corners). It now resolves per-axis: a circle on a square box, an ellipse on a rectangle, per CSS Backgrounds §5.5 corner clamping (#329)
