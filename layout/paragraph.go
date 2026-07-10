@@ -548,16 +548,10 @@ func (p *Paragraph) Layout(maxWidth float64) []Line {
 	return lines
 }
 
-// runMeasurer returns the text measurer for a run.
+// runMeasurer returns the text measurer for a run, defaulting to
+// Helvetica if no font is set (defensive).
 func runMeasurer(run TextRun) font.TextMeasurer {
-	if run.Embedded != nil {
-		return run.Embedded
-	}
-	if run.Font != nil {
-		return run.Font
-	}
-	// Fallback: use Helvetica if no font is set (defensive).
-	return font.Helvetica
+	return resolveMeasurer(run.Embedded, run.Font, font.Helvetica)
 }
 
 // shapeAndMeasureWord runs the appropriate per-script shaper over a
@@ -1683,11 +1677,9 @@ func isSpace(r rune) bool {
 }
 
 // wordMeasurer returns a TextMeasurer for the given word's font.
+// Fallback w.Font preserves the historical typed-nil return when unset.
 func wordMeasurer(w Word) font.TextMeasurer {
-	if w.Embedded != nil {
-		return w.Embedded
-	}
-	return w.Font
+	return resolveMeasurer(w.Embedded, w.Font, w.Font)
 }
 
 // wrapWords performs greedy word-wrapping, returning groups of words per line.
