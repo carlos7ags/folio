@@ -13,7 +13,7 @@ import (
 	"github.com/carlos7ags/folio/font"
 )
 
-// mockGPOSFace is a deterministic Face + GPOSProvider used to exercise
+// mockGPOSFace is a deterministic Face used to exercise
 // drawWordEmbeddedWithMarks. Each rune is mapped to a GID by a lookup
 // table; advances and upem are fixed; GPOS data is injected directly.
 type mockGPOSFace struct {
@@ -42,8 +42,9 @@ func (m *mockGPOSFace) Flags() uint32           { return 0 }
 func (m *mockGPOSFace) RawData() []byte         { return nil }
 func (m *mockGPOSFace) NumGlyphs() int          { return 4096 }
 
-// GPOS satisfies font.GPOSProvider.
-func (m *mockGPOSFace) GPOS() *font.GPOSAdjustments { return m.gpos }
+func (m *mockGPOSFace) GPOS() *font.GPOSAdjustments   { return m.gpos }
+func (m *mockGPOSFace) GSUB() *font.GSUBSubstitutions { return nil }
+func (m *mockGPOSFace) GIDToUnicode() map[uint16]rune { return nil }
 
 // newLamFathaFace constructs a mock face with lam (U+0644) as a base
 // glyph and fatha (U+064E) as a combining mark, plus a single GPOS

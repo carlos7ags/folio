@@ -386,12 +386,8 @@ func TestFlagsItalic(t *testing.T) {
 
 func TestFaceGSUBCaching(t *testing.T) {
 	face := loadTestFace(t)
-	provider, ok := face.(GSUBProvider)
-	if !ok {
-		t.Fatal("sfntFace should implement GSUBProvider")
-	}
-	first := provider.GSUB()
-	second := provider.GSUB()
+	first := face.GSUB()
+	second := face.GSUB()
 
 	// Both calls must agree on nil-ness.
 	if (first == nil) != (second == nil) {
@@ -410,11 +406,7 @@ func TestFaceGSUBCaching(t *testing.T) {
 
 func TestFaceGIDToUnicode(t *testing.T) {
 	face := loadTestFace(t)
-	provider, ok := face.(GSUBProvider)
-	if !ok {
-		t.Fatal("sfntFace should implement GSUBProvider")
-	}
-	m := provider.GIDToUnicode()
+	m := face.GIDToUnicode()
 	if len(m) == 0 {
 		t.Fatal("GIDToUnicode returned empty map")
 	}
@@ -432,7 +424,7 @@ func TestFaceGIDToUnicode(t *testing.T) {
 	}
 
 	// Cache check: second call returns equivalent map.
-	m2 := provider.GIDToUnicode()
+	m2 := face.GIDToUnicode()
 	if len(m2) != len(m) {
 		t.Errorf("GIDToUnicode map length changed: first=%d second=%d", len(m), len(m2))
 	}
@@ -480,15 +472,6 @@ func TestBuildGIDToUnicodeInvalidData(t *testing.T) {
 // confirms synchronization didn't change what gets computed.
 func TestSfntFaceConcurrentLazyCaches(t *testing.T) {
 	exercise := func(t *testing.T, face Face) {
-		gsub, ok := face.(GSUBProvider)
-		if !ok {
-			t.Fatal("face should implement GSUBProvider")
-		}
-		gpos, ok := face.(GPOSProvider)
-		if !ok {
-			t.Fatal("face should implement GPOSProvider")
-		}
-
 		gidA, gidV := face.GlyphIndex('A'), face.GlyphIndex('V')
 		if gidA == 0 {
 			gidA = 1
@@ -507,9 +490,9 @@ func TestSfntFaceConcurrentLazyCaches(t *testing.T) {
 				for j := 0; j < 100; j++ {
 					_ = face.Kern(gidA, gidV)
 					_ = face.GlyphAdvance(gidA)
-					_ = gsub.GSUB()
-					_ = gsub.GIDToUnicode()
-					_ = gpos.GPOS()
+					_ = face.GSUB()
+					_ = face.GIDToUnicode()
+					_ = face.GPOS()
 				}
 			}()
 		}

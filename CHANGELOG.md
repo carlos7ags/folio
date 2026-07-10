@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed (breaking)
 
+- **`font.Face` now includes `GSUB()`, `GPOS()`, and `GIDToUnicode()`** — the optional `font.GSUBProvider` and `font.GPOSProvider` interfaces are removed, and every `Face` implementation must provide the three methods directly. A `Face` with no shaping data for a given table returns nil rather than omitting the method; `GIDToUnicode` returns nil when the font has no cmap-derived reverse map. This drops the type-assertion indirection that callers previously used to probe for shaping support (`face.(font.GSUBProvider)`, `face.(font.GPOSProvider)`) now that the seam is no longer needed pre-1.0.
 - **`html` no longer fetches remote or absolute-path assets by default** — a document's `http(s)` references (`<img>`, `background-image: url()`, linked stylesheets, `@font-face url()`) are only fetched when `Options.AllowRemoteFetch` is set, and absolute filesystem paths in document content are only read when `Options.AllowAbsolutePaths` is set (both default false). When remote fetch is enabled with no `Options.URLPolicy`, the built-in `html.DenyInternalHosts` policy blocks loopback, RFC1918, link-local, and non-http(s) targets and is re-checked on every redirect hop; absolute-path reads are size-capped like HTTP reads. Set `URLPolicy` to a function returning nil to allow every host. `Options.FallbackFontPath` and the built-in system-font search are unaffected.
 
 ### Added

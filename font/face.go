@@ -75,33 +75,19 @@ type Face interface {
 
 	// NumGlyphs returns the total number of glyphs in the font.
 	NumGlyphs() int
-}
 
-// GSUBProvider is an optional interface that a Face may implement to
-// expose parsed OpenType GSUB substitution tables for Arabic positional
-// shaping features (init, medi, fina, isol). Callers should type-assert
-// to check availability rather than requiring all Face implementations
-// to support GSUB. This avoids breaking external Face implementers
-// during v0.x.
-//
-// TODO: at v1.0, merge GSUB() back into Face. The type-assertion
-// indirection adds no value once the API is stable.
-type GSUBProvider interface {
+	// GSUB returns the font's parsed OpenType GSUB substitution tables,
+	// or nil when the font has none. Used for Arabic positional shaping
+	// and Indic conjunct formation.
 	GSUB() *GSUBSubstitutions
-	// GIDToUnicode returns a reverse mapping from glyph ID to Unicode
-	// codepoint, built from the font's cmap table. Used to convert
-	// GSUB-substituted GIDs back to codepoints for the text pipeline.
-	// The result is cached after the first call.
-	GIDToUnicode() map[uint16]rune
-}
 
-// GPOSProvider is an optional interface that a Face may implement to
-// expose parsed OpenType GPOS positioning tables. GPOS() returns nil
-// when the font has no recognized positioning data. See GSUBProvider
-// for the rationale behind the optional-interface pattern during v0.x.
-//
-// TODO: at v1.0, merge GPOS() back into Face.
-type GPOSProvider interface {
+	// GIDToUnicode returns a reverse glyph-ID-to-Unicode mapping built
+	// from the cmap table, or nil when unavailable. The result is cached
+	// after the first call.
+	GIDToUnicode() map[uint16]rune
+
+	// GPOS returns the font's parsed OpenType GPOS positioning tables,
+	// or nil when the font has no recognized positioning data.
 	GPOS() *GPOSAdjustments
 }
 

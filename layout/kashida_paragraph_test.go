@@ -42,16 +42,19 @@ func (m *mockArabicFace) GlyphAdvance(gid uint16) int {
 	}
 	return m.advance
 }
-func (m *mockArabicFace) Ascent() int             { return 800 }
-func (m *mockArabicFace) Descent() int            { return -200 }
-func (m *mockArabicFace) BBox() [4]int            { return [4]int{0, -200, 1000, 800} }
-func (m *mockArabicFace) ItalicAngle() float64    { return 0 }
-func (m *mockArabicFace) CapHeight() int          { return 700 }
-func (m *mockArabicFace) StemV() int              { return 80 }
-func (m *mockArabicFace) Kern(uint16, uint16) int { return 0 }
-func (m *mockArabicFace) Flags() uint32           { return 0 }
-func (m *mockArabicFace) RawData() []byte         { return nil }
-func (m *mockArabicFace) NumGlyphs() int          { return 4096 }
+func (m *mockArabicFace) Ascent() int                   { return 800 }
+func (m *mockArabicFace) Descent() int                  { return -200 }
+func (m *mockArabicFace) BBox() [4]int                  { return [4]int{0, -200, 1000, 800} }
+func (m *mockArabicFace) ItalicAngle() float64          { return 0 }
+func (m *mockArabicFace) CapHeight() int                { return 700 }
+func (m *mockArabicFace) StemV() int                    { return 80 }
+func (m *mockArabicFace) Kern(uint16, uint16) int       { return 0 }
+func (m *mockArabicFace) Flags() uint32                 { return 0 }
+func (m *mockArabicFace) RawData() []byte               { return nil }
+func (m *mockArabicFace) NumGlyphs() int                { return 4096 }
+func (m *mockArabicFace) GSUB() *font.GSUBSubstitutions { return nil }
+func (m *mockArabicFace) GIDToUnicode() map[uint16]rune { return nil }
+func (m *mockArabicFace) GPOS() *font.GPOSAdjustments   { return nil }
 
 // newMockArabicEmbedded returns a font.EmbeddedFont backed by mockArabicFace.
 // The advance/upem ratio is 1:2 so each glyph at FontSize=12 measures 6 pt.
