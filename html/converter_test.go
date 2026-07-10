@@ -307,9 +307,12 @@ func TestParseColorComponentClamping(t *testing.T) {
 		{"-10%", 0},   // clamped to 0
 	}
 	for _, tt := range tests {
-		got := parseColorComponent(tt.input)
-		if diff := got - tt.want; diff > 0.001 || diff < -0.001 {
-			t.Errorf("parseColorComponent(%q) = %f, want %f", tt.input, got, tt.want)
+		c, ok := parseColor("rgb(" + tt.input + ", 0, 0)")
+		if !ok {
+			t.Fatalf("parseColor(rgb(%s, 0, 0)) failed to parse", tt.input)
+		}
+		if diff := c.R - tt.want; diff > 0.001 || diff < -0.001 {
+			t.Errorf("parseColor(rgb(%s, 0, 0)).R = %f, want %f", tt.input, c.R, tt.want)
 		}
 	}
 }

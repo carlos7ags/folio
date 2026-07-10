@@ -118,6 +118,58 @@ func TestParseColor_EmptyString(t *testing.T) {
 	}
 }
 
+// The following cases widen svg's accepted color grammar to match html's:
+// 4/8-digit hex, CSS Color 4 space-separated rgb(), and hsl()/hsla().
+// Browsers accept all of these in SVG documents too.
+
+func TestParseColor_HexRGBA(t *testing.T) {
+	c, ok := parseColor("#f008")
+	if !ok {
+		t.Fatal("parseColor(\"#f008\") returned ok=false")
+	}
+	assertColor(t, "#f008", c, 1, 0, 0, float64(0x88)/255)
+}
+
+func TestParseColor_HexRRGGBBAA(t *testing.T) {
+	c, ok := parseColor("#ff000080")
+	if !ok {
+		t.Fatal("parseColor(\"#ff000080\") returned ok=false")
+	}
+	assertColor(t, "#ff000080", c, 1, 0, 0, float64(0x80)/255)
+}
+
+func TestParseColor_RGBSpaceSeparated(t *testing.T) {
+	c, ok := parseColor("rgb(255 0 0)")
+	if !ok {
+		t.Fatal("parseColor(\"rgb(255 0 0)\") returned ok=false")
+	}
+	assertColor(t, "rgb(255 0 0)", c, 1, 0, 0, 1)
+}
+
+func TestParseColor_RGBSpaceSeparatedAlpha(t *testing.T) {
+	c, ok := parseColor("rgb(255 0 0 / 0.5)")
+	if !ok {
+		t.Fatal("parseColor(\"rgb(255 0 0 / 0.5)\") returned ok=false")
+	}
+	assertColor(t, "rgb(255 0 0 / 0.5)", c, 1, 0, 0, 0.5)
+}
+
+func TestParseColor_HSL(t *testing.T) {
+	c, ok := parseColor("hsl(0, 100%, 50%)")
+	if !ok {
+		t.Fatal("parseColor(\"hsl(0, 100%, 50%)\") returned ok=false")
+	}
+	assertColor(t, "hsl(0,100%,50%)", c, 1, 0, 0, 1)
+}
+
+func TestParseColor_HSLA(t *testing.T) {
+	c, ok := parseColor("hsla(0, 100%, 50%, 0.3)")
+	if !ok {
+		t.Fatal("parseColor(\"hsla(0, 100%, 50%, 0.3)\") returned ok=false")
+	}
+	assertColor(t, "hsla(0,100%,50%,0.3)", c, 1, 0, 0, 0.3)
+}
+
 func TestParseColor_HexBlue(t *testing.T) {
 	c, ok := parseColor("#0000ff")
 	if !ok {
