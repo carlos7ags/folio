@@ -126,6 +126,14 @@ type Renderer struct {
 	ctxErr error
 }
 
+// marginBoxOrder fixes the drawing order of margin boxes so content-stream
+// bytes and font resource names are deterministic (map iteration order
+// must never reach an output path).
+var marginBoxOrder = [...]string{
+	"top-left", "top-center", "top-right",
+	"bottom-left", "bottom-center", "bottom-right",
+}
+
 // MarginBox holds the content template for a CSS margin box.
 // Content may contain placeholders like {counter(page)} and {counter(pages)}.
 type MarginBox struct {
@@ -263,8 +271,11 @@ func (r *Renderer) drawMarginBoxes(ctx *DrawContext, pageIdx int, margins Margin
 	f := font.Helvetica
 	contentWidth := r.pageWidth - margins.Left - margins.Right
 
-	for name, box := range boxes {
-		box := box
+	for _, name := range marginBoxOrder {
+		box, ok := boxes[name]
+		if !ok {
+			continue
+		}
 		text := box.Content
 		if text == "" {
 			continue
