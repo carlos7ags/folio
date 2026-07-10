@@ -52,6 +52,7 @@ const reportHTML = `<!DOCTYPE html>
       size: A4;
       margin: 0 0 24px 0;
       @bottom-center { content: "Page " counter(page) " of " counter(pages); }
+      @bottom-right { content: "CONFIDENTIAL"; font-size: 7pt; font-style: italic; font-weight: bold; color: #b91c1c; }
     }
     @page :first { @bottom-center { content: ""; } }
     body { font-family: Helvetica, Arial, sans-serif; margin: 0; padding: 0; color: #2d3748; font-size: 10pt; }
