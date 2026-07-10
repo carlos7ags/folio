@@ -16,18 +16,17 @@
 // vehicle for how much a lossless rewrite saves, not a general-purpose
 // PDF optimizer.
 //
-// Encrypted inputs are refused; the standard security handler derives
-// per-object keys from object numbers, and the rewrite renumbers every
-// surviving object. Signed inputs are not rejected but rewriting one
-// invalidates its signature, since the signed byte range no longer
-// exists in the output.
+// Encrypted inputs are refused, even ones that decrypt with an empty
+// password: the standard security handler derives per-object keys from
+// object numbers, and the rewrite renumbers every surviving object.
+// Signed inputs are not rejected but rewriting one invalidates its
+// signature, since the signed byte range no longer exists in the output.
 package optimize
 
 import (
 	"bytes"
 	"errors"
 	"fmt"
-	"strings"
 
 	"github.com/carlos7ags/folio/core"
 	"github.com/carlos7ags/folio/document"
@@ -67,7 +66,8 @@ func (s Stats) SavedPercent() float64 {
 // than the input — if the rewrite does not shrink the file, Bytes
 // returns the original bytes unchanged.
 //
-// Bytes returns ErrEncrypted for encrypted input.
+// Bytes returns ErrEncrypted for encrypted input, including a document
+// that decrypts successfully with an empty password.
 func Bytes(data []byte) ([]byte, Stats, error) {
 	r, err := reader.Parse(data)
 	if err != nil {
@@ -75,6 +75,9 @@ func Bytes(data []byte) ([]byte, Stats, error) {
 			return nil, Stats{}, ErrEncrypted
 		}
 		return nil, Stats{}, fmt.Errorf("optimize: parse: %w", err)
+	}
+	if r.Access() != reader.AccessNone {
+		return nil, Stats{}, ErrEncrypted
 	}
 
 	out, err := rewrite(r)
@@ -161,9 +164,10 @@ func rewrite(r *reader.PdfReader) ([]byte, error) {
 	return buf.Bytes(), nil
 }
 
-// isEncryptedErr reports whether err is the "PDF is encrypted" error
-// reader.Parse returns. The reader package does not export a sentinel
-// for it, so this matches on the message text.
+// isEncryptedErr reports whether err is one of the sentinels
+// reader.Parse returns for an encrypted document it could not open —
+// a wrong password, or a security-handler configuration this library
+// does not implement.
 func isEncryptedErr(err error) bool {
-	return strings.Contains(err.Error(), "encrypted")
+	return errors.Is(err, reader.ErrInvalidPassword) || errors.Is(err, reader.ErrUnsupportedEncryption)
 }

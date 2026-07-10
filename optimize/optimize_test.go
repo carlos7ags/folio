@@ -173,6 +173,33 @@ func TestBytesEncryptedInputRefused(t *testing.T) {
 	}
 }
 
+// TestBytesEncryptedEmptyPasswordRefused confirms Bytes still reports
+// ErrEncrypted for a document that decrypts successfully under the
+// empty password (an owner-password-only PDF, the common "restrict
+// permissions" case) rather than silently stripping its encryption.
+func TestBytesEncryptedEmptyPasswordRefused(t *testing.T) {
+	doc := document.NewDocument(document.PageSizeLetter)
+	doc.SetEncryption(document.EncryptionConfig{
+		Algorithm:     document.EncryptAES256,
+		OwnerPassword: "admin",
+	})
+	doc.Add(layout.NewParagraph("Hello, encrypted world!", font.Helvetica, 12))
+
+	src, err := doc.ToBytes()
+	if err != nil {
+		t.Fatalf("build encrypted source: %v", err)
+	}
+
+	if _, err := reader.Parse(src); err != nil {
+		t.Fatalf("sanity check: reader.Parse should open with empty password, got: %v", err)
+	}
+
+	_, _, err = Bytes(src)
+	if !errors.Is(err, ErrEncrypted) {
+		t.Fatalf("Bytes error = %v, want ErrEncrypted", err)
+	}
+}
+
 // TestBytesInvalidInput confirms malformed input produces a plain
 // parse error, not ErrEncrypted.
 func TestBytesInvalidInput(t *testing.T) {
