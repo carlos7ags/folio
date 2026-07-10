@@ -4,10 +4,20 @@
 package font
 
 import (
+	"sync"
 	"unicode/utf8"
 
 	"github.com/carlos7ags/folio/unicode/grapheme"
 )
+
+// breakBufPool recycles the grapheme-boundary scratch slices used by the
+// MeasureString methods, which run concurrently on shared faces.
+var breakBufPool = sync.Pool{
+	New: func() any {
+		b := make([]int, 0, 32)
+		return &b
+	},
+}
 
 // TextMeasurer measures the width of text for layout purposes.
 type TextMeasurer interface {
@@ -114,7 +124,8 @@ func (f *Standard) MeasureString(text string, fontSize float64) float64 {
 	var prevTail rune // last contributing rune of the previous cluster, for kerning
 	havePrev := false
 
-	breaks := grapheme.Breaks(text)
+	buf := breakBufPool.Get().(*[]int)
+	breaks := grapheme.AppendBreaks((*buf)[:0], text)
 	for i := 0; i+1 < len(breaks); i++ {
 		cluster := text[breaks[i]:breaks[i+1]]
 		// First rune is the cluster base — always contributes advance.
@@ -138,6 +149,8 @@ func (f *Standard) MeasureString(text string, fontSize float64) float64 {
 		prevTail = tail
 		havePrev = true
 	}
+	*buf = breaks
+	breakBufPool.Put(buf)
 
 	// Widths and kern values are in units of 1/1000 of text space.
 	return total / 1000.0 * fontSize
@@ -168,7 +181,8 @@ func (ef *EmbeddedFont) MeasureString(text string, fontSize float64) float64 {
 	var prevTail uint16
 	havePrev := false
 
-	breaks := grapheme.Breaks(text)
+	buf := breakBufPool.Get().(*[]int)
+	breaks := grapheme.AppendBreaks((*buf)[:0], text)
 	for i := 0; i+1 < len(breaks); i++ {
 		cluster := text[breaks[i]:breaks[i+1]]
 		baseRune, baseSize := utf8.DecodeRuneInString(cluster)
@@ -190,6 +204,8 @@ func (ef *EmbeddedFont) MeasureString(text string, fontSize float64) float64 {
 		prevTail = tail
 		havePrev = true
 	}
+	*buf = breaks
+	breakBufPool.Put(buf)
 	return total / float64(upem) * fontSize
 }
 
