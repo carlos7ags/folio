@@ -61,9 +61,13 @@ func folio_form_add_dropdown(formH C.uint64_t, name *C.char, x1, y1, x2, y2 C.do
 	}
 	rect := [4]float64{float64(x1), float64(y1), float64(x2), float64(y2)}
 	n := int(optCount)
+	if n < 0 || n > maxCArrayCount {
+		setLastError(fmt.Sprintf("array count %d out of range [0, %d]", n, maxCArrayCount))
+		return errInvalidArg
+	}
 	goOpts := make([]string, n)
 	if n > 0 && options != nil {
-		cArray := (*[1 << 20]*C.char)(unsafe.Pointer(options))[:n:n]
+		cArray := unsafe.Slice(options, n)
 		for i := 0; i < n; i++ {
 			goOpts[i] = C.GoString(cArray[i])
 		}

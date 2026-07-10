@@ -52,6 +52,9 @@ func folio_grid_set_template_columns(gridH C.uint64_t, types *C.int32_t, values 
 		return errCode
 	}
 	n := int(count)
+	if !checkCArray(unsafe.Pointer(types), n) || !checkCArray(unsafe.Pointer(values), n) {
+		return errInvalidArg
+	}
 	tracks := parseGridTracks(types, values, n)
 	g.SetTemplateColumns(tracks)
 	return errOK
@@ -64,6 +67,9 @@ func folio_grid_set_template_rows(gridH C.uint64_t, types *C.int32_t, values *C.
 		return errCode
 	}
 	n := int(count)
+	if !checkCArray(unsafe.Pointer(types), n) || !checkCArray(unsafe.Pointer(values), n) {
+		return errInvalidArg
+	}
 	tracks := parseGridTracks(types, values, n)
 	g.SetTemplateRows(tracks)
 	return errOK
@@ -76,6 +82,9 @@ func folio_grid_set_auto_rows(gridH C.uint64_t, types *C.int32_t, values *C.doub
 		return errCode
 	}
 	n := int(count)
+	if !checkCArray(unsafe.Pointer(types), n) || !checkCArray(unsafe.Pointer(values), n) {
+		return errInvalidArg
+	}
 	tracks := parseGridTracks(types, values, n)
 	g.SetAutoRows(tracks)
 	return errOK
@@ -192,8 +201,8 @@ func folio_grid_free(gridH C.uint64_t) {
 
 func parseGridTracks(types *C.int32_t, values *C.double, n int) []layout.GridTrack {
 	tracks := make([]layout.GridTrack, n)
-	cTypes := (*[1 << 20]C.int32_t)(unsafe.Pointer(types))[:n:n]
-	cValues := (*[1 << 20]C.double)(unsafe.Pointer(values))[:n:n]
+	cTypes := unsafe.Slice(types, n)
+	cValues := unsafe.Slice(values, n)
 	for i := 0; i < n; i++ {
 		tracks[i] = layout.GridTrack{
 			Type:  layout.GridTrackType(cTypes[i]),

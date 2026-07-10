@@ -17,6 +17,7 @@ package main
 */
 import "C"
 import (
+	"fmt"
 	"sync"
 	"unsafe"
 )
@@ -130,6 +131,24 @@ func setErr(code C.int32_t, err error) C.int32_t {
 		setLastError(err.Error())
 	}
 	return code
+}
+
+// maxCArrayCount caps (pointer, count) array arguments accepted across the
+// C ABI. Counts above this are rejected instead of risking a crash.
+const maxCArrayCount = 1 << 20
+
+// checkCArray validates a (pointer, count) argument pair. On failure it sets
+// the last error and returns false.
+func checkCArray(ptr unsafe.Pointer, n int) bool {
+	if n < 0 || n > maxCArrayCount {
+		setLastError(fmt.Sprintf("array count %d out of range [0, %d]", n, maxCArrayCount))
+		return false
+	}
+	if n > 0 && ptr == nil {
+		setLastError("nil array pointer with non-zero count")
+		return false
+	}
+	return true
 }
 
 // folio_version returns the library version as a C string.

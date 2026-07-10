@@ -20,6 +20,12 @@
  *    The library allocates the buffer; the caller MUST call folio_buffer_free()
  *    when done. The data pointer is valid until folio_buffer_free() is called.
  *
+ * 5. Array arguments (pointer + count): the pointer must reference at least
+ *    `count` elements, valid for the duration of the call; the library reads,
+ *    never retains, them. count must be in [0, 1048576]; larger counts are
+ *    rejected with FOLIO_ERR_ARG (or a 0 handle) and set the last error.
+ *    A NULL pointer with count > 0 is rejected the same way.
+ *
  * ERROR CONVENTION
  * ----------------
  * Functions returning int32_t: 0 = success, negative = error.
