@@ -1,0 +1,18 @@
+== AlignCenter ==
+line 0: width=51.7800 height=14.4000 spaceW=3.3360 isLast=false align=1 spaceBefore=0.0000
+  word 0: "The" w=20.6760 spaceAfter=3.3360 fontSize=12.0000 break=false embedded=false
+  word 1: "quick" w=27.7680 spaceAfter=3.3360 fontSize=12.0000 break=false embedded=false
+line 1: width=51.1200 height=14.4000 spaceW=3.3360 isLast=false align=1 spaceBefore=0.0000
+  word 0: "brown" w=32.4960 spaceAfter=3.3360 fontSize=12.0000 break=false embedded=false
+  word 1: "fox" w=15.2880 spaceAfter=3.3360 fontSize=12.0000 break=false embedded=false
+line 2: width=32.0040 height=14.4000 spaceW=3.3360 isLast=true align=1 spaceBefore=0.0000
+  word 0: "jumps" w=32.0040 spaceAfter=3.3360 fontSize=12.0000 break=false embedded=false
+== AlignRight ==
+line 0: width=51.7800 height=14.4000 spaceW=3.3360 isLast=false align=2 spaceBefore=0.0000
+  word 0: "The" w=20.6760 spaceAfter=3.3360 fontSize=12.0000 break=false embedded=false
+  word 1: "quick" w=27.7680 spaceAfter=3.3360 fontSize=12.0000 break=false embedded=false
+line 1: width=51.1200 height=14.4000 spaceW=3.3360 isLast=false align=2 spaceBefore=0.0000
+  word 0: "brown" w=32.4960 spaceAfter=3.3360 fontSize=12.0000 break=false embedded=false
+  word 1: "fox" w=15.2880 spaceAfter=3.3360 fontSize=12.0000 break=false embedded=false
+line 2: width=32.0040 height=14.4000 spaceW=3.3360 isLast=true align=2 spaceBefore=0.0000
+  word 0: "jumps" w=32.0040 spaceAfter=3.3360 fontSize=12.0000 break=false embedded=false

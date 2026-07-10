@@ -1,0 +1,13 @@
+line 0: width=60.0000 height=14.4000 spaceW=0.0000 isLast=false align=0 spaceBefore=0.0000
+  word 0: "中" w=12.0000 spaceAfter=0.0000 fontSize=12.0000 break=false embedded=true
+  word 1: "华" w=12.0000 spaceAfter=0.0000 fontSize=12.0000 break=false embedded=true
+  word 2: "人" w=12.0000 spaceAfter=0.0000 fontSize=12.0000 break=false embedded=true
+  word 3: "民" w=12.0000 spaceAfter=0.0000 fontSize=12.0000 break=false embedded=true
+  word 4: "共" w=12.0000 spaceAfter=0.0000 fontSize=12.0000 break=false embedded=true
+line 1: width=60.0000 height=14.4000 spaceW=0.0000 isLast=true align=0 spaceBefore=0.0000
+  word 0: "和" w=12.0000 spaceAfter=0.0000 fontSize=12.0000 break=false embedded=true
+  word 1: "国" w=12.0000 spaceAfter=0.0000 fontSize=12.0000 break=false embedded=true
+  word 2: "是" w=12.0000 spaceAfter=0.0000 fontSize=12.0000 break=false embedded=true
+  word 3: "一" w=12.0000 spaceAfter=0.0000 fontSize=12.0000 break=false embedded=true
+  word 4: "个" w=12.0000 spaceAfter=12.0000 fontSize=12.0000 break=false embedded=true
+minWidth=120.0000 maxWidth=132.0000 measureHeight(W)=28.8000 lines(W)=2

@@ -1,0 +1,6 @@
+== head ==
+line 0: width=27.3360 height=14.4000 spaceW=3.3360 isLast=true align=0 spaceBefore=0.0000
+  word 0: "Hello" w=27.3360 spaceAfter=3.3360 fontSize=12.0000 break=false embedded=false
+== tail ==
+line 0: width=31.1520 height=14.4000 spaceW=3.3360 isLast=true align=0 spaceBefore=0.0000
+  word 0: "World" w=31.1520 spaceAfter=3.3360 fontSize=12.0000 break=false embedded=false
