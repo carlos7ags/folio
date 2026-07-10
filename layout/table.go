@@ -826,9 +826,10 @@ func (t *Table) buildGrid(colWidths []float64) []gridRow {
 // is then the total covered height (spanned row heights plus the spacing gaps
 // between them).
 //
-// Note: a rowspan that straddles a page break is not handled — PlanLayout
-// splits between rows without span awareness, so such a cell draws its full
-// height past the page bottom. Tracked as a known limitation (issue #357).
+// Note: PlanLayout keeps a rowspan and every row it covers together as one
+// atomic group when splitting across a page break (issue #362); a group
+// taller than a full page falls back to drawing past the page bottom, same
+// as an oversized plain row.
 func (t *Table) resolveRowspanHeights(grid []gridRow) {
 	sv := t.effectiveSpacingV()
 
@@ -866,6 +867,33 @@ func (t *Table) resolveRowspanHeights(grid []gridRow) {
 			gc.spanHeight = h
 		}
 	}
+}
+
+// spanGroupStarts returns, for each grid row, the index of the first row of
+// the atomic span group containing it. A group is the transitive closure of
+// rowspan coverage: any row covered by a span belongs to the span's starting
+// row's group, and a span starting inside a group extends that group. Rows
+// without span coverage are their own group.
+func spanGroupStarts(grid []gridRow) []int {
+	starts := make([]int, len(grid))
+	i := 0
+	for i < len(grid) {
+		end := i + 1
+		for j := i; j < end; j++ {
+			for _, gc := range grid[j].cells {
+				if gc.cell.rowspan > 1 {
+					if e := min(j+gc.cell.rowspan, len(grid)); e > end {
+						end = e
+					}
+				}
+			}
+		}
+		for j := i; j < end; j++ {
+			starts[j] = i
+		}
+		i = end
+	}
+	return starts
 }
 
 // cellContentHeight computes the height needed for a cell's content.
@@ -952,8 +980,8 @@ func (t *Table) Layout(maxWidth float64) []Line {
 	return lines
 }
 
-// PlanLayout implements Element. Tables split between rows, repeating
-// header rows on each new page.
+// PlanLayout implements Element. Tables split between rows — never inside a
+// rowspan group — repeating header rows on each new page.
 func (t *Table) PlanLayout(area LayoutArea) LayoutPlan {
 	if area.Height <= 0 {
 		return LayoutPlan{Status: LayoutNothing}
@@ -969,6 +997,10 @@ func (t *Table) PlanLayout(area LayoutArea) LayoutPlan {
 	if t.borderCollapse {
 		collapseBorders(grid)
 	}
+
+	// groupStarts[i] is the first row of the rowspan group containing row
+	// i; a split must never land strictly inside a group (issue #362).
+	groupStarts := spanGroupStarts(grid)
 
 	// Identify header rows (at start) and footer rows (at end).
 	var headerHeight float64
@@ -1011,15 +1043,25 @@ func (t *Table) PlanLayout(area LayoutArea) LayoutPlan {
 		// Add vertical spacing before this row.
 		curY += sv
 
-		// Check if this body row fits (reserve space for footer if splitting).
-		needsFooter := footerRowCount > 0 && i > headerRowCount
-		reserveH := 0.0
-		if needsFooter {
-			reserveH = footerHeight
-		}
-		if curY+gr.height+reserveH > area.Height && area.Height > 0 && i > headerRowCount {
-			splitIdx = i
-			break
+		// Check if this row's span group fits (reserve space for footer if
+		// splitting). A row that isn't its group's leader never triggers a
+		// split — the group's space was reserved when the leader was
+		// checked. For a span-free row the group is just the row itself,
+		// so this reduces to the plain per-row check.
+		if groupStarts[i] == i {
+			needsFooter := footerRowCount > 0 && i > headerRowCount
+			reserveH := 0.0
+			if needsFooter {
+				reserveH = footerHeight
+			}
+			groupH := gr.height
+			for k := i + 1; k < len(grid) && groupStarts[k] == i; k++ {
+				groupH += sv + grid[k].height
+			}
+			if curY+groupH+reserveH > area.Height && area.Height > 0 && i > headerRowCount {
+				splitIdx = i
+				break
+			}
 		}
 
 		capturedGrid := grid
