@@ -32,6 +32,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **CSS named colors now resolve to full-precision sRGB values in both `html` and `svg` output** — the two packages each carried an independent 148-entry named-color table stored as rounded decimal literals (3 decimals in `html`, 4 in `svg`), so the same keyword could render to different bytes depending on which package handled it. Both now share one table in `internal/csscolor` that computes each component as `x/255` at full `float64` precision, which changes the emitted bytes for named colors slightly versus the old decimal literals in both packages. `svg` color parsing also now accepts the full CSS color grammar (4/8-digit hex, CSS Color 4 space-separated `rgb()`, and `hsl()`/`hsla()`) that `html` already supported — previously-valid `svg` inputs are unaffected. As part of sharing the parser, malformed `svg` color literals (invalid hex digits, non-numeric `rgb()`/alpha components) are now treated leniently — the bad component defaults to 0 rather than rejecting the whole color, matching how `html` already handled them.
 
+### Fixed
+
+- **`li::marker { content: counter(list-item) }` now numbers list items** — `<li>` implicitly increments the CSS `list-item` counter and `<ul>`/`<ol>` implicitly reset it, per CSS Lists Module 3, so `::marker` content driven by `counter(list-item)` (or `counters(list-item, sep)` for nested lists) resolves correctly instead of always reading `0`. `::marker { font-style: italic }` is also now honored.
+
 ## [0.9.1] - 2026-06-10
 
 A rendering-correctness release across `border-radius` (#329), CSS paged media
