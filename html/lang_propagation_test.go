@@ -147,7 +147,7 @@ func TestLoadFontFacesUsesDocLangForTTC(t *testing.T) {
 
 	loadWith := func(lang string) []byte {
 		c := &converter{
-			opts:          (&Options{}).defaults(),
+			opts:          (&Options{AllowAbsolutePaths: true}).defaults(),
 			logger:        loggerOrDiscard(nil),
 			embeddedFonts: make(map[string]*font.EmbeddedFont),
 		}
@@ -206,7 +206,7 @@ func TestLangPropagationDoesNotBreakFontFaceLoad(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			html := buildSyntheticCJKHTML(abs, tc.lang)
-			result, err := ConvertFull(html, &Options{StrictAssets: true})
+			result, err := ConvertFull(html, &Options{AllowAbsolutePaths: true, StrictAssets: true})
 			if err != nil {
 				t.Fatalf("ConvertFull: %v", err)
 			}

@@ -193,6 +193,46 @@ same standardization touches ~130 internal helper errors across the
 tree; none are exported, so the impact is limited to test fixtures
 that string-matched against the previous messages.
 
+### Remote and absolute-path assets are now opt-in
+
+`html.Convert` / `html.ConvertFull` no longer fetch remote or
+absolute-path assets by default. A document's `http(s)` references
+(`<img>`, `background-image: url()`, linked stylesheets,
+`@font-face url()`) are fetched only when `Options.AllowRemoteFetch` is
+set, and absolute filesystem paths in document content are read only when
+`Options.AllowAbsolutePaths` is set. A blocked reference fails with
+`ErrRemoteFetchDisabled` or `ErrAbsolutePathDenied` — logged, and
+surfaced through the joined error under `StrictAssets`.
+
+When remote fetch is enabled with no `URLPolicy`, the built-in
+`DenyInternalHosts` policy blocks loopback, RFC1918, link-local, and
+non-http(s) targets and is re-checked on every redirect hop. Set
+`URLPolicy` to a function returning nil to allow every host.
+
+```go
+// before — remote images fetched with no filtering
+opts := &html.Options{}
+
+// after — enable remote fetch; internal hosts blocked by default
+opts := &html.Options{AllowRemoteFetch: true}
+
+// after — allow every host, including internal ones
+opts := &html.Options{
+    AllowRemoteFetch: true,
+    URLPolicy:        func(string) error { return nil },
+}
+```
+
+`Options.FallbackFontPath` and the built-in system-font search load
+absolute paths through a separate trusted code path and are unaffected.
+
+A conversion now also enforces an aggregate asset-size budget via the new
+`Options.MaxTotalAssetBytes` (default 512 MiB when 0), covering every
+asset it reads — images, fonts, and stylesheets alike. Documents within
+the default are unaffected; raise it for asset-heavy documents (many
+large embedded fonts) or lower it to tightly bound untrusted input. A
+crossed budget fails the offending load with `ErrAssetBudgetExceeded`.
+
 ### Visual changes
 
 Several v0.8.0 fixes change the visible output of affected documents.

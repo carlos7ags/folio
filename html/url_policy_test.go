@@ -15,6 +15,7 @@ import (
 func TestURLPolicyBlocksImgSrc(t *testing.T) {
 	blocked := false
 	elems, err := Convert(`<img src="http://localhost/photo.jpg"/>`, &Options{
+		AllowRemoteFetch: true,
 		URLPolicy: func(url string) error {
 			blocked = true
 			return fmt.Errorf("blocked")
@@ -41,6 +42,7 @@ func TestURLPolicyBlocksBackgroundImage(t *testing.T) {
 	elems, err := Convert(
 		`<div style="width:100px; height:100px; background-image: url('http://localhost/bg.jpg')">text</div>`,
 		&Options{
+			AllowRemoteFetch: true,
 			URLPolicy: func(url string) error {
 				blocked = true
 				return fmt.Errorf("blocked")
@@ -73,6 +75,7 @@ func TestURLPolicyAllowsWhenNil(t *testing.T) {
 func TestURLPolicyConvertFull(t *testing.T) {
 	blocked := false
 	_, err := ConvertFull(`<img src="http://localhost/photo.jpg"/>`, &Options{
+		AllowRemoteFetch: true,
 		URLPolicy: func(url string) error {
 			blocked = true
 			return fmt.Errorf("blocked")

@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Changed (breaking)
+
+- **`html` no longer fetches remote or absolute-path assets by default** — a document's `http(s)` references (`<img>`, `background-image: url()`, linked stylesheets, `@font-face url()`) are only fetched when `Options.AllowRemoteFetch` is set, and absolute filesystem paths in document content are only read when `Options.AllowAbsolutePaths` is set (both default false). When remote fetch is enabled with no `Options.URLPolicy`, the built-in `html.DenyInternalHosts` policy blocks loopback, RFC1918, link-local, and non-http(s) targets and is re-checked on every redirect hop; absolute-path reads are size-capped like HTTP reads. Set `URLPolicy` to a function returning nil to allow every host. `Options.FallbackFontPath` and the built-in system-font search are unaffected.
+
+### Added
+
+- **`html.Options.AllowRemoteFetch`** — opt-in for fetching `http(s)` assets referenced by the document. Default false.
+- **`html.Options.AllowAbsolutePaths`** — opt-in for reading absolute filesystem paths named in document content when `BaseFS` is nil. Default false; reads are size-capped like the HTTP path.
+- **`html.DenyInternalHosts`** — a `URLPolicy` that blocks non-http(s) schemes and targets resolving to loopback, private (RFC1918 / ULA), link-local, unspecified, or multicast addresses (plus carrier-grade NAT, and IPv4-compatible / NAT64 IPv6 forms that embed such addresses). Applied by default when `AllowRemoteFetch` is true and `URLPolicy` is nil, and re-checked on every redirect hop.
+- **`html.Options.MaxTotalAssetBytes`** — caps the aggregate bytes read across every asset loaded during one conversion (images, fonts, stylesheets — remote, `BaseFS`-relative, and absolute alike). 0 selects a generous 512 MiB default; loads that cross the cap fail with `html.ErrAssetBudgetExceeded`.
+- **`html.ErrRemoteFetchDisabled`** — returned when a document references an `http(s)` asset but `AllowRemoteFetch` is false. Reported normally (logged, and surfaced under `StrictAssets`).
+- **`html.ErrAbsolutePathDenied`** — returned when a document references an absolute filesystem path but `AllowAbsolutePaths` is false. Reported normally.
+- **`html.ErrAssetBudgetExceeded`** — returned when a conversion's aggregate asset read size crosses `Options.MaxTotalAssetBytes`. Reported normally.
+
 ## [0.9.1] - 2026-06-10
 
 A rendering-correctness release across `border-radius` (#329), CSS paged media
