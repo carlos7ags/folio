@@ -1018,6 +1018,45 @@ func TestWatermarkMultiplePages(t *testing.T) {
 	}
 }
 
+func TestDocumentDebugMediaBoxAllPages(t *testing.T) {
+	doc := NewDocument(PageSizeLetter)
+	doc.SetDebugMediaBox([3]float64{0, 1, 0}, 1.5)
+	doc.AddPage()
+	doc.AddPage()
+
+	var buf bytes.Buffer
+	if _, err := doc.WriteTo(&buf); err != nil {
+		t.Fatal(err)
+	}
+	cs := decompressedContentStreams(t, buf.Bytes())
+
+	if got := strings.Count(cs, "0 1 0 RG"); got != 2 {
+		t.Errorf("expected 2 outline stroke colors (one per page), got %d", got)
+	}
+}
+
+func TestDocumentDebugMediaBoxDrawnAfterWatermark(t *testing.T) {
+	doc := NewDocument(PageSizeLetter)
+	doc.SetWatermark("DRAFT")
+	doc.SetDebugMediaBox([3]float64{1, 0, 0}, 1)
+	doc.AddPage()
+
+	var buf bytes.Buffer
+	if _, err := doc.WriteTo(&buf); err != nil {
+		t.Fatal(err)
+	}
+	cs := decompressedContentStreams(t, buf.Bytes())
+
+	wmIdx := strings.Index(cs, "(DRAFT) Tj")
+	outlineIdx := strings.LastIndex(cs, "1 0 0 RG")
+	if wmIdx == -1 || outlineIdx == -1 {
+		t.Fatalf("missing expected operators: watermark=%d outline=%d", wmIdx, outlineIdx)
+	}
+	if outlineIdx < wmIdx {
+		t.Error("debug MediaBox outline must be drawn after (on top of) the watermark")
+	}
+}
+
 func TestPageDefaultSize(t *testing.T) {
 	// Verify that a page without SetSize uses the document's page size.
 	doc := NewDocument(PageSizeLetter)

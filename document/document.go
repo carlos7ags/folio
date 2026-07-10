@@ -87,6 +87,7 @@ type Document struct {
 	headerElem       ElementDecorator
 	footerElem       ElementDecorator
 	watermark        *WatermarkConfig
+	debugMediaBox    *debugMediaBoxConfig
 	encryption       *EncryptionConfig
 	tagged           bool        // if true, produce tagged PDF with structure tree
 	actualText       bool        // if true (default), wrap shaped Arabic words in /ActualText markers
@@ -510,6 +511,12 @@ func (d *Document) buildAllPages(ctx context.Context) (all []*Page, structTags [
 		for _, p := range all {
 			d.applyWatermark(p)
 		}
+	}
+
+	// Apply debug MediaBox outline last so it renders on top of everything,
+	// including the watermark.
+	for _, p := range all {
+		d.applyDebugMediaBox(p)
 	}
 
 	return all, structTags, nil

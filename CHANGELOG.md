@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - **`sign.Verify(pdfBytes []byte, opts sign.VerifyOptions) (*sign.Report, error)`** — offline verification for PDFs signed with `sign.SignPDF`. For each signature it locates the signature dictionary, recomputes the `/ByteRange` digest and checks it against the CMS `messageDigest` signed attribute, verifies the CMS signature (RSA PKCS#1 v1.5 or ECDSA) over the signed attributes, checks that `/ByteRange` covers the whole file except the `/Contents` hex string, and — when `VerifyOptions.Roots` is supplied — builds a certificate chain. `sign.Report.Signatures` reports each check independently (`DigestValid`, `SignatureValid`, `ByteRangeCoversFile`, `ChainStatus`) so partial validity is never conflated with full validity. Revocation fetching, timestamp-token and `/DSS` content validation, and PAdES level classification are out of scope; presence of a timestamp token or `/DSS` is reported but not validated.
+- **`document.Page.SetDebugMediaBox` / `document.Document.SetDebugMediaBox`** — strokes a rectangle around a page's true MediaBox for visual layout debugging (#376). Drawn last, on top of all other page content including the watermark. A page-level call overrides the document-wide default for that page.
 
 ### Changed (breaking)
 
@@ -35,6 +36,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - **`li::marker { content: counter(list-item) }` now numbers list items** — `<li>` implicitly increments the CSS `list-item` counter and `<ul>`/`<ol>` implicitly reset it, per CSS Lists Module 3, so `::marker` content driven by `counter(list-item)` (or `counters(list-item, sep)` for nested lists) resolves correctly instead of always reading `0`. `::marker { font-style: italic }` is also now honored.
+- **`@page` margin boxes (`@top-*`/`@bottom-*`) now honor `font-style`, `font-weight`, and `font-family`** — previously only `font-size` and `color` were applied to generated margin-box content; `font-style: italic` and similar declarations were silently dropped (#378).
 
 ## [0.9.1] - 2026-06-10
 
