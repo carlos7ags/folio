@@ -8592,7 +8592,7 @@ func TestBackgroundImageHTTPURL(t *testing.T) {
 		`<div style="background-image: url('%s/bg.png'); width: 100px; height: 100px;"><p>Hello</p></div>`,
 		srv.URL,
 	)
-	elems, err := Convert(htmlStr, nil)
+	elems, err := Convert(htmlStr, &Options{AllowRemoteFetch: true, URLPolicy: allowAllURLs})
 	if err != nil {
 		t.Fatal(err)
 	}

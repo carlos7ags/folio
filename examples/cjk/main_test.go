@@ -53,7 +53,7 @@ func TestCJKExampleProducesValidPDF(t *testing.T) {
 	}
 
 	htmlStr := buildHTML(ttcPath)
-	result, err := html.ConvertFull(htmlStr, nil)
+	result, err := html.ConvertFull(htmlStr, &html.Options{AllowAbsolutePaths: true})
 	if err != nil {
 		t.Fatalf("html.ConvertFull: %v", err)
 	}

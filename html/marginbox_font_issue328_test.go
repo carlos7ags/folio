@@ -79,7 +79,7 @@ func TestIssue328MarginBoxResolvedFontEncodesRealGlyphs(t *testing.T) {
 	// 中华国 are codepoints the fixture covers → GIDs 1, 2, 7.
 	const content = "中华国"
 
-	result, err := ConvertFull(marginFontHTML(fontPath, content, content), &Options{StrictAssets: true})
+	result, err := ConvertFull(marginFontHTML(fontPath, content, content), &Options{AllowAbsolutePaths: true, StrictAssets: true})
 	if err != nil {
 		t.Fatalf("ConvertFull: %v", err)
 	}
@@ -110,7 +110,7 @@ func TestIssue328MarginBoxResolvedFontEncodesRealGlyphs(t *testing.T) {
 func TestIssue328MarginBoxAsciiIsNotdefInCJKFixture(t *testing.T) {
 	fontPath := resolveCJKFixture(t)
 
-	result, err := ConvertFull(marginFontHTML(fontPath, "Page 1", "Page 1"), &Options{StrictAssets: true})
+	result, err := ConvertFull(marginFontHTML(fontPath, "Page 1", "Page 1"), &Options{AllowAbsolutePaths: true, StrictAssets: true})
 	if err != nil {
 		t.Fatalf("ConvertFull: %v", err)
 	}
@@ -133,7 +133,7 @@ func TestIssue328MarginBoxAsciiIsNotdefInCJKFixture(t *testing.T) {
 // fresh/independent font (or Helvetica) would break this identity.
 func TestIssue328MarginBoxInheritsBodyFontInstance(t *testing.T) {
 	fontPath := resolveCJKFixture(t)
-	result, err := ConvertFull(marginFontHTML(fontPath, "中", "中"), &Options{StrictAssets: true})
+	result, err := ConvertFull(marginFontHTML(fontPath, "中", "中"), &Options{AllowAbsolutePaths: true, StrictAssets: true})
 	if err != nil {
 		t.Fatalf("ConvertFull: %v", err)
 	}
@@ -163,7 +163,7 @@ body { font-family: 'Synth'; font-size: 14px; }
 @page :first { @bottom-center { content: "中"; } }
 </style></head><body><p>中华人民共和国</p></body></html>`
 
-	result, err := ConvertFull(htmlStr, &Options{StrictAssets: true})
+	result, err := ConvertFull(htmlStr, &Options{AllowAbsolutePaths: true, StrictAssets: true})
 	if err != nil {
 		t.Fatalf("ConvertFull: %v", err)
 	}
@@ -194,7 +194,7 @@ body { font-family: 'Synth'; font-size: 14px; }
 // right-aligned footer against the right margin regardless of length.
 func TestIssue328MarginBoxEmbeddedMeasureNonZero(t *testing.T) {
 	fontPath := resolveCJKFixture(t)
-	result, err := ConvertFull(marginFontHTML(fontPath, "中", "中华国"), &Options{StrictAssets: true})
+	result, err := ConvertFull(marginFontHTML(fontPath, "中", "中华国"), &Options{AllowAbsolutePaths: true, StrictAssets: true})
 	if err != nil {
 		t.Fatalf("ConvertFull: %v", err)
 	}

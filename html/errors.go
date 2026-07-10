@@ -134,6 +134,26 @@ func formatAssetError(category string, err error, attrs []any) error {
 // Use with errors.Is to test the cause.
 var ErrURLPolicyDenied = errors.New("html: URL fetch blocked by URLPolicy")
 
+// ErrRemoteFetchDisabled is returned when the document references an
+// http(s) asset but Options.AllowRemoteFetch is false. Unlike an
+// ErrURLPolicyDenied, it is reported normally — logged via Options.Logger
+// and, under Options.StrictAssets, added to the joined return-error — so
+// callers discover why the asset did not load. Use with errors.Is.
+var ErrRemoteFetchDisabled = errors.New("html: remote fetch disabled (set Options.AllowRemoteFetch)")
+
+// ErrAbsolutePathDenied is returned when the document references an
+// absolute filesystem path but Options.AllowAbsolutePaths is false.
+// Programmatic paths (Options.FallbackFontPath, system-font search) are
+// not affected. Reported normally, like ErrRemoteFetchDisabled. Use with
+// errors.Is.
+var ErrAbsolutePathDenied = errors.New("html: absolute filesystem path denied (set Options.AllowAbsolutePaths)")
+
+// ErrAssetBudgetExceeded is returned when a conversion's aggregate asset
+// read size crosses Options.MaxTotalAssetBytes. The offending load and any
+// later ones fail with it. Reported normally (logged, and surfaced under
+// StrictAssets). Use with errors.Is.
+var ErrAssetBudgetExceeded = errors.New("html: total asset byte budget exceeded")
+
 // LimitKind identifies which resource ceiling a LimitError reports.
 type LimitKind int
 

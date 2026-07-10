@@ -84,7 +84,7 @@ type cssDecl struct {
 // (10MB HTTP cap matching the historical CSS fetch limit). onLoadError, if
 // non-nil, is invoked for stylesheet loads that fail (used to surface the
 // failure to Options.Logger without aborting the conversion).
-func parseStyleBlocks(doc *html.Node, opts Options, onLoadError func(href string, err error)) *styleSheet {
+func parseStyleBlocks(doc *html.Node, opts Options, budget *assetBudget, onLoadError func(href string, err error)) *styleSheet {
 	ss := &styleSheet{}
 
 	// First pass: collect <link rel="stylesheet"> elements and load them.
@@ -102,7 +102,7 @@ func parseStyleBlocks(doc *html.Node, opts Options, onLoadError func(href string
 				}
 			}
 			if rel == "stylesheet" && href != "" {
-				data, err := resolveLocalAsset(opts, opts.URLPolicy, "", href, 10<<20)
+				data, err := resolveLocalAsset(opts, opts.URLPolicy, budget, "", href, 10<<20)
 				if err == nil {
 					ss.parseCSS(string(data), href)
 				} else if onLoadError != nil {
