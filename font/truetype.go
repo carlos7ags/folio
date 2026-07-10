@@ -25,6 +25,14 @@ type sfntFace struct {
 	pf      *parsedFont
 	rawData []byte
 
+	// Descriptor metrics decoded once at construction (immutable after
+	// ParseTTF): italicAngle and fixedPitch from the raw post table,
+	// stemV and serif from the raw OS/2 table.
+	italicAngle float64
+	stemV       int
+	fixedPitch  bool
+	serif       bool
+
 	// Cached GSUB substitution tables. gsubOnce guards the single parse,
 	// covering both "parsed and empty" (gsubResult nil) and populated.
 	gsubResult *GSUBSubstitutions
@@ -58,10 +66,59 @@ func ParseTTF(data []byte) (Face, error) {
 	if err != nil {
 		return nil, fmt.Errorf("font: parse font: %w", err)
 	}
+	post := pf.rawTables["post"]
+	os2 := pf.rawTables["OS/2"]
 	return &sfntFace{
-		pf:      pf,
-		rawData: data,
+		pf:          pf,
+		rawData:     data,
+		italicAngle: postItalicAngle(post),
+		stemV:       os2StemV(os2),
+		fixedPitch:  postIsFixedPitch(post),
+		serif:       os2IsSerif(os2),
 	}, nil
+}
+
+// postItalicAngle parses the post table's Fixed 16.16 italic angle
+// field at offset 4. Returns 0 if post is missing or too short.
+func postItalicAngle(post []byte) float64 {
+	if len(post) < 8 {
+		return 0
+	}
+	raw := binary.BigEndian.Uint32(post[4:8])
+	intPart := int16(raw >> 16)
+	fracPart := float64(raw&0xFFFF) / 65536.0
+	return float64(intPart) + fracPart
+}
+
+// postIsFixedPitch checks the post table isFixedPitch field (offset 12).
+func postIsFixedPitch(post []byte) bool {
+	if len(post) < 16 {
+		return false
+	}
+	return binary.BigEndian.Uint32(post[12:16]) != 0
+}
+
+// os2StemV derives the dominant vertical stem width from the OS/2
+// usWeightClass using the formula 10 + 220*(weightClass-50)/900,
+// clamped to a minimum of 10. Returns 80 as a fallback if OS/2 is
+// missing.
+func os2StemV(os2 []byte) int {
+	if len(os2) < 6 {
+		return 80
+	}
+	weightClass := int(binary.BigEndian.Uint16(os2[4:6]))
+	stemV := int(math.Round(10 + 220*float64(weightClass-50)/900))
+	return max(stemV, 10)
+}
+
+// os2IsSerif checks the OS/2 sFamilyClass field (offset 30-31).
+// Family classes 1-5 and 7 indicate serif fonts.
+func os2IsSerif(os2 []byte) bool {
+	if len(os2) < 32 {
+		return false
+	}
+	class := int(int16(binary.BigEndian.Uint16(os2[30:32]))) >> 8 // high byte is class ID
+	return class >= 1 && class <= 5 || class == 7
 }
 
 // LoadTTF reads and parses a TrueType font file from disk.
@@ -149,18 +206,11 @@ func (f *sfntFace) BBox() [4]int {
 	}
 }
 
-// ItalicAngle returns the italic angle by parsing the post table's
-// Fixed 16.16 field at offset 4. Returns 0 if the post table is
-// missing or too short.
+// ItalicAngle returns the italic angle, decoded at construction from
+// the post table's Fixed 16.16 field at offset 4 (0 if post was
+// missing or too short).
 func (f *sfntFace) ItalicAngle() float64 {
-	post, ok := f.pf.rawTables["post"]
-	if !ok || len(post) < 8 {
-		return 0
-	}
-	raw := binary.BigEndian.Uint32(post[4:8])
-	intPart := int16(raw >> 16)
-	fracPart := float64(raw&0xFFFF) / 65536.0
-	return float64(intPart) + fracPart
+	return f.italicAngle
 }
 
 // CapHeight returns the cap height from the OS/2 table. Requires
@@ -172,18 +222,12 @@ func (f *sfntFace) CapHeight() int {
 	return int(f.pf.os2.sCapHeight)
 }
 
-// StemV derives the dominant vertical stem width from the OS/2
-// usWeightClass using the formula 10 + 220*(weightClass-50)/900,
-// clamped to a minimum of 10. Returns 80 as a fallback if the OS/2
-// table is missing.
+// StemV returns the dominant vertical stem width, decoded at
+// construction from the OS/2 usWeightClass using the formula
+// 10 + 220*(weightClass-50)/900, clamped to a minimum of 10 (80 as a
+// fallback if OS/2 was missing).
 func (f *sfntFace) StemV() int {
-	os2, ok := f.pf.rawTables["OS/2"]
-	if !ok || len(os2) < 6 {
-		return 80
-	}
-	weightClass := int(binary.BigEndian.Uint16(os2[4:6]))
-	stemV := int(math.Round(10 + 220*float64(weightClass-50)/900))
-	return max(stemV, 10)
+	return f.stemV
 }
 
 // Kern returns the kerning adjustment between two glyphs. GPOS
@@ -240,24 +284,16 @@ func (f *sfntFace) Flags() uint32 {
 	return flags
 }
 
-// isFixedPitch checks the post table isFixedPitch field (offset 12).
+// isFixedPitch reports the post table isFixedPitch field, decoded at
+// construction.
 func (f *sfntFace) isFixedPitch() bool {
-	post, ok := f.pf.rawTables["post"]
-	if !ok || len(post) < 16 {
-		return false
-	}
-	return binary.BigEndian.Uint32(post[12:16]) != 0
+	return f.fixedPitch
 }
 
-// isSerif checks the OS/2 sFamilyClass field (offset 30-31).
-// Family classes 1-5 and 7 indicate serif fonts.
+// isSerif reports the OS/2 sFamilyClass classification, decoded at
+// construction.
 func (f *sfntFace) isSerif() bool {
-	os2, ok := f.pf.rawTables["OS/2"]
-	if !ok || len(os2) < 32 {
-		return false
-	}
-	class := int(int16(binary.BigEndian.Uint16(os2[30:32]))) >> 8 // high byte is class ID
-	return class >= 1 && class <= 5 || class == 7
+	return f.serif
 }
 
 // isItalicFromOS2 checks OS/2 fsSelection bit 0 (Italic).
