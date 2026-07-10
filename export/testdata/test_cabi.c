@@ -57,6 +57,13 @@ int main(void) {
     int32_t len = folio_buffer_len(buf);
     ASSERT(len > 0, "buffer has data");
 
+    int64_t len64 = folio_buffer_len64(buf);
+    ASSERT(len64 > 0, "buffer_len64 has data");
+    ASSERT(len64 == (int64_t)len, "buffer_len64 matches buffer_len for small buffer");
+
+    /* invalid handle returns 0 for both variants */
+    ASSERT(folio_buffer_len64(0xDEADBEEF) == 0, "buffer_len64 invalid handle is 0");
+
     void* data = folio_buffer_data(buf);
     ASSERT(data != NULL, "buffer data is non-null");
     ASSERT(memcmp(data, "%PDF-1.7", 8) == 0, "buffer starts with PDF header");
