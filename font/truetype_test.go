@@ -226,6 +226,94 @@ func TestStemV(t *testing.T) {
 	}
 }
 
+func TestPostItalicAngle(t *testing.T) {
+	tests := []struct {
+		name string
+		post []byte
+		want float64
+	}{
+		{"nil", nil, 0},
+		{"too short", make([]byte, 7), 0},
+		{"zero angle", make([]byte, 8), 0},
+		{"-12.5 degrees", []byte{0, 0, 0, 0, 0xFF, 0xF3, 0x80, 0x00}, -12.5},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := postItalicAngle(tt.post); got != tt.want {
+				t.Errorf("postItalicAngle(%v) = %f, want %f", tt.post, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestPostIsFixedPitch(t *testing.T) {
+	nonZero := make([]byte, 16)
+	nonZero[12] = 1
+	tests := []struct {
+		name string
+		post []byte
+		want bool
+	}{
+		{"nil", nil, false},
+		{"zero", make([]byte, 16), false},
+		{"nonzero", nonZero, true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := postIsFixedPitch(tt.post); got != tt.want {
+				t.Errorf("postIsFixedPitch(%v) = %v, want %v", tt.post, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestOS2StemV(t *testing.T) {
+	tests := []struct {
+		name string
+		os2  []byte
+		want int
+	}{
+		{"nil", nil, 80},
+		{"too short", make([]byte, 5), 80},
+		{"weight 400", []byte{0, 0, 0, 0, 0x01, 0x90}, 96},
+		{"weight 0 clamps to 10", make([]byte, 6), 10},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := os2StemV(tt.os2); got != tt.want {
+				t.Errorf("os2StemV(%v) = %d, want %d", tt.os2, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestOS2IsSerif(t *testing.T) {
+	classBytes := func(class byte) []byte {
+		b := make([]byte, 32)
+		b[30] = class
+		return b
+	}
+	tests := []struct {
+		name string
+		os2  []byte
+		want bool
+	}{
+		{"nil", nil, false},
+		{"class 1", classBytes(1), true},
+		{"class 5", classBytes(5), true},
+		{"class 7", classBytes(7), true},
+		{"class 8", classBytes(8), false},
+		{"class 0", classBytes(0), false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := os2IsSerif(tt.os2); got != tt.want {
+				t.Errorf("os2IsSerif(%v) = %v, want %v", tt.os2, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestFaceInterface(t *testing.T) {
 	// Verify sfntFace implements Face at compile time
 	face := loadTestFace(t)
