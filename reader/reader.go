@@ -125,7 +125,7 @@ func ParseWithOptions(data []byte, opts ReadOptions) (*PdfReader, error) {
 	}
 
 	// Parse xref table and trailer.
-	xref, err := parseXrefTable(data)
+	xref, err := parseXrefTable(data, opts.MemoryLimits.effectiveMaxXrefSize())
 	if err != nil {
 		// Tolerant mode: try to repair xref by scanning for objects.
 		if opts.Strictness == StrictnessTolerant {
