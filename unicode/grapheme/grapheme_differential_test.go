@@ -21,7 +21,7 @@ func TestNextBreakMatchesBreaks(t *testing.T) {
 		"éf",
 		"काख",
 		"\U0001F1FA\U0001F1F8\U0001F1E9\U0001F1EA",
-		"\U0001F469‍\U0001F4BB",
+		"\U0001F469\u200d\U0001F4BB",
 		"؀٢",
 		"ﺍﻠ",
 		strings.Repeat("x", 65), // cross the ASCII fast path in Breaks
