@@ -439,6 +439,8 @@ func decompressStreamWithLimit(data []byte, dict *core.PdfDictionary, maxBytes i
 func applyPredictor(data []byte, parms *core.PdfDictionary) ([]byte, error) {
 	predictor := 1
 	columns := 1
+	colors := 1
+	bpc := 8
 
 	if p := parms.Get("Predictor"); p != nil {
 		if num, ok := p.(*core.PdfNumber); ok {
@@ -450,14 +452,41 @@ func applyPredictor(data []byte, parms *core.PdfDictionary) ([]byte, error) {
 			columns = num.IntValue()
 		}
 	}
+	if c := parms.Get("Colors"); c != nil {
+		if num, ok := c.(*core.PdfNumber); ok {
+			colors = num.IntValue()
+		}
+	}
+	if b := parms.Get("BitsPerComponent"); b != nil {
+		if num, ok := b.(*core.PdfNumber); ok {
+			bpc = num.IntValue()
+		}
+	}
 
 	if predictor == 1 {
 		return data, nil // no prediction
 	}
 
+	// Sanitize hostile /Colors and /BitsPerComponent values.
+	if colors < 1 {
+		colors = 1
+	}
+	switch bpc {
+	case 1, 2, 4, 8, 16:
+	default:
+		bpc = 8
+	}
+
 	if predictor >= 10 && predictor <= 15 {
-		// PNG prediction: each row has a filter byte followed by `columns` data bytes.
-		return decodePNGPredictor(data, columns)
+		// PNG prediction: /Columns is samples per row, each sample is
+		// `colors` components of `bpc` bits. Guard against overflow from
+		// a hostile /Columns before computing the row stride.
+		if columns < 0 || colors > 64 || columns > (1<<28) {
+			return data, nil
+		}
+		bpp := (colors*bpc + 7) / 8
+		rowBytes := (columns*colors*bpc + 7) / 8
+		return decodePNGPredictor(data, rowBytes, bpp)
 	}
 
 	// TIFF predictor (2) or unknown — return as-is.
@@ -465,16 +494,23 @@ func applyPredictor(data []byte, parms *core.PdfDictionary) ([]byte, error) {
 }
 
 // decodePNGPredictor reverses PNG row filtering.
-// Each row is (1 + columns) bytes: filter_byte + data_bytes.
-func decodePNGPredictor(data []byte, columns int) ([]byte, error) {
-	rowSize := columns + 1 // filter byte + data
+// Each row is (1 + rowBytes) bytes: filter_byte + data_bytes. The left
+// neighbor for filtering is bpp bytes back (bytes per pixel/sample).
+func decodePNGPredictor(data []byte, rowBytes, bpp int) ([]byte, error) {
+	rowSize := rowBytes + 1 // filter byte + data
 	if rowSize <= 1 || len(data) == 0 {
 		return data, nil
 	}
-	// Bound columns: if a single row exceeds the data, the predictor
+	// Bound rowBytes: if a single row exceeds the data, the predictor
 	// cannot apply. This prevents allocation DoS from malicious /Columns.
 	if rowSize > len(data) {
 		return data, nil
+	}
+	if bpp < 1 {
+		bpp = 1
+	}
+	if bpp > rowBytes {
+		bpp = rowBytes
 	}
 
 	nRows := len(data) / rowSize
@@ -483,7 +519,7 @@ func decodePNGPredictor(data []byte, columns int) ([]byte, error) {
 	}
 
 	var result []byte
-	prevRow := make([]byte, columns)
+	prevRow := make([]byte, rowBytes)
 
 	for row := range nRows {
 		offset := row * rowSize
@@ -491,39 +527,37 @@ func decodePNGPredictor(data []byte, columns int) ([]byte, error) {
 			break
 		}
 		filterType := data[offset]
-		rowData := make([]byte, columns)
+		rowData := make([]byte, rowBytes)
 		copy(rowData, data[offset+1:min(offset+rowSize, len(data))])
 
 		switch filterType {
 		case 0: // None
 			// rowData is already correct.
 		case 1: // Sub
-			for i := 1; i < columns; i++ {
-				rowData[i] += rowData[i-1]
+			for i := bpp; i < rowBytes; i++ {
+				rowData[i] += rowData[i-bpp]
 			}
 		case 2: // Up
-			for i := range columns {
+			for i := range rowBytes {
 				rowData[i] += prevRow[i]
 			}
 		case 3: // Average
-			for i := range columns {
+			for i := range rowBytes {
 				left := byte(0)
-				if i > 0 {
-					left = rowData[i-1]
+				if i >= bpp {
+					left = rowData[i-bpp]
 				}
 				rowData[i] += byte((int(left) + int(prevRow[i])) / 2)
 			}
 		case 4: // Paeth
-			for i := range columns {
+			for i := range rowBytes {
 				left := byte(0)
-				if i > 0 {
-					left = rowData[i-1]
+				upLeft := byte(0)
+				if i >= bpp {
+					left = rowData[i-bpp]
+					upLeft = prevRow[i-bpp]
 				}
 				up := prevRow[i]
-				upLeft := byte(0)
-				if i > 0 {
-					upLeft = prevRow[i-1]
-				}
 				rowData[i] += paethPredictor(left, up, upLeft)
 			}
 		}
