@@ -247,7 +247,7 @@ func (c *converter) addCSSTableCell(tbl *layout.Table, row *layout.Row, cell *ht
 		// to avoid a square-cornered overdraw (issue #329).
 		clearCellParagraphBackground(layoutCell, *cellStyle.BackgroundColor)
 	}
-	if cellStyle.hasBorder() {
+	if cellHasBorderDeclaration(cellStyle) {
 		layoutCell.SetBorders(buildCellBorders(cellStyle))
 	}
 	if !tbl.BorderCollapse() {
@@ -260,6 +260,17 @@ func (c *converter) addCSSTableCell(tbl *layout.Table, row *layout.Row, cell *ht
 			layoutCell.SetBorderRadius(cellStyle.BorderRadius)
 		}
 	}
+}
+
+// cellHasBorderDeclaration reports whether style declares any border a
+// table cell needs to pass to buildCellBorders — hasBorder()'s width>0
+// check plus border-style: hidden, which folio always zeros the computed
+// width for (see parseBorderFull) but which must still reach the
+// border-collapse conflict resolver as a distinct, always-winning value.
+func cellHasBorderDeclaration(style computedStyle) bool {
+	return style.hasBorder() ||
+		style.BorderTopStyle == "hidden" || style.BorderRightStyle == "hidden" ||
+		style.BorderBottomStyle == "hidden" || style.BorderLeftStyle == "hidden"
 }
 
 // parseColWidth extracts the width from a <col> element, respecting the span attribute.
@@ -426,7 +437,7 @@ func (c *converter) convertTableRowKind(n *html.Node, tbl *layout.Table, parentS
 
 		// Cell borders: prefer per-cell CSS borders, fall back to table border,
 		// or remove default borders if table has no border.
-		if cellStyle.hasBorder() {
+		if cellHasBorderDeclaration(cellStyle) {
 			cell.SetBorders(buildCellBorders(cellStyle))
 		} else if borderWidth > 0 {
 			cell.SetBorders(layout.AllBorders(layout.SolidBorder(borderWidth, layout.ColorBlack)))

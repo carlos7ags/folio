@@ -8405,6 +8405,32 @@ func TestConvertTableBorderSpacing(t *testing.T) {
 	_ = totalW
 }
 
+// TestConvertTableCellBorderStyleHiddenOnly covers a <td> that declares
+// only border-style: hidden (no width, no other side). hasBorder()'s
+// width>0 check alone would miss this — the border-collapse resolver
+// needs "hidden" to reach buildCellBorders as a distinguishable value
+// (see cellHasBorderDeclaration) rather than being treated the same as no
+// border at all. This test only guards against a crash in the full
+// pipeline; the hidden-always-wins conflict rule itself is exercised in
+// layout/bordercollapse_test.go and html/issue378_bordercollapse_test.go.
+func TestConvertTableCellBorderStyleHiddenOnly(t *testing.T) {
+	src := `<table style="border-collapse: collapse">
+<tr><td style="border-style: hidden">A</td><td>B</td></tr>
+</table>`
+	elems, err := Convert(src, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := layout.NewRenderer(612, 792, layout.Margins{Top: 72, Right: 72, Bottom: 72, Left: 72})
+	for _, e := range elems {
+		r.Add(e)
+	}
+	pages := r.Render()
+	if len(pages) == 0 {
+		t.Fatal("expected at least 1 page")
+	}
+}
+
 func TestConvertTableBorderSpacingTwoValues(t *testing.T) {
 	// Two-value border-spacing: horizontal vertical.
 	html := `<table style="border-collapse: separate; border-spacing: 5px 10px">

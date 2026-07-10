@@ -36,6 +36,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **`border-collapse: collapse` now resolves competing borders on shared cell edges per CSS 2.1 §17.6.2** (width, then style priority, then source order; `border-style: hidden` always wins regardless of width) — previously the collapse code only suppressed duplicate borders by cell position, so a narrower or undeclared border on one side of a shared edge could silently win over a wider, explicitly declared border on the other (#378).
 - **`li::marker { content: counter(list-item) }` now numbers list items** — `<li>` implicitly increments the CSS `list-item` counter and `<ul>`/`<ol>` implicitly reset it, per CSS Lists Module 3, so `::marker` content driven by `counter(list-item)` (or `counters(list-item, sep)` for nested lists) resolves correctly instead of always reading `0`. `::marker { font-style: italic }` is also now honored.
 - **`@page` margin boxes (`@top-*`/`@bottom-*`) now honor `font-style`, `font-weight`, and `font-family`** — previously only `font-size` and `color` were applied to generated margin-box content; `font-style: italic` and similar declarations were silently dropped (#378).
 
