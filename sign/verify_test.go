@@ -6,154 +6,11 @@ package sign
 import (
 	"bytes"
 	"crypto"
-	"crypto/ecdsa"
-	"crypto/rsa"
-	"crypto/sha256"
 	"crypto/x509"
 	"encoding/asn1"
-	"encoding/hex"
-	"errors"
-	"fmt"
-	"strconv"
 	"testing"
 	"time"
 )
-
-// parsedCMS holds the pieces of a CMS SignedData needed for verification.
-type parsedCMS struct {
-	cert           *x509.Certificate // first certificate in SignedData
-	signerInfo     signerInfo
-	signedAttrsSet []byte // SET OF encoding, i.e. what was hashed and signed
-	messageDigest  []byte // value of the messageDigest signed attribute
-}
-
-// parseCMS parses a CMS SignedData blob back into the parts needed to check
-// it cryptographically, reusing the ASN.1 structs buildCMS uses to build it.
-func parseCMS(t *testing.T, der []byte) parsedCMS {
-	t.Helper()
-
-	var ci contentInfo
-	if _, err := asn1.Unmarshal(der, &ci); err != nil {
-		t.Fatalf("unmarshal ContentInfo: %v", err)
-	}
-	if !ci.ContentType.Equal(oidSignedData) {
-		t.Fatalf("ContentType = %v, want %v", ci.ContentType, oidSignedData)
-	}
-
-	var sd signedData
-	if _, err := asn1.Unmarshal(ci.Content.Bytes, &sd); err != nil {
-		t.Fatalf("unmarshal SignedData: %v", err)
-	}
-
-	// Certificates.Bytes is the concatenated certificate DER; parsing
-	// consumes the first certificate.
-	cert, err := x509.ParseCertificate(sd.Certificates.Bytes)
-	if err != nil {
-		t.Fatalf("parse certificate: %v", err)
-	}
-
-	var si signerInfo
-	if _, err := asn1.Unmarshal(stripTag(sd.SignerInfos.FullBytes), &si); err != nil {
-		t.Fatalf("unmarshal SignerInfo: %v", err)
-	}
-
-	// SignedAttrs.Bytes is the implicit-tagged content; re-wrap it as a
-	// universal SET to reconstruct what was actually hashed and signed.
-	signedAttrsSet := marshalSet(si.SignedAttrs.Bytes)
-
-	var messageDigest []byte
-	rest := si.SignedAttrs.Bytes
-	for len(rest) > 0 {
-		var attr attribute
-		rest, err = asn1.Unmarshal(rest, &attr)
-		if err != nil {
-			t.Fatalf("unmarshal signed attribute: %v", err)
-		}
-		if !attr.Type.Equal(oidMessageDigest) {
-			continue
-		}
-		var raw asn1.RawValue
-		if _, err := asn1.Unmarshal(attr.Values.Bytes, &raw); err != nil {
-			t.Fatalf("unmarshal messageDigest value: %v", err)
-		}
-		if raw.Tag != asn1.TagOctetString {
-			t.Fatalf("messageDigest tag = %d, want OCTET STRING", raw.Tag)
-		}
-		messageDigest = raw.Bytes
-	}
-	if messageDigest == nil {
-		t.Fatal("messageDigest attribute not found")
-	}
-
-	return parsedCMS{
-		cert:           cert,
-		signerInfo:     si,
-		signedAttrsSet: signedAttrsSet,
-		messageDigest:  messageDigest,
-	}
-}
-
-// verifySignature checks the CMS signature over the signed-attributes SET
-// using the certificate's public key. NewLocalSigner always selects SHA-256.
-func verifySignature(t *testing.T, p parsedCMS) error {
-	t.Helper()
-
-	h := sha256.Sum256(p.signedAttrsSet)
-	switch pub := p.cert.PublicKey.(type) {
-	case *rsa.PublicKey:
-		return rsa.VerifyPKCS1v15(pub, crypto.SHA256, h[:], p.signerInfo.Signature)
-	case *ecdsa.PublicKey:
-		if !ecdsa.VerifyASN1(pub, h[:], p.signerInfo.Signature) {
-			return errors.New("ecdsa signature verification failed")
-		}
-		return nil
-	default:
-		return fmt.Errorf("unsupported public key type %T", pub)
-	}
-}
-
-// extractByteRange reads the four fixed-width /ByteRange integers that
-// patchByteRange writes into a signed PDF.
-func extractByteRange(t *testing.T, signed []byte) [4]int {
-	t.Helper()
-
-	marker := []byte("/ByteRange [")
-	idx := bytes.Index(signed, marker)
-	if idx < 0 {
-		t.Fatal("signed PDF missing /ByteRange")
-	}
-
-	pos := idx + len(marker)
-	var br [4]int
-	for i := range br {
-		n, err := strconv.Atoi(string(signed[pos : pos+byteRangeWidth]))
-		if err != nil {
-			t.Fatalf("parse ByteRange[%d]: %v", i, err)
-		}
-		br[i] = n
-		pos += byteRangeWidth + 1 // skip the separating space or trailing ]
-	}
-	return br
-}
-
-// extractContents hex-decodes the /Contents value (CMS DER plus zero
-// padding) from a signed PDF.
-func extractContents(t *testing.T, signed []byte) []byte {
-	t.Helper()
-
-	marker := []byte("/Contents <")
-	idx := bytes.Index(signed, marker)
-	if idx < 0 {
-		t.Fatal("signed PDF missing /Contents")
-	}
-
-	start := idx + len(marker)
-	raw, err := hex.DecodeString(string(signed[start : start+contentsPlaceholderLen]))
-	if err != nil {
-		t.Fatalf("decode /Contents hex: %v", err)
-	}
-	return raw
-}
 
 // keyGen produces a private key and matching self-signed certificate for a
 // signature algorithm exercised by the tests below.
@@ -173,6 +30,22 @@ var testKeyGens = []keyGen{
 	}},
 }
 
+// signMinimalPDF signs a fresh minimal document and returns the signer's
+// certificate alongside the signed bytes.
+func signMinimalPDF(t *testing.T, key crypto.Signer, cert *x509.Certificate, opts Options) []byte {
+	t.Helper()
+	signer, err := NewLocalSigner(key, []*x509.Certificate{cert})
+	if err != nil {
+		t.Fatalf("NewLocalSigner: %v", err)
+	}
+	opts.Signer = signer
+	signed, err := SignPDF(minimalPDF(t), opts)
+	if err != nil {
+		t.Fatalf("SignPDF: %v", err)
+	}
+	return signed
+}
+
 func TestBuildCMS_SignatureVerifies(t *testing.T) {
 	for _, kg := range testKeyGens {
 		t.Run(kg.name, func(t *testing.T) {
@@ -190,166 +63,230 @@ func TestBuildCMS_SignatureVerifies(t *testing.T) {
 				t.Fatalf("buildCMS: %v", err)
 			}
 
-			p := parseCMS(t, cms)
+			p, err := parseCMS(cms)
+			if err != nil {
+				t.Fatalf("parseCMS: %v", err)
+			}
 
 			if !bytes.Equal(p.messageDigest, digest) {
 				t.Errorf("messageDigest = %X, want %X", p.messageDigest, digest)
 			}
-			if err := verifySignature(t, p); err != nil {
-				t.Errorf("verifySignature: %v", err)
+			if !verifySignatureCMS(p) {
+				t.Error("verifySignatureCMS = false, want true")
 			}
 			if p.cert.SerialNumber.Cmp(cert.SerialNumber) != 0 {
 				t.Errorf("cert serial = %v, want %v", p.cert.SerialNumber, cert.SerialNumber)
 			}
+			if !p.signingTime.Equal(signingTime) {
+				t.Errorf("signingTime = %v, want %v", p.signingTime, signingTime)
+			}
 		})
 	}
 }
 
-func TestSignPDF_RoundTripVerifies(t *testing.T) {
+func TestVerify_HappyPath(t *testing.T) {
 	for _, kg := range testKeyGens {
 		t.Run(kg.name, func(t *testing.T) {
 			key, cert := kg.gen(t)
-			signer, err := NewLocalSigner(key, []*x509.Certificate{cert})
-			if err != nil {
-				t.Fatalf("NewLocalSigner: %v", err)
-			}
-
-			signed, err := SignPDF(minimalPDF(t), Options{
-				Signer:      signer,
+			// Within the test certificate's validity window (see
+			// generateTestRSACert/generateTestECDSACert), unlike a fixed
+			// past date, so the chain check below can actually succeed.
+			signingTime := time.Now().Truncate(time.Second)
+			signed := signMinimalPDF(t, key, cert, Options{
 				Level:       LevelBB,
-				SigningTime: time.Date(2026, 3, 15, 12, 0, 0, 0, time.UTC),
+				Name:        "Test Signer",
+				Reason:      "Testing",
+				Location:    "Test Lab",
+				SigningTime: signingTime,
 			})
+
+			roots := x509.NewCertPool()
+			roots.AddCert(cert)
+
+			report, err := Verify(signed, VerifyOptions{Roots: roots})
 			if err != nil {
-				t.Fatalf("SignPDF: %v", err)
+				t.Fatalf("Verify: %v", err)
 			}
+			if len(report.Signatures) != 1 {
+				t.Fatalf("len(Signatures) = %d, want 1", len(report.Signatures))
+			}
+			got := report.Signatures[0]
 
-			br := extractByteRange(t, signed)
-			if br[0] != 0 {
-				t.Errorf("ByteRange[0] = %d, want 0", br[0])
+			if !got.DigestValid {
+				t.Error("DigestValid = false, want true")
 			}
-			if br[1] >= br[2] {
-				t.Errorf("ByteRange start (%d) >= end (%d)", br[1], br[2])
+			if !got.SignatureValid {
+				t.Error("SignatureValid = false, want true")
 			}
-			if br[2]+br[3] != len(signed) {
-				t.Errorf("ByteRange[2]+[3] = %d, want %d (len(signed))", br[2]+br[3], len(signed))
+			if !got.ByteRangeCoversFile {
+				t.Error("ByteRangeCoversFile = false, want true")
 			}
-			if got, want := br[2]-br[1], contentsPlaceholderLen+2; got != want {
-				t.Errorf("Contents span = %d, want %d", got, want)
+			if got.ChainStatus != ChainStatusTrusted {
+				t.Errorf("ChainStatus = %v, want TRUSTED", got.ChainStatus)
 			}
-
-			h := sha256.New()
-			h.Write(signed[br[0] : br[0]+br[1]])
-			h.Write(signed[br[2] : br[2]+br[3]])
-			digest := h.Sum(nil)
-
-			p := parseCMS(t, extractContents(t, signed))
-			if !bytes.Equal(digest, p.messageDigest) {
-				t.Errorf("recomputed digest = %X, want %X", digest, p.messageDigest)
+			if got.Name != "Test Signer" || got.Reason != "Testing" || got.Location != "Test Lab" {
+				t.Errorf("Name/Reason/Location = %q/%q/%q, want Test Signer/Testing/Test Lab",
+					got.Name, got.Reason, got.Location)
 			}
-			if err := verifySignature(t, p); err != nil {
-				t.Errorf("verifySignature: %v", err)
+			if got.SignerCertificate == nil || got.SignerCertificate.SerialNumber.Cmp(cert.SerialNumber) != 0 {
+				t.Error("SignerCertificate does not match the signing certificate")
+			}
+			if !got.SigningTime.Equal(signingTime) {
+				t.Errorf("SigningTime = %v, want %v", got.SigningTime, signingTime)
+			}
+			if got.HasTimestamp {
+				t.Error("HasTimestamp = true for a B-B signature")
+			}
+			if got.HasDSS {
+				t.Error("HasDSS = true for a B-B signature")
 			}
 		})
 	}
 }
 
-func TestSignPDF_TamperDetected(t *testing.T) {
-	freshSigned := func(t *testing.T) []byte {
-		t.Helper()
-		key, cert := generateTestRSACert(t)
-		signer, err := NewLocalSigner(key, []*x509.Certificate{cert})
-		if err != nil {
-			t.Fatalf("NewLocalSigner: %v", err)
-		}
-		signed, err := SignPDF(minimalPDF(t), Options{
-			Signer:      signer,
-			Level:       LevelBB,
-			SigningTime: time.Date(2026, 3, 15, 12, 0, 0, 0, time.UTC),
+func TestVerify_NoRootsSupplied(t *testing.T) {
+	key, cert := generateTestRSACert(t)
+	signed := signMinimalPDF(t, key, cert, Options{
+		Level:       LevelBB,
+		SigningTime: time.Date(2026, 3, 15, 12, 0, 0, 0, time.UTC),
+	})
+
+	report, err := Verify(signed, VerifyOptions{})
+	if err != nil {
+		t.Fatalf("Verify: %v", err)
+	}
+	got := report.Signatures[0]
+
+	if !got.DigestValid || !got.SignatureValid {
+		t.Error("crypto checks should pass regardless of Roots")
+	}
+	if got.ChainStatus != ChainStatusNoRootsSupplied {
+		t.Errorf("ChainStatus = %v, want NO_ROOTS_SUPPLIED", got.ChainStatus)
+	}
+}
+
+func TestVerify_UntrustedRoot(t *testing.T) {
+	key, cert := generateTestRSACert(t)
+	signed := signMinimalPDF(t, key, cert, Options{
+		Level:       LevelBB,
+		SigningTime: time.Now(),
+	})
+
+	// A root that has nothing to do with the signer's self-signed
+	// certificate — the chain must not build.
+	_, otherCert := generateTestRSACert(t)
+	roots := x509.NewCertPool()
+	roots.AddCert(otherCert)
+
+	report, err := Verify(signed, VerifyOptions{Roots: roots})
+	if err != nil {
+		t.Fatalf("Verify: %v", err)
+	}
+	got := report.Signatures[0]
+
+	if !got.SignatureValid {
+		t.Error("SignatureValid = false, want true (chain trust is independent of the crypto check)")
+	}
+	if got.ChainStatus != ChainStatusUntrusted {
+		t.Errorf("ChainStatus = %v, want UNTRUSTED", got.ChainStatus)
+	}
+}
+
+func TestVerify_TamperedByteRangeDetected(t *testing.T) {
+	for _, kg := range testKeyGens {
+		t.Run(kg.name, func(t *testing.T) {
+			key, cert := kg.gen(t)
+			signed := signMinimalPDF(t, key, cert, Options{
+				Level:       LevelBB,
+				SigningTime: time.Date(2026, 3, 15, 12, 0, 0, 0, time.UTC),
+			})
+
+			roots := x509.NewCertPool()
+			roots.AddCert(cert)
+
+			before, err := Verify(signed, VerifyOptions{Roots: roots})
+			if err != nil {
+				t.Fatalf("Verify (untampered): %v", err)
+			}
+			if !before.Signatures[0].DigestValid {
+				t.Fatal("untampered digest does not verify")
+			}
+
+			// Flip a byte well inside the file header, which /ByteRange
+			// covers but which a signature dictionary marker never lands on.
+			tampered := append([]byte(nil), signed...)
+			tampered[10] ^= 0xFF
+
+			after, err := Verify(tampered, VerifyOptions{Roots: roots})
+			if err != nil {
+				t.Fatalf("Verify (tampered): %v", err)
+			}
+			if after.Signatures[0].DigestValid {
+				t.Error("DigestValid = true after tampering signed content, want false")
+			}
 		})
-		if err != nil {
-			t.Fatalf("SignPDF: %v", err)
-		}
-		return signed
+	}
+}
+
+func TestVerify_CorruptedSignatureBytes(t *testing.T) {
+	key, cert := generateTestRSACert(t)
+	signed := signMinimalPDF(t, key, cert, Options{
+		Level:       LevelBB,
+		SigningTime: time.Date(2026, 3, 15, 12, 0, 0, 0, time.UTC),
+	})
+
+	roots := x509.NewCertPool()
+	roots.AddCert(cert)
+
+	before, err := Verify(signed, VerifyOptions{Roots: roots})
+	if err != nil {
+		t.Fatalf("Verify (untampered): %v", err)
+	}
+	if !before.Signatures[0].SignatureValid {
+		t.Fatal("untampered signature does not verify")
 	}
 
-	// recomputeDigest re-derives the ByteRange digest exactly as a verifier would.
-	recomputeDigest := func(signed []byte, br [4]int) []byte {
-		h := sha256.New()
-		h.Write(signed[br[0] : br[0]+br[1]])
-		h.Write(signed[br[2] : br[2]+br[3]])
-		return h.Sum(nil)
+	locs, err := locateSignatures(signed)
+	if err != nil || len(locs) != 1 {
+		t.Fatalf("locateSignatures: err=%v n=%d, want 1 signature", err, len(locs))
+	}
+	loc := locs[0]
+
+	// loc.der is hex-decoded /Contents, including the trailing zero
+	// padding folio pads the placeholder with. Isolate the real DER
+	// envelope length so the flipped byte lands inside the signature
+	// itself, not the padding (which a CMS parser ignores).
+	var envelope asn1.RawValue
+	if _, err := asn1.Unmarshal(loc.der, &envelope); err != nil {
+		t.Fatalf("unmarshal CMS envelope: %v", err)
+	}
+	realLen := len(envelope.FullBytes)
+
+	corrupted := append([]byte(nil), loc.der[:realLen]...)
+	corrupted[realLen-1] ^= 0xFF // last byte of SignerInfo.Signature for a B-B signature
+
+	tampered := append([]byte(nil), signed...)
+	ph := signaturePlaceholder{ContentsOffset: loc.contentsStart}
+	if err := patchContents(tampered, ph, corrupted); err != nil {
+		t.Fatalf("patchContents: %v", err)
 	}
 
-	t.Run("flip byte in first ByteRange segment", func(t *testing.T) {
-		signed := freshSigned(t)
-		br := extractByteRange(t, signed)
-		p := parseCMS(t, extractContents(t, signed))
+	after, err := Verify(tampered, VerifyOptions{Roots: roots})
+	if err != nil {
+		t.Fatalf("Verify (corrupted signature): %v", err)
+	}
+	got := after.Signatures[0]
+	if !got.DigestValid {
+		t.Error("DigestValid = false, want true (Contents is outside /ByteRange)")
+	}
+	if got.SignatureValid {
+		t.Error("SignatureValid = true for a corrupted signature, want false")
+	}
+}
 
-		if !bytes.Equal(recomputeDigest(signed, br), p.messageDigest) {
-			t.Fatal("untampered digest does not match messageDigest")
-		}
-
-		signed[5] ^= 0xFF
-		if bytes.Equal(recomputeDigest(signed, br), p.messageDigest) {
-			t.Error("tampered digest still matches messageDigest")
-		}
-	})
-
-	t.Run("flip byte in second ByteRange segment", func(t *testing.T) {
-		signed := freshSigned(t)
-		br := extractByteRange(t, signed)
-		p := parseCMS(t, extractContents(t, signed))
-
-		if !bytes.Equal(recomputeDigest(signed, br), p.messageDigest) {
-			t.Fatal("untampered digest does not match messageDigest")
-		}
-
-		signed[len(signed)-3] ^= 0xFF
-		if bytes.Equal(recomputeDigest(signed, br), p.messageDigest) {
-			t.Error("tampered digest still matches messageDigest")
-		}
-	})
-
-	t.Run("corrupt signature bytes", func(t *testing.T) {
-		signed := freshSigned(t)
-		p := parseCMS(t, extractContents(t, signed))
-
-		if err := verifySignature(t, p); err != nil {
-			t.Fatalf("untampered signature does not verify: %v", err)
-		}
-
-		p.signerInfo.Signature[0] ^= 0xFF
-		if err := verifySignature(t, p); err == nil {
-			t.Error("tampered signature still verifies")
-		}
-	})
-
-	t.Run("corrupt signed attributes", func(t *testing.T) {
-		signed := freshSigned(t)
-		p := parseCMS(t, extractContents(t, signed))
-
-		if err := verifySignature(t, p); err != nil {
-			t.Fatalf("untampered signature does not verify: %v", err)
-		}
-
-		p.signedAttrsSet[2] ^= 0xFF
-		if err := verifySignature(t, p); err == nil {
-			t.Error("tampered signed attributes still verify")
-		}
-	})
-
-	t.Run("wrong certificate", func(t *testing.T) {
-		signed := freshSigned(t)
-		p := parseCMS(t, extractContents(t, signed))
-
-		if err := verifySignature(t, p); err != nil {
-			t.Fatalf("untampered signature does not verify: %v", err)
-		}
-
-		_, otherCert := generateTestRSACert(t)
-		p.cert = otherCert
-		if err := verifySignature(t, p); err == nil {
-			t.Error("signature verifies against the wrong certificate")
-		}
-	})
+func TestVerify_MalformedInput(t *testing.T) {
+	_, err := Verify([]byte("%PDF-1.7\nnot a signed document"), VerifyOptions{})
+	if err == nil {
+		t.Fatal("Verify on an unsigned PDF: want error, got nil")
+	}
 }

@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Added
+
+- **`sign.Verify(pdfBytes []byte, opts sign.VerifyOptions) (*sign.Report, error)`** — offline verification for PDFs signed with `sign.SignPDF`. For each signature it locates the signature dictionary, recomputes the `/ByteRange` digest and checks it against the CMS `messageDigest` signed attribute, verifies the CMS signature (RSA PKCS#1 v1.5 or ECDSA) over the signed attributes, checks that `/ByteRange` covers the whole file except the `/Contents` hex string, and — when `VerifyOptions.Roots` is supplied — builds a certificate chain. `sign.Report.Signatures` reports each check independently (`DigestValid`, `SignatureValid`, `ByteRangeCoversFile`, `ChainStatus`) so partial validity is never conflated with full validity. Revocation fetching, timestamp-token and `/DSS` content validation, and PAdES level classification are out of scope; presence of a timestamp token or `/DSS` is reported but not validated.
+
 ### Changed (breaking)
 
 - **`font.Face` now includes `GSUB()`, `GPOS()`, and `GIDToUnicode()`** — the optional `font.GSUBProvider` and `font.GPOSProvider` interfaces are removed, and every `Face` implementation must provide the three methods directly. A `Face` with no shaping data for a given table returns nil rather than omitting the method; `GIDToUnicode` returns nil when the font has no cmap-derived reverse map. This drops the type-assertion indirection that callers previously used to probe for shaping support (`face.(font.GSUBProvider)`, `face.(font.GPOSProvider)`) now that the seam is no longer needed pre-1.0.
