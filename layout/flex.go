@@ -408,7 +408,7 @@ func (f *Flex) planRow(area LayoutArea) LayoutPlan {
 			if align != CrossAlignStretch {
 				continue
 			}
-			hs, ok := item.element.(HeightSettable)
+			hs, ok := baseElement(item.element).(HeightSettable)
 			if !ok || hs.HasExplicitHeight() {
 				continue
 			}
@@ -974,7 +974,7 @@ func (f *Flex) planColumn(area LayoutArea) LayoutPlan {
 				}
 				extra := remaining * (item.grow / totalGrow)
 				newH := results[idx].plan.Consumed + extra
-				hs, ok := item.element.(HeightSettable)
+				hs, ok := baseElement(item.element).(HeightSettable)
 				if ok && !hs.HasExplicitHeight() {
 					hs.ForceHeight(Pt(newH))
 					results[idx].plan = item.element.PlanLayout(LayoutArea{

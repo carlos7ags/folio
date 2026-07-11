@@ -700,7 +700,7 @@ func (d *Div) PlanLayout(area LayoutArea) LayoutPlan {
 		// In-flow child.
 		if hasFloat {
 			// CSS clear: advance past matching active floats first.
-			if cl, ok := elem.(Clearable); ok {
+			if cl, ok := baseElement(elem).(Clearable); ok {
 				cv := cl.ClearValue()
 				if cv == "left" || cv == "right" || cv == "both" {
 					if ny := fc.clear(cv, curY); ny > curY {
