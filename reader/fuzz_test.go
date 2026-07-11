@@ -133,13 +133,13 @@ func downloadZIP(zipFn, url string) (*zip.ReadCloser, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	fh, err := os.Create(zipFn)
 	if err != nil {
 		return nil, err
 	}
 	_, err = io.Copy(fh, resp.Body)
-	resp.Body.Close()
+	_ = resp.Body.Close()
 	if err != nil {
 		return nil, err
 	}
@@ -161,7 +161,7 @@ func downloadPDFs(t testing.TB) iter.Seq[file] {
 	} else {
 		cacheDir = filepath.Join(cacheDir, "folio")
 	}
-	os.MkdirAll(cacheDir, 0775)
+	_ = os.MkdirAll(cacheDir, 0775)
 
 	return func(yield func(file) bool) {
 		errExit := errors.New("exit")
@@ -175,7 +175,7 @@ func downloadPDFs(t testing.TB) iter.Seq[file] {
 				if err != nil {
 					return err
 				}
-				defer zr.Close()
+				defer func() { _ = zr.Close() }()
 				for _, f := range zr.File {
 					if !strings.HasSuffix(f.Name, ".pdf") {
 						continue
@@ -194,7 +194,7 @@ func downloadPDFs(t testing.TB) iter.Seq[file] {
 								return nil
 							}
 						}
-						rc.Close()
+						_ = rc.Close()
 						if err != nil {
 							return err
 						}
