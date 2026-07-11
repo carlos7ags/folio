@@ -12,6 +12,9 @@ import (
 // ImageElement is a layout element that places an image in the document flow.
 type ImageElement struct {
 	img            *folioimage.Image
+	altText        string  // alternative text for accessibility (PDF/UA)
+	objectFit      string  // "contain", "cover", "fill", "none", "scale-down"
+	objectPosition string  // e.g. "center", "top left"
 	width          float64 // explicit width (0 = auto)
 	height         float64 // explicit height (0 = auto)
 	cssMaxWidth    float64 // CSS max-width upper bound (0 = unbounded)
@@ -19,9 +22,6 @@ type ImageElement struct {
 	cssMinWidth    float64 // CSS min-width lower bound (0 = no minimum)
 	cssMinHeight   float64 // CSS min-height lower bound (0 = no minimum)
 	align          Align
-	altText        string // alternative text for accessibility (PDF/UA)
-	objectFit      string // "contain", "cover", "fill", "none", "scale-down"
-	objectPosition string // e.g. "center", "top left"
 }
 
 // NewImageElement creates a layout element from an Image.

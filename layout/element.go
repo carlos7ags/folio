@@ -134,25 +134,25 @@ func hexByte(s string) byte {
 // word-wrapping and line-height calculations. Text, Font, and other
 // text-specific fields are ignored for inline element runs.
 type TextRun struct {
-	Text            string
-	Font            *font.Standard
-	Embedded        *font.EmbeddedFont
-	FontSize        float64
-	Color           Color
-	Decoration      TextDecoration
-	DecorationColor *Color      // if non-nil, decoration uses this color instead of text Color
-	DecorationStyle string      // "solid" (default), "dashed", "dotted", "double", "wavy"
-	LetterSpacing   float64     // extra space between characters (points, from CSS letter-spacing)
-	WordSpacing     float64     // extra space between words (points, from CSS word-spacing)
-	BaselineShift   float64     // vertical offset in points (positive = up for super, negative = down for sub)
-	LinkURI         string      // if non-empty, this run is part of a hyperlink
-	TextShadow      *TextShadow // if non-nil, draws a shadow behind the text
-	BackgroundColor *Color      // if non-nil, a highlight rectangle is drawn behind the text
 	// InlineElement holds a layout element (e.g. ImageElement, SVGElement,
 	// Div) that should flow inline within the paragraph. When set, text
 	// fields are ignored and the element is measured and rendered as an
 	// inline-block word during paragraph layout.
-	InlineElement Element
+	InlineElement   Element
+	Font            *font.Standard
+	Embedded        *font.EmbeddedFont
+	DecorationColor *Color      // if non-nil, decoration uses this color instead of text Color
+	TextShadow      *TextShadow // if non-nil, draws a shadow behind the text
+	BackgroundColor *Color      // if non-nil, a highlight rectangle is drawn behind the text
+	Text            string
+	DecorationStyle string // "solid" (default), "dashed", "dotted", "double", "wavy"
+	LinkURI         string // if non-empty, this run is part of a hyperlink
+	Color           Color
+	Decoration      TextDecoration
+	FontSize        float64
+	LetterSpacing   float64 // extra space between characters (points, from CSS letter-spacing)
+	WordSpacing     float64 // extra space between words (points, from CSS word-spacing)
+	BaselineShift   float64 // vertical offset in points (positive = up for super, negative = down for sub)
 
 	// IsLineBreak marks this run as a forced line break (from <br>).
 	// When set, Text, Font, and other text fields are ignored. The run
@@ -260,12 +260,6 @@ const (
 // Line is a single horizontal line produced by layout.
 // It carries enough information for the renderer to emit PDF operators.
 type Line struct {
-	Words        []Word              // the words on this line (nil for table rows)
-	Width        float64             // actual content width (sum of word widths + spaces)
-	Height       float64             // line height (fontSize * leading)
-	SpaceW       float64             // default space width (used for single-font lines)
-	Align        Align               // alignment for this line
-	IsLast       bool                // true if this is the last line of a paragraph (justify→left)
 	tableRow     *tableRowRef        // non-nil if this line is a table row
 	imageRef     *imageLayoutRef     // non-nil if this line is an image
 	listRef      *listLayoutRef      // non-nil if this line is a list item
@@ -274,44 +268,44 @@ type Line struct {
 	separatorRef *separatorLayoutRef // non-nil if this line is a horizontal rule
 	linkRef      *linkLayoutRef      // non-nil if this line is a clickable link
 
+	Background *Color // if non-nil, fill rect behind this line
+
+	HintTag string // element-provided tag override (e.g. "H1" for headings)
+	// Tagged PDF fields.
+	StructTag string  // if non-empty, wrap content in BDC/EMC with this tag
+	Words     []Word  // the words on this line (nil for table rows)
+	Width     float64 // actual content width (sum of word widths + spaces)
+	Height    float64 // line height (fontSize * leading)
+	SpaceW    float64 // default space width (used for single-font lines)
+	Align     Align   // alignment for this line
+
 	// Box model fields.
 	SpaceBefore  float64 // extra vertical space before this line (points)
 	SpaceAfterV  float64 // extra vertical space after this line (points)
-	Background   *Color  // if non-nil, fill rect behind this line
+	MCID         int     // marked content ID (-1 = unassigned; set by document layer)
+	IsLast       bool    // true if this is the last line of a paragraph (justify→left)
 	KeepWithNext bool    // don't page-break between this line and the next
 	areaBreak    bool    // if true, force a new page before subsequent content
 
-	// Tagged PDF fields.
-	StructTag string // if non-empty, wrap content in BDC/EMC with this tag
-	MCID      int    // marked content ID (-1 = unassigned; set by document layer)
-	Tagged    bool   // whether this line should emit marked content operators
-	HintTag   string // element-provided tag override (e.g. "H1" for headings)
+	Tagged bool // whether this line should emit marked content operators
 }
 
 // Word is a measured chunk of text (no spaces).
 type Word struct {
-	Text  string
-	Width float64
-	// Font info needed by the renderer to emit Tf/Tj operators.
+
+	// InlineBlock fields: when set, this Word represents an inline-block
+	// element (e.g., a Div) that flows within a paragraph like a "big word".
+	InlineBlock     Element // the layout element to render instead of text
 	Font            *font.Standard
 	Embedded        *font.EmbeddedFont
-	FontSize        float64
-	Color           Color
-	Decoration      TextDecoration
-	DecorationColor *Color // if non-nil, decoration uses this color
+	DecorationColor *Color      // if non-nil, decoration uses this color
+	TextShadow      *TextShadow // if non-nil, draws a shadow behind the text
+	// BackgroundColor, if non-nil, draws a filled highlight rectangle
+	// behind this word before rendering the text.
+	BackgroundColor *Color
+
+	Text            string
 	DecorationStyle string // "solid", "dashed", "dotted", "double", "wavy"
-	// SpaceAfter is the width of a space character in this word's font/size.
-	// Used to compute the gap to the next word when fonts differ.
-	SpaceAfter    float64
-	LetterSpacing float64 // extra inter-character space (Tc operator)
-	WordSpacing   float64 // extra inter-word space added to SpaceAfter
-	BaselineShift float64 // vertical offset (positive = up, negative = down)
-
-	TextShadow *TextShadow // if non-nil, draws a shadow behind the text
-
-	// LineBreak forces a new line before this word during word-wrapping.
-	// Used to honor explicit \n characters in paragraph text.
-	LineBreak bool
 
 	// OriginalText holds the pre-shaping Unicode text for this word when a
 	// shaper (currently ShapeArabic) substituted glyph-form codepoints. The
@@ -327,16 +321,6 @@ type Word struct {
 	// renderer creates a link annotation covering this word's area.
 	LinkURI string
 
-	// BackgroundColor, if non-nil, draws a filled highlight rectangle
-	// behind this word before rendering the text.
-	BackgroundColor *Color
-
-	// InlineBlock fields: when set, this Word represents an inline-block
-	// element (e.g., a Div) that flows within a paragraph like a "big word".
-	InlineBlock  Element // the layout element to render instead of text
-	InlineWidth  float64 // pre-measured width of the inline block
-	InlineHeight float64 // pre-measured height of the inline block
-
 	// GIDs carries a shaper-produced glyph ID stream for complex scripts
 	// whose output cannot be represented as Unicode codepoints. The
 	// Devanagari shaper (layout/indic.go) emits GIDs here after running
@@ -348,5 +332,25 @@ type Word struct {
 	// pre-shaping Unicode for ActualText marked-content recovery. Most
 	// words leave this field nil; only Devanagari (and future Indic)
 	// words set it, so the existing rune-based path is undisturbed.
-	GIDs []uint16
+	GIDs  []uint16
+	Color Color
+
+	InlineWidth  float64 // pre-measured width of the inline block
+	InlineHeight float64 // pre-measured height of the inline block
+
+	Width float64
+
+	// Font info needed by the renderer to emit Tf/Tj operators.
+	FontSize   float64
+	Decoration TextDecoration
+	// SpaceAfter is the width of a space character in this word's font/size.
+	// Used to compute the gap to the next word when fonts differ.
+	SpaceAfter    float64
+	LetterSpacing float64 // extra inter-character space (Tc operator)
+	WordSpacing   float64 // extra inter-word space added to SpaceAfter
+	BaselineShift float64 // vertical offset (positive = up, negative = down)
+
+	// LineBreak forces a new line before this word during word-wrapping.
+	// Used to honor explicit \n characters in paragraph text.
+	LineBreak bool
 }

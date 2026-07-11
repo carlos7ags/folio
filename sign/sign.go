@@ -45,11 +45,19 @@ const (
 
 // Options configures the signing operation.
 type Options struct {
+
+	// SigningTime overrides the signing timestamp. If zero, time.Now() is used.
+	SigningTime time.Time
+
 	// Signer performs the cryptographic signing.
 	Signer Signer
 
-	// Level is the PAdES conformance level (default: LevelBB).
-	Level PAdESLevel
+	// TSAClient is the RFC 3161 TSA client (required for B-T and above).
+	TSAClient *TSAClient
+
+	// OCSPClient fetches OCSP responses (optional, used for B-LT and above).
+	// If nil and Level >= LevelBLT, OCSP data is omitted from the DSS.
+	OCSPClient *OCSPClient
 
 	// Name is the signer's name (optional, shown in PDF viewer).
 	Name string
@@ -63,16 +71,6 @@ type Options struct {
 	// ContactInfo is the signer's contact info (optional).
 	ContactInfo string
 
-	// SigningTime overrides the signing timestamp. If zero, time.Now() is used.
-	SigningTime time.Time
-
-	// TSAClient is the RFC 3161 TSA client (required for B-T and above).
-	TSAClient *TSAClient
-
-	// OCSPClient fetches OCSP responses (optional, used for B-LT and above).
-	// If nil and Level >= LevelBLT, OCSP data is omitted from the DSS.
-	OCSPClient *OCSPClient
-
 	// CRLs provides pre-fetched CRL data (DER-encoded) for embedding in
 	// the DSS. Optional alternative to OCSP for revocation data.
 	CRLs [][]byte
@@ -80,6 +78,9 @@ type Options struct {
 	// ExtraCerts provides additional certificates to embed in the DSS
 	// (e.g., intermediate CAs not in the signer's chain).
 	ExtraCerts [][]byte
+
+	// Level is the PAdES conformance level (default: LevelBB).
+	Level PAdESLevel
 }
 
 // SignPDF applies a PAdES digital signature to an existing PDF.

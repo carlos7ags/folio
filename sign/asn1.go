@@ -119,11 +119,11 @@ type contentInfo struct {
 
 // signedData is the CMS SignedData content.
 type signedData struct {
-	Version          int
 	DigestAlgorithms asn1.RawValue    // SET OF AlgorithmIdentifier
-	EncapContentInfo encapContentInfo // EncapsulatedContentInfo
 	Certificates     asn1.RawValue    `asn1:"optional,tag:0"` // implicit SET OF Certificate
 	SignerInfos      asn1.RawValue    // SET OF SignerInfo
+	EncapContentInfo encapContentInfo // EncapsulatedContentInfo
+	Version          int
 }
 
 // encapContentInfo identifies the content type being signed.
@@ -134,13 +134,13 @@ type encapContentInfo struct {
 
 // signerInfo contains per-signer information.
 type signerInfo struct {
-	Version            int
 	SID                issuerAndSerialNumber
 	DigestAlgorithm    algorithmIdentifier
-	SignedAttrs        asn1.RawValue `asn1:"optional,tag:0"` // implicit SET OF Attribute
 	SignatureAlgorithm algorithmIdentifier
-	Signature          []byte
+	SignedAttrs        asn1.RawValue `asn1:"optional,tag:0"` // implicit SET OF Attribute
 	UnsignedAttrs      asn1.RawValue `asn1:"optional,tag:1"` // implicit SET OF Attribute
+	Signature          []byte
+	Version            int
 }
 
 // issuerAndSerialNumber identifies a certificate.

@@ -24,8 +24,8 @@ const (
 // The Float element produces a PlacedBlock with the floated content
 // and modifies the available width for subsequent siblings.
 type Float struct {
-	side    FloatSide
 	content Element
+	side    FloatSide
 	margin  float64 // gap between float and wrapped text (default 8pt)
 }
 

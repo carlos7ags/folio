@@ -15,10 +15,10 @@ import (
 // SVGElement is a layout element that renders an SVG graphic in the document flow.
 type SVGElement struct {
 	svg     *svg.SVG
+	altText string  // alternative text for accessibility (PDF/UA)
 	width   float64 // explicit width in points (0 = auto from SVG/viewBox)
 	height  float64 // explicit height in points (0 = auto)
 	align   Align
-	altText string // alternative text for accessibility (PDF/UA)
 }
 
 // NewSVGElement creates a layout element from a parsed SVG.

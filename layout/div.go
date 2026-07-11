@@ -22,12 +22,12 @@ type ResolvableLength interface {
 // BackgroundImage describes a background image for a Div container.
 type BackgroundImage struct {
 	Image    *folioimage.Image   // the image to draw
+	Position [2]ResolvableLength // x, y; resolved against the background box at draw time
 	Size     string              // "auto", "cover", "contain"
+	Repeat   string              // "no-repeat", "repeat", "repeat-x", "repeat-y"
 	SizeW    float64             // explicit width (0 = auto)
 	SizeH    float64             // explicit height (0 = auto)
-	Position [2]ResolvableLength // x, y; resolved against the background box at draw time
 	FontSize float64             // font-size in points, for em/rem resolution of Position
-	Repeat   string              // "no-repeat", "repeat", "repeat-x", "repeat-y"
 }
 
 // Padding defines the padding on each side of a container.
@@ -57,52 +57,63 @@ type BoxShadow struct {
 // similar to an HTML <div>. All child elements are laid out
 // vertically within the container's padded area.
 type Div struct {
-	elements      []Element
-	padding       Padding
-	borders       CellBorders
 	background    *Color
-	spaceBefore   float64
-	spaceAfter    float64
-	width         float64    // explicit outer width in points (0 = auto/fill available)
-	widthPct      float64    // explicit outer width as fraction 0..1 (0 = not set)
-	maxWidth      float64    // maximum outer width (0 = no limit)
-	minWidth      float64    // minimum outer width (0 = no minimum)
-	minHeight     float64    // minimum outer height (0 = no minimum)
-	maxHeight     float64    // maximum outer height (0 = no limit)
 	widthUnit     *UnitValue // lazy-resolved width (overrides width/widthPct when set)
 	maxWidthUnit  *UnitValue // lazy-resolved max-width
 	minWidthUnit  *UnitValue // lazy-resolved min-width
 	minHeightUnit *UnitValue // lazy-resolved min-height
 	maxHeightUnit *UnitValue // lazy-resolved max-height
 	heightUnit    *UnitValue // lazy-resolved explicit height (forces exact height)
-	aspectRatio   float64    // width/height ratio (0 = not set; CSS aspect-ratio)
-	hCenter       bool       // true = horizontally center within parent (margin: auto)
-	hRight        bool       // true = right-align within parent (margin-left: auto)
-	borderRadius  [4]float64 // corner radii [TL, TR, BR, BL] (points, 0 = sharp)
+	bgImage       *BackgroundImage
+	overflow      string // "visible" (default), "hidden"
+	outlineStyle  string
+	clear         string // CSS clear: "left", "right", "both"
+	structTag     string // custom structure tag for PDF/UA (empty = default "Div")
+
+	elements   []Element
+	boxShadows []BoxShadow
+	// CSS transform support.
+	transforms []TransformOp
+
+	// Overlay children: absolutely positioned elements within this
+	// containing block. They are laid out independently and placed at
+	// fixed offsets (overlayX, overlayY) from the Div's top-left,
+	// without affecting normal-flow layout.
+	overlays []overlayChild
+
+	borders      CellBorders
+	outlineColor Color
+
+	padding      Padding
+	borderRadius [4]float64 // corner radii [TL, TR, BR, BL] (points, 0 = sharp)
 	// Per-corner percentage radii (fraction 0..1; 0 = not a percentage).
 	// A percentage resolves its horizontal radius against the box width and
 	// its vertical radius against the box height at draw time, producing
 	// elliptical corners (CSS Backgrounds & Borders L3 §5.1).
 	borderRadiusPct [4]float64
+	spaceBefore     float64
+	spaceAfter      float64
+	width           float64 // explicit outer width in points (0 = auto/fill available)
+	widthPct        float64 // explicit outer width as fraction 0..1 (0 = not set)
+	maxWidth        float64 // maximum outer width (0 = no limit)
+	minWidth        float64 // minimum outer width (0 = no minimum)
+	minHeight       float64 // minimum outer height (0 = no minimum)
+	maxHeight       float64 // maximum outer height (0 = no limit)
+	aspectRatio     float64 // width/height ratio (0 = not set; CSS aspect-ratio)
 	opacity         float64 // 0..1 (0 = default/opaque, meaning "not set")
-	overflow        string  // "visible" (default), "hidden"
-	boxShadows      []BoxShadow
-	outlineWidth    float64
-	outlineStyle    string
-	outlineColor    Color
-	outlineOffset   float64
-	bgImage         *BackgroundImage
-	clear           string // CSS clear: "left", "right", "both"
-	structTag       string // custom structure tag for PDF/UA (empty = default "Div")
+
+	outlineWidth  float64
+	outlineOffset float64
 
 	// CSS position:relative offsets (visual only, don't affect layout flow).
 	relOffsetX float64
 	relOffsetY float64
 
-	// CSS transform support.
-	transforms       []TransformOp
 	transformOriginX float64 // in points, relative to element top-left
 	transformOriginY float64
+
+	hCenter bool // true = horizontally center within parent (margin: auto)
+	hRight  bool // true = right-align within parent (margin-left: auto)
 
 	// keepTogether prevents the Div from splitting across pages
 	// (CSS page-break-inside: avoid). If true, the renderer moves
@@ -113,12 +124,6 @@ type Div struct {
 	// when no explicit width is set, instead of filling the available
 	// area width. Used for display:inline-block atomic boxes.
 	shrinkToFit bool
-
-	// Overlay children: absolutely positioned elements within this
-	// containing block. They are laid out independently and placed at
-	// fixed offsets (overlayX, overlayY) from the Div's top-left,
-	// without affecting normal-flow layout.
-	overlays []overlayChild
 }
 
 // overlayChild is an absolutely positioned child element within a Div.

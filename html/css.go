@@ -14,7 +14,6 @@ import (
 type fontFaceRule struct {
 	family string
 	src    string
-	weight int // CSS Fonts L4 numeric ladder; default 400 (normal).
 	style  string
 	// origin is the href of the stylesheet this rule was parsed from. "" for
 	// inline <style> blocks (or any rule with no enclosing stylesheet origin),
@@ -22,13 +21,14 @@ type fontFaceRule struct {
 	// stylesheets, src is resolved relative to path.Dir(origin) — either
 	// inside BaseFS or via Client when origin is an http(s) URL.
 	origin string
+	weight int // CSS Fonts L4 numeric ladder; default 400 (normal).
 }
 
 // pageRule holds parsed @page declarations.
 type pageRule struct {
-	selector     string // "", "first", "left", "right"
-	declarations []cssDecl
 	marginBoxes  map[string][]cssDecl // e.g. "top-center" → declarations
+	selector     string               // "", "first", "left", "right"
+	declarations []cssDecl
 }
 
 // styleSheet holds parsed CSS rules from <style> blocks.
@@ -753,8 +753,8 @@ func (ss *styleSheet) matchingDeclarations(n *html.Node) []cssDecl {
 	}
 
 	type match struct {
-		specificity int
 		decl        cssDecl
+		specificity int
 	}
 	var matches []match
 
@@ -804,8 +804,8 @@ func (ss *styleSheet) matchingPseudoElementDeclarations(n *html.Node, pseudo str
 	}
 
 	type match struct {
-		specificity int
 		decl        cssDecl
+		specificity int
 	}
 	var matches []match
 

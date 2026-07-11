@@ -116,12 +116,12 @@ func escapePDFString(s string) string {
 // rewriteState tracks the minimal graphics state needed for computing
 // text bounding boxes during content stream rewriting.
 type rewriteState struct {
-	ctm      [6]float64 // current transformation matrix
-	tm       [6]float64 // text matrix
-	lm       [6]float64 // line matrix (start of current line)
 	fontName string
-	fontSize float64
 	stack    [][6]float64 // CTM save stack
+	ctm      [6]float64   // current transformation matrix
+	tm       [6]float64   // text matrix
+	lm       [6]float64   // line matrix (start of current line)
+	fontSize float64
 }
 
 // newRewriteState creates an identity-state rewriter.
@@ -268,10 +268,10 @@ func (rs *rewriteState) splitTj(op ContentOp, rects []Box, fonts FontCache) []Co
 
 	// Test each character against the redaction rects.
 	type charInfo struct {
-		b       byte
 		width   float64 // in text space
-		redact  bool
 		xOffset float64 // cumulative x offset from start of operator
+		b       byte
+		redact  bool
 	}
 	chars := make([]charInfo, len(raw))
 	cumX := 0.0
@@ -354,10 +354,10 @@ func (rs *rewriteState) splitTj(op ContentOp, rects []Box, fonts FontCache) []Co
 func (rs *rewriteState) splitTJ(op ContentOp, rects []Box, fonts FontCache) []ContentOp {
 	// Collect all "fragments" from the TJ array: strings and kern values.
 	type fragment struct {
-		isString bool
 		raw      []byte
-		isHex    bool
 		kern     float64 // for number fragments, in thousandths
+		isString bool
+		isHex    bool
 	}
 	var fragments []fragment
 	for _, tok := range op.Operands {
@@ -373,13 +373,13 @@ func (rs *rewriteState) splitTJ(op ContentOp, rects []Box, fonts FontCache) []Co
 
 	// Build a flat list of items with positions.
 	type item struct {
+		width   float64
+		kern    float64
+		xOffset float64
 		isByte  bool
 		b       byte
 		isHex   bool
-		width   float64
-		kern    float64
 		redact  bool
-		xOffset float64
 	}
 	var items []item
 	cumX := 0.0

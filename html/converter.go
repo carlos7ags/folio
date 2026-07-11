@@ -26,8 +26,6 @@ import (
 
 // Options configures the HTML → layout.Element conversion.
 type Options struct {
-	// DefaultFontSize is the root font size in points (default 12).
-	DefaultFontSize float64
 	// BaseFS resolves all local paths referenced by the document: images,
 	// fonts, linked stylesheets, background-image url(), and FallbackFontPath.
 	// Pass embed.FS for embedded assets, os.DirFS(dir) or (*os.Root).FS() for
@@ -39,15 +37,6 @@ type Options struct {
 	// local-asset reference fails — the document is expected to inline its
 	// assets via data: URIs.
 	BaseFS fs.FS
-	// PageWidth is the page width in points (default 612 = US Letter).
-	PageWidth float64
-	// PageHeight is the page height in points (default 792 = US Letter).
-	PageHeight float64
-	// FallbackFontPath is a Unicode-capable TTF/OTF font used when text
-	// contains characters outside WinAnsiEncoding (e.g. CJK, emoji). When
-	// BaseFS is set, the path is resolved through it first; otherwise the
-	// converter searches common system font locations.
-	FallbackFontPath string
 	// URLPolicy is called before the converter fetches a remote URL
 	// (for <img src="http://...">, background-image: url(), etc.).
 	// Return nil to allow the fetch, or an error to block it.
@@ -60,6 +49,33 @@ type Options struct {
 	// fonts in @font-face, unreadable linked stylesheets, image fetch errors
 	// that fall back to alt text. If nil, these events are dropped.
 	Logger *slog.Logger
+	// FallbackFontPath is a Unicode-capable TTF/OTF font used when text
+	// contains characters outside WinAnsiEncoding (e.g. CJK, emoji). When
+	// BaseFS is set, the path is resolved through it first; otherwise the
+	// converter searches common system font locations.
+	FallbackFontPath string
+	// DefaultFontSize is the root font size in points (default 12).
+	DefaultFontSize float64
+	// PageWidth is the page width in points (default 612 = US Letter).
+	PageWidth float64
+	// PageHeight is the page height in points (default 792 = US Letter).
+	PageHeight float64
+
+	// MaxElements caps the number of HTML nodes converted into layout
+	// elements. 0 (the default) means unlimited. It guards against
+	// resource exhaustion from very large or programmatically-expanded
+	// input (e.g. a small template rendered against a huge dataset): once
+	// the cap is crossed, Convert/ConvertFull stop walking the tree and
+	// return a *LimitError (Kind LimitElements) instead of continuing to
+	// allocate. Recommended for any path that converts untrusted HTML.
+	MaxElements int
+
+	// MaxDepth caps the nesting depth of converted elements. 0 (the
+	// default) means unlimited. It guards against pathologically nested
+	// input that would otherwise grow the conversion recursion (and the
+	// goroutine stack) without bound. Exceeding it returns a *LimitError
+	// (Kind LimitDepth).
+	MaxDepth int
 	// StrictAssets promotes asset-load failures from warn-and-continue to
 	// returned errors. When true, Convert and ConvertFull collect every
 	// failed @font-face url(), <img>, background-image, linked stylesheet,
@@ -82,22 +98,6 @@ type Options struct {
 	// development and CI to surface broken paths in the local feedback
 	// loop instead of letting them silently degrade the output.
 	StrictAssets bool
-
-	// MaxElements caps the number of HTML nodes converted into layout
-	// elements. 0 (the default) means unlimited. It guards against
-	// resource exhaustion from very large or programmatically-expanded
-	// input (e.g. a small template rendered against a huge dataset): once
-	// the cap is crossed, Convert/ConvertFull stop walking the tree and
-	// return a *LimitError (Kind LimitElements) instead of continuing to
-	// allocate. Recommended for any path that converts untrusted HTML.
-	MaxElements int
-
-	// MaxDepth caps the nesting depth of converted elements. 0 (the
-	// default) means unlimited. It guards against pathologically nested
-	// input that would otherwise grow the conversion recursion (and the
-	// goroutine stack) without bound. Exceeding it returns a *LimitError
-	// (Kind LimitDepth).
-	MaxDepth int
 }
 
 // URLPolicy controls whether the HTML converter may fetch a remote URL.
@@ -281,10 +281,7 @@ func loggerOrDiscard(l *slog.Logger) *slog.Logger {
 // ConvertResult holds the full result of an HTML → layout conversion,
 // including both normal-flow elements and absolutely positioned items.
 type ConvertResult struct {
-	Elements   []layout.Element
-	Absolutes  []AbsoluteItem
 	PageConfig *PageConfig // page settings from @page rules (nil if none)
-	Metadata   DocMetadata // extracted from <title> and <meta> tags
 
 	// MarginBoxes are ready-to-use margin box definitions from @page rules
 	// (e.g. page numbers via @bottom-center). Pass directly to
@@ -302,6 +299,10 @@ type ConvertResult struct {
 	// RightMarginBoxes are margin boxes for @page :right (odd pages, LTR).
 	// Pass to document.SetRightMarginBoxes. Nil if not declared.
 	RightMarginBoxes map[string]layout.MarginBox
+	Metadata         DocMetadata // extracted from <title> and <meta> tags
+
+	Elements  []layout.Element
+	Absolutes []AbsoluteItem
 }
 
 // DocMetadata holds document metadata extracted from HTML head elements.
@@ -326,7 +327,15 @@ type DocMetadata struct {
 
 // MarginBoxContent holds the parsed content of a CSS margin box (e.g. @top-center).
 type MarginBoxContent struct {
-	Content string // resolved content string (after evaluating counter(), string literals, etc.)
+	// Embedded is the document's default body font, stamped during
+	// conversion so the renderer can draw the margin box with an embedded
+	// (PDF/A-safe) font instead of the non-embedded standard Helvetica.
+	// Nil when the document uses no embedded fonts. Font-family declared
+	// inside the margin box itself is not yet honoured (follow-up).
+	Embedded *font.EmbeddedFont
+	Content  string     // resolved content string (after evaluating counter(), string literals, etc.)
+	Color    [3]float64 // RGB color (0-1 each)
+	FontSize float64    // font size in points (0 = use default 9pt)
 	// HasContent is true when a `content` declaration was present in the
 	// margin-box rule, even if it resolved to the empty string (e.g.
 	// `content: ""` or `content: none`). It lets a pseudo-page box
@@ -334,26 +343,16 @@ type MarginBoxContent struct {
 	// can OVERRIDE — and thereby blank — the inherited default box for that
 	// page/slot, instead of being dropped and falling back to the default.
 	HasContent bool
-	FontSize   float64    // font size in points (0 = use default 9pt)
-	Color      [3]float64 // RGB color (0-1 each)
 	// HasColor is true only when a `color` declaration was present in the
 	// margin-box rule. It lets the renderer distinguish an explicit
 	// `color: black` from an unset color (which defaults to gray).
 	HasColor bool
-	// Embedded is the document's default body font, stamped during
-	// conversion so the renderer can draw the margin box with an embedded
-	// (PDF/A-safe) font instead of the non-embedded standard Helvetica.
-	// Nil when the document uses no embedded fonts. Font-family declared
-	// inside the margin box itself is not yet honoured (follow-up).
-	Embedded *font.EmbeddedFont
 }
 
 // PageMargins holds the margin values and margin-box content for a
 // page variant (e.g. :first, :left, :right) parsed from a CSS @page rule.
 type PageMargins struct {
-	Top, Right, Bottom, Left float64
-	HasMargins               bool                        // true if any margin property was explicitly set (even to 0)
-	MarginBoxes              map[string]MarginBoxContent // e.g. "top-center" → content
+	MarginBoxes map[string]MarginBoxContent // e.g. "top-center" → content
 
 	// Unresolved length trees for each side, preserved so percent / calc
 	// can be resolved against the page box at apply time (the float
@@ -361,9 +360,12 @@ type PageMargins struct {
 	// correct for absolute units). nil when the side was not set.
 	topLen, rightLen, bottomLen, leftLen *cssLength
 
+	Top, Right, Bottom, Left float64
+
 	// fontSize is the default font size captured at parse time, used to
 	// resolve em / rem inside the deferred length trees.
-	fontSize float64
+	fontSize   float64
+	HasMargins bool // true if any margin property was explicitly set (even to 0)
 }
 
 // ResolveMargins resolves any deferred (percent / calc) margin lengths
@@ -388,9 +390,34 @@ func (m *PageMargins) ResolveMargins(pageW, pageH float64) {
 
 // PageConfig holds page dimensions and margins from CSS @page rules.
 type PageConfig struct {
-	Width      float64 // page width in points (0 = use default)
-	Height     float64 // page height in points (0 = use default)
-	AutoHeight bool    // true when @page size has explicit height of 0 (size to content)
+
+	// Unresolved length trees for the default margins, preserved so
+	// percent / calc resolve against the page box at apply time. The
+	// float fields above are eagerly resolved with a zero basis and are
+	// only correct for absolute units. nil when not set.
+	marginTopLen, marginRightLen, marginBottomLen, marginLeftLen *cssLength
+
+	// Per-page-type margin overrides (nil = use default).
+	First *PageMargins // @page :first
+	Left  *PageMargins // @page :left (even pages in LTR)
+	Right *PageMargins // @page :right (odd pages in LTR)
+
+	// Default margin boxes (from @page with no pseudo-selector).
+	MarginBoxes map[string]MarginBoxContent // e.g. "top-center" → content
+	Width       float64                     // page width in points (0 = use default)
+	Height      float64                     // page height in points (0 = use default)
+
+	// Default margins (from @page with no pseudo-selector).
+	MarginTop    float64
+	MarginRight  float64
+	MarginBottom float64
+	MarginLeft   float64
+
+	// fontSize is the default font size captured at parse time, used to
+	// resolve em / rem inside the deferred length trees.
+	fontSize float64
+
+	AutoHeight bool // true when @page size has explicit height of 0 (size to content)
 	Landscape  bool
 
 	// OrientationOnly is true when @page { size: ... } gave only an
@@ -400,30 +427,8 @@ type PageConfig struct {
 	// Landscape distinguishes the two keywords (true = landscape).
 	OrientationOnly bool
 
-	// Default margins (from @page with no pseudo-selector).
-	MarginTop    float64
-	MarginRight  float64
-	MarginBottom float64
-	MarginLeft   float64
-	HasMargins   bool // true if any margin property was explicitly set (even to 0)
+	HasMargins bool // true if any margin property was explicitly set (even to 0)
 
-	// Unresolved length trees for the default margins, preserved so
-	// percent / calc resolve against the page box at apply time. The
-	// float fields above are eagerly resolved with a zero basis and are
-	// only correct for absolute units. nil when not set.
-	marginTopLen, marginRightLen, marginBottomLen, marginLeftLen *cssLength
-
-	// fontSize is the default font size captured at parse time, used to
-	// resolve em / rem inside the deferred length trees.
-	fontSize float64
-
-	// Per-page-type margin overrides (nil = use default).
-	First *PageMargins // @page :first
-	Left  *PageMargins // @page :left (even pages in LTR)
-	Right *PageMargins // @page :right (odd pages in LTR)
-
-	// Default margin boxes (from @page with no pseudo-selector).
-	MarginBoxes map[string]MarginBoxContent // e.g. "top-center" → content
 }
 
 // ResolveMargins resolves the default-margin deferred lengths against the
@@ -751,44 +756,7 @@ func ConvertWithContext(ctx context.Context, htmlStr string, opts *Options) ([]l
 }
 
 type converter struct {
-	opts           Options
-	logger         *slog.Logger
-	rootFontSize   float64
-	sheet          *styleSheet
-	embeddedFonts  map[string]*font.EmbeddedFont // family+"|"+weight+"|"+style → embedded font
-	absolutes      []AbsoluteItem
-	metadata       DocMetadata
-	containerWidth float64 // current container width in points for resolving % widths
-
-	// Unicode fallback: lazily loaded when text contains non-WinAnsi characters.
-	fallbackFont       *font.EmbeddedFont
-	fallbackFontLoaded bool // true after first attempt (even if failed)
-
-	// CSS counters: maps counter name → stack of values (for nesting).
-	counters map[string][]int
-
-	// Positioned ancestor stack for resolving position:absolute against the
-	// nearest containing block (position:relative/absolute/fixed ancestor).
-	positionedAncestors []containingBlock
-
-	// urlPolicy is called before fetching remote URLs. Nil means allow all.
-	urlPolicy URLPolicy
-
-	// strictErrs accumulates asset-load failures when Options.StrictAssets
-	// is true. Convert / ConvertFull return errors.Join(strictErrs...) at
-	// the end of the run. When StrictAssets is false this slice is never
-	// appended to — reportAssetError still calls Logger.Warn.
-	strictErrs []error
-
-	// Resource guards (Options.MaxElements / MaxDepth). nodeCount counts
-	// the nodes converted so far; depth tracks the current nesting level
-	// (incremented on convertNode entry, decremented on exit). limitErr is
-	// set the first time a ceiling is crossed; once set, convertNode and
-	// walkChildren unwind without further work and Convert / ConvertFull
-	// return it. Both ceilings are disabled when their Option is 0.
-	nodeCount int
-	depth     int
-	limitErr  error
+	limitErr error
 
 	// ctx bounds the conversion walk. It is stored on this short-lived,
 	// per-conversion worker (never shared or persisted) so convertNode can
@@ -796,8 +764,48 @@ type converter struct {
 	// recursive signature. nil means no cancellation (Convert/ConvertFull
 	// use context.Background). ctxErr records the first ctx.Err() seen and
 	// aborts the remaining walk; Convert/ConvertFull return it.
-	ctx    context.Context
-	ctxErr error
+	ctx           context.Context
+	ctxErr        error
+	logger        *slog.Logger
+	sheet         *styleSheet
+	embeddedFonts map[string]*font.EmbeddedFont // family+"|"+weight+"|"+style → embedded font
+
+	// Unicode fallback: lazily loaded when text contains non-WinAnsi characters.
+	fallbackFont *font.EmbeddedFont
+
+	// CSS counters: maps counter name → stack of values (for nesting).
+	counters map[string][]int
+
+	// urlPolicy is called before fetching remote URLs. Nil means allow all.
+	urlPolicy URLPolicy
+
+	metadata  DocMetadata
+	absolutes []AbsoluteItem
+
+	// Positioned ancestor stack for resolving position:absolute against the
+	// nearest containing block (position:relative/absolute/fixed ancestor).
+	positionedAncestors []containingBlock
+
+	// strictErrs accumulates asset-load failures when Options.StrictAssets
+	// is true. Convert / ConvertFull return errors.Join(strictErrs...) at
+	// the end of the run. When StrictAssets is false this slice is never
+	// appended to — reportAssetError still calls Logger.Warn.
+	strictErrs []error
+
+	opts           Options
+	rootFontSize   float64
+	containerWidth float64 // current container width in points for resolving % widths
+
+	// Resource guards (Options.MaxElements / MaxDepth). nodeCount counts
+	// the nodes converted so far; depth tracks the current nesting level
+	// (incremented on convertNode entry, decremented on exit). limitErr is
+	// set the first time a ceiling is crossed; once set, convertNode and
+	// walkChildren unwind without further work and Convert / ConvertFull
+	// return it. Both ceilings are disabled when their Option is 0.
+	nodeCount          int
+	depth              int
+	fallbackFontLoaded bool // true after first attempt (even if failed)
+
 }
 
 // reportAssetError records a single asset-load failure. The event is always
@@ -822,9 +830,9 @@ func (c *converter) reportAssetError(category string, err error, attrs ...any) {
 
 // containingBlock tracks a positioned ancestor for absolute positioning resolution.
 type containingBlock struct {
+	pending []pendingOverlay // absolute children waiting to be attached to the Div
 	width   float64          // resolved content width in points
 	height  float64          // resolved content height in points (0 if unknown)
-	pending []pendingOverlay // absolute children waiting to be attached to the Div
 }
 
 // pendingOverlay stores an absolute element waiting to be attached to its

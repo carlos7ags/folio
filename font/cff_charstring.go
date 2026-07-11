@@ -62,9 +62,6 @@ type charstringWalker struct {
 	gReached []bool   // size == gsubr.count (nil when gsubr is empty)
 	lReached [][]bool // per FD; nil entries when no local subrs
 
-	// Pessimistic-fallback flags. When set, every subroutine in the
-	// scope is treated as reachable regardless of the per-index slice.
-	allGReached bool
 	allLReached []bool // per FD
 
 	// Recursion depth guard. TN #5177 specifies a max subr nesting
@@ -76,6 +73,10 @@ type charstringWalker struct {
 	// would otherwise hang on a regression check this counter
 	// directly. Phase 3+ does not consult it on the hot path.
 	walkCalls int
+
+	// Pessimistic-fallback flags. When set, every subroutine in the
+	// scope is treated as reachable regardless of the per-index slice.
+	allGReached bool
 }
 
 // newCharstringWalker prepares a walker for a CFF whose global subr

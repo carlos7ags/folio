@@ -19,9 +19,9 @@ const (
 
 // EncryptionConfig holds the settings for document encryption.
 type EncryptionConfig struct {
+	UserPassword  string // password to open the document (may be empty)
+	OwnerPassword string // password for full access (defaults to UserPassword)
 	Algorithm     EncryptionAlgorithm
-	UserPassword  string          // password to open the document (may be empty)
-	OwnerPassword string          // password for full access (defaults to UserPassword)
 	Permissions   core.Permission // granted permissions when opened with user password
 }
 

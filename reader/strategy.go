@@ -173,8 +173,8 @@ func (l *LocationStrategy) Result() string {
 // a specified rectangle. Useful for extracting text from a specific
 // area of a page (e.g., a header, footer, or form field).
 type RegionStrategy struct {
-	x, y, w, h float64 // region in user space
 	inner      ExtractionStrategy
+	x, y, w, h float64 // region in user space
 }
 
 // NewRegionStrategy creates a strategy that filters to a rectangle.

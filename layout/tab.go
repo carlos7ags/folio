@@ -36,10 +36,10 @@ type TabStop struct {
 type TabbedLine struct {
 	font     *font.Standard
 	embedded *font.EmbeddedFont
-	fontSize float64
 	stops    []TabStop
 	segments []string // text segments: segments[0] is before first tab, segments[1] after first tab, etc.
 	color    Color
+	fontSize float64
 	leading  float64
 }
 

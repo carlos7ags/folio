@@ -26,9 +26,9 @@ const (
 // PageLabelRange defines a page label range starting at a given page index.
 // All pages from PageIndex until the next range use this label style.
 type PageLabelRange struct {
-	PageIndex int        // 0-based page index where this range starts
 	Style     LabelStyle // numbering style
 	Prefix    string     // prefix before the number (e.g. "A-")
+	PageIndex int        // 0-based page index where this range starts
 	Start     int        // starting number (default 1)
 }
 

@@ -50,9 +50,9 @@ type Modifier struct {
 	pagesDict *core.PdfDictionary
 	kids      *core.PdfArray
 	pagesRef  *core.PdfIndirectReference
-	pageCount int
-	pageDicts []*core.PdfDictionary // parallel to kids.Elements
 	info      *core.PdfDictionary
+	pageDicts []*core.PdfDictionary // parallel to kids.Elements
+	pageCount int
 }
 
 // newModifier creates an empty Modifier with a fresh PDF 1.7 writer,

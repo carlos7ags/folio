@@ -11,16 +11,16 @@ import (
 
 // Image holds decoded image data ready for embedding in a PDF.
 type Image struct {
+	colorSpace string // "DeviceRGB", "DeviceGray", "DeviceCMYK"
+	filter     string // "DCTDecode" for JPEG, "FlateDecode" for PNG/TIFF
 	data       []byte // raw image data (JPEG: original bytes; PNG: decoded pixels)
+	smask      []byte // soft mask (alpha channel) for PNG with transparency
 	width      int
 	height     int
-	colorSpace string // "DeviceRGB", "DeviceGray", "DeviceCMYK"
-	bpc        int    // bits per component (usually 8)
-	filter     string // "DCTDecode" for JPEG, "FlateDecode" for PNG/TIFF
-	smask      []byte // soft mask (alpha channel) for PNG with transparency
-	smaskW     int    // smask width (same as image width for alpha)
-	smaskH     int    // smask height
-	adobeCMYK  bool   // Adobe-style inverted CMYK (APP14 marker, ncomp==4)
+	bpc        int  // bits per component (usually 8)
+	smaskW     int  // smask width (same as image width for alpha)
+	smaskH     int  // smask height
+	adobeCMYK  bool // Adobe-style inverted CMYK (APP14 marker, ncomp==4)
 }
 
 // Width returns the image width in pixels.

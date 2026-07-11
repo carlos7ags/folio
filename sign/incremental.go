@@ -14,18 +14,18 @@ import (
 
 // incrementalObject is an indirect object to append in an incremental update.
 type incrementalObject struct {
+	Object           core.PdfObject
 	ObjectNumber     int
 	GenerationNumber int
-	Object           core.PdfObject
 }
 
 // incrementalWriter appends new objects to an existing PDF via an incremental update.
 // It writes a new xref section and trailer with /Prev pointing to the original xref.
 type incrementalWriter struct {
+	prevTrailer *core.PdfDictionary // original trailer dictionary
 	original    []byte              // original PDF bytes
 	objects     []incrementalObject // new or modified objects
 	prevXref    int64               // byte offset of the original xref
-	prevTrailer *core.PdfDictionary // original trailer dictionary
 }
 
 // newIncrementalWriter creates an incremental writer for the given PDF bytes.

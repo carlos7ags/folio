@@ -68,9 +68,9 @@ const (
 // a marked content reference (leaf pointing to page content).
 type structNode struct {
 	tag      StructTag          // structure type (e.g. "P", "H1", "Table")
+	altText  string             // alternative text for figures/images
 	children []*structNode      // child structure elements
 	mcids    []markedContentRef // marked content references (leaf content)
-	altText  string             // alternative text for figures/images
 }
 
 // markedContentRef links a structure node to content on a specific page.
@@ -172,9 +172,9 @@ func (st *structTree) buildPdfObjects(
 
 // parentEntry maps an MCID on a page to the struct element that owns it.
 type parentEntry struct {
+	elemRef   *core.PdfIndirectReference
 	pageIndex int
 	mcid      int
-	elemRef   *core.PdfIndirectReference
 }
 
 // buildChildren recursively builds StructElem objects for a node's children.

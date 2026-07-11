@@ -24,8 +24,8 @@ type codeSpaceRange struct {
 
 // bfRange maps a contiguous range of character codes to Unicode strings.
 type bfRange struct {
-	low, high uint32
 	dst       string // unicode string for low; subsequent codes increment first rune
+	low, high uint32
 }
 
 // ParseCMap parses a ToUnicode CMap stream into a CMap.

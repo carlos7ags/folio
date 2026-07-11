@@ -132,6 +132,50 @@ const (
 // map indicConfigs; the dispatcher picks the right one based on the
 // UAX #24 script of the input text.
 type indicScriptConfig struct {
+	// PreBaseMatras lists every codepoint that the script renders
+	// visually before the base consonant (i.e. logically follows
+	// the base in memory but visually precedes it). Most Brahmic
+	// scripts have one such matra (Devanagari sign I U+093F); a
+	// few have several (Malayalam U+0D46/U+0D47, Tamil
+	// U+0BC6/U+0BC7/U+0BC8, Bengali U+09BF/U+09C7/U+09C8, Oriya
+	// U+0B47/U+0B48). Empty / nil for scripts without pre-base
+	// matras.
+	//
+	// TODO(#216): split matras (Bengali U+09CB/U+09CC, Malayalam
+	// U+0D4A/U+0D4B/U+0D4C, Oriya U+0B4B/U+0B4C) contain a logical
+	// pre-base part. They are deferred from this PR; current
+	// behaviour treats them as composed inputs that pass through
+	// without decomposition. See TestShape{Bengali,Malayalam}
+	// SplitMatraNotDecomposed for the regression locks.
+	PreBaseMatras []rune
+
+	// CategoryOverrides maps specific codepoints to a category
+	// that does not match the default block-position rule. The
+	// default rules assume:
+	//   - consonants occupy the first span of the block
+	//   - dependent signs (matras) occupy a middle span
+	//   - digits occupy U+*66..U+*6F
+	//   - independent vowels occupy U+*04..U+*14 (+ vocalic L/LL)
+	// Any script that deviates (Malayalam chillu runes, Oriya's
+	// separate ra, Gurmukhi addak/tippi) lists exceptions here.
+	CategoryOverrides map[rune]devaCategory
+
+	// ConsonantExtraRanges is a list of [start, end] inclusive
+	// codepoint ranges of "extra" consonants that sit outside the
+	// main U+*15..U+*39 span (e.g. Devanagari's nukta-composed
+	// consonants U+0958..U+095F).
+	ConsonantExtraRanges [][2]rune
+
+	// VowelSignRanges is a list of [start, end] inclusive ranges
+	// of dependent vowel signs / matras. The generic category
+	// lookup walks these ranges for anything that is not covered
+	// by the explicit category map.
+	VowelSignRanges [][2]rune
+
+	// IndependentVowelRanges lists [start, end] inclusive ranges
+	// of independent vowels.
+	IndependentVowelRanges [][2]rune
+
 	// BlockStart / BlockEnd delimit the main Unicode block for this
 	// script. Runes outside the range are treated as devaCatOther.
 	//
@@ -161,23 +205,6 @@ type indicScriptConfig struct {
 	RaLetter    rune
 	RaAlternate rune
 
-	// PreBaseMatras lists every codepoint that the script renders
-	// visually before the base consonant (i.e. logically follows
-	// the base in memory but visually precedes it). Most Brahmic
-	// scripts have one such matra (Devanagari sign I U+093F); a
-	// few have several (Malayalam U+0D46/U+0D47, Tamil
-	// U+0BC6/U+0BC7/U+0BC8, Bengali U+09BF/U+09C7/U+09C8, Oriya
-	// U+0B47/U+0B48). Empty / nil for scripts without pre-base
-	// matras.
-	//
-	// TODO(#216): split matras (Bengali U+09CB/U+09CC, Malayalam
-	// U+0D4A/U+0D4B/U+0D4C, Oriya U+0B4B/U+0B4C) contain a logical
-	// pre-base part. They are deferred from this PR; current
-	// behaviour treats them as composed inputs that pass through
-	// without decomposition. See TestShape{Bengali,Malayalam}
-	// SplitMatraNotDecomposed for the regression locks.
-	PreBaseMatras []rune
-
 	// RephPos is where a detected reph moves in phase 4.
 	RephPos rephPosition
 
@@ -188,33 +215,6 @@ type indicScriptConfig struct {
 	// rphf, rkrf, pres) are skipped entirely. The phase-3 stack
 	// short-circuits when this flag is false.
 	HasConjuncts bool
-
-	// CategoryOverrides maps specific codepoints to a category
-	// that does not match the default block-position rule. The
-	// default rules assume:
-	//   - consonants occupy the first span of the block
-	//   - dependent signs (matras) occupy a middle span
-	//   - digits occupy U+*66..U+*6F
-	//   - independent vowels occupy U+*04..U+*14 (+ vocalic L/LL)
-	// Any script that deviates (Malayalam chillu runes, Oriya's
-	// separate ra, Gurmukhi addak/tippi) lists exceptions here.
-	CategoryOverrides map[rune]devaCategory
-
-	// ConsonantExtraRanges is a list of [start, end] inclusive
-	// codepoint ranges of "extra" consonants that sit outside the
-	// main U+*15..U+*39 span (e.g. Devanagari's nukta-composed
-	// consonants U+0958..U+095F).
-	ConsonantExtraRanges [][2]rune
-
-	// VowelSignRanges is a list of [start, end] inclusive ranges
-	// of dependent vowel signs / matras. The generic category
-	// lookup walks these ranges for anything that is not covered
-	// by the explicit category map.
-	VowelSignRanges [][2]rune
-
-	// IndependentVowelRanges lists [start, end] inclusive ranges
-	// of independent vowels.
-	IndependentVowelRanges [][2]rune
 }
 
 // devanagariConfig is the reference configuration used by

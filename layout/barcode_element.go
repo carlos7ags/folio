@@ -8,10 +8,10 @@ import "github.com/carlos7ags/folio/barcode"
 // BarcodeElement is a layout element that renders a barcode in the document flow.
 type BarcodeElement struct {
 	bc      *barcode.Barcode
+	altText string  // alternative text for accessibility (PDF/UA)
 	width   float64 // display width in points
 	height  float64 // display height in points (0 = auto from aspect ratio)
 	align   Align
-	altText string // alternative text for accessibility (PDF/UA)
 }
 
 // NewBarcodeElement creates a layout element from a generated barcode.

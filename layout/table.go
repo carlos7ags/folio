@@ -74,22 +74,22 @@ func NoBorders() CellBorders {
 
 // Cell represents a single cell in a table.
 type Cell struct {
-	text         string
+	content      Element // rich content (if non-nil, overrides text/font)
 	font         *font.Standard
 	embedded     *font.EmbeddedFont
+	padSides     *Padding   // per-side padding (overrides uniform when set)
+	bgColor      *Color     // background fill color (nil = transparent)
+	hintWUnit    *UnitValue // lazy width hint (overrides hintW when set; resolved at layout time)
+	text         string
+	borders      CellBorders
+	borderRadius [4]float64 // corner radii [TL, TR, BR, BL] (points, 0 = sharp)
 	fontSize     float64
-	content      Element // rich content (if non-nil, overrides text/font)
+	padding      float64 // uniform padding (all sides)
+	hintW        float64 // CSS width hint in points (0 = not set)
 	align        Align
 	valign       VAlign
-	padding      float64  // uniform padding (all sides)
-	padSides     *Padding // per-side padding (overrides uniform when set)
-	borders      CellBorders
 	colspan      int
 	rowspan      int
-	bgColor      *Color     // background fill color (nil = transparent)
-	hintW        float64    // CSS width hint in points (0 = not set)
-	hintWUnit    *UnitValue // lazy width hint (overrides hintW when set; resolved at layout time)
-	borderRadius [4]float64 // corner radii [TL, TR, BR, BL] (points, 0 = sharp)
 }
 
 // SetWidthHint sets the CSS width hint for this cell (in points).
@@ -292,16 +292,16 @@ func (r *Row) AddCellElement(elem Element) *Cell {
 // Table is a layout element that renders a grid of cells with borders.
 // Builder API backed by a flat grid internally.
 type Table struct {
+	minWidthUnit   *UnitValue // lazy-resolved min-width (overrides minWidth when set)
 	rows           []*Row
 	colWidths      []float64   // explicit column widths in points (nil = equal distribution)
 	colUnitWidths  []UnitValue // unit-based column widths (overrides colWidths if set)
-	autoWidths     bool        // if true, compute column widths from cell content
-	borderCollapse bool        // if true, collapse adjacent cell borders
 	minWidth       float64     // minimum total table width (0 = no minimum)
-	minWidthUnit   *UnitValue  // lazy-resolved min-width (overrides minWidth when set)
 	cellSpacingH   float64     // horizontal spacing between cells (CSS border-spacing)
 	cellSpacingV   float64     // vertical spacing between cells (CSS border-spacing)
 	direction      Direction   // text direction; RTL reverses column order
+	autoWidths     bool        // if true, compute column widths from cell content
+	borderCollapse bool        // if true, collapse adjacent cell borders
 }
 
 // NewTable creates a new empty table.
@@ -1128,9 +1128,9 @@ func (t *Table) PlanLayout(area LayoutArea) LayoutPlan {
 type tableRowRef struct {
 	table     *Table
 	grid      []gridRow
-	rowIndex  int
 	colWidths []float64
 	maxWidth  float64
+	rowIndex  int
 }
 
 // collapseBorders removes duplicate borders between adjacent cells.

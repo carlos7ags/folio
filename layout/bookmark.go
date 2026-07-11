@@ -17,8 +17,8 @@ package layout
 // tree.
 type bookmarkAnchor struct {
 	inner  Element
-	level  int // CSS bookmark-level: >= 1, or -1 for none/skip
 	label  string
+	level  int // CSS bookmark-level: >= 1, or -1 for none/skip
 	closed bool
 }
 

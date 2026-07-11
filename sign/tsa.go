@@ -16,11 +16,11 @@ import (
 // TSAClient is an RFC 3161 Time-Stamp Authority client.
 // It sends a TimeStampReq to the TSA URL and returns the timestamp token.
 type TSAClient struct {
-	// URL is the TSA endpoint (e.g., "http://timestamp.digicert.com").
-	URL string
 
 	// HTTPClient is the HTTP client to use. If nil, http.DefaultClient is used.
 	HTTPClient *http.Client
+	// URL is the TSA endpoint (e.g., "http://timestamp.digicert.com").
+	URL string
 }
 
 // NewTSAClient creates a TSA client for the given URL.
@@ -67,8 +67,8 @@ func (c *TSAClient) Timestamp(digest []byte, hashFunc crypto.Hash) ([]byte, erro
 
 // timeStampReq is the ASN.1 TimeStampReq structure (RFC 3161).
 type timeStampReq struct {
-	Version        int
 	MessageImprint messageImprint
+	Version        int
 	CertReq        bool `asn1:"optional"`
 }
 
@@ -80,8 +80,8 @@ type messageImprint struct {
 
 // timeStampResp is the ASN.1 TimeStampResp structure (RFC 3161).
 type timeStampResp struct {
-	Status         pkiStatusInfo
 	TimeStampToken asn1.RawValue `asn1:"optional"`
+	Status         pkiStatusInfo
 }
 
 // pkiStatusInfo is the status field of a TimeStampResp.

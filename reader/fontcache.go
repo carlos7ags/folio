@@ -11,15 +11,16 @@ import (
 // FontEntry holds the decoded character mapping and glyph widths
 // for a single PDF font used during content stream parsing.
 type FontEntry struct {
-	cmap     *CMap     // from /ToUnicode (preferred)
-	encoding *Encoding // from /Encoding (fallback for simple fonts)
-	isType0  bool      // composite font (2-byte codes by default)
+	cmap      *CMap       // from /ToUnicode (preferred)
+	encoding  *Encoding   // from /Encoding (fallback for simple fonts)
+	cidWidths map[int]int // CID → width for Type0 fonts
+	widths    []int       // /Widths array (indexed by charCode - firstChar)
 
 	// Glyph widths in 1/1000 of text space unit.
-	firstChar int         // /FirstChar for simple fonts
-	widths    []int       // /Widths array (indexed by charCode - firstChar)
-	cidWidths map[int]int // CID → width for Type0 fonts
-	defaultW  int         // /DW default width for CIDFonts (default 1000)
+	firstChar int  // /FirstChar for simple fonts
+	defaultW  int  // /DW default width for CIDFonts (default 1000)
+	isType0   bool // composite font (2-byte codes by default)
+
 }
 
 // Decode converts raw character code bytes to Unicode text.

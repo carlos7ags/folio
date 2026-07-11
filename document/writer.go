@@ -17,28 +17,29 @@ import (
 // IndirectObject pairs a PdfObject with its object/generation numbers
 // for writing as an indirect object definition.
 type IndirectObject struct {
+	Object           core.PdfObject
 	ObjectNumber     int
 	GenerationNumber int
-	Object           core.PdfObject
 }
 
 // Writer serializes a collection of indirect objects into a valid PDF file.
 // It handles the PDF file structure: header, object definitions,
 // cross-reference table, trailer, and EOF marker.
 type Writer struct {
-	version    string // e.g. "1.7"
-	objects    []IndirectObject
-	root       *core.PdfIndirectReference // /Root entry in trailer
-	info       *core.PdfIndirectReference // /Info entry in trailer (optional)
-	encryptor  *core.Encryptor            // nil if no encryption
-	encryptRef *core.PdfIndirectReference // /Encrypt entry in trailer
-	fileID     []byte                     // 16-byte file identifier for /ID in trailer
 
 	// ctx bounds serialization when set by the document layer. It is
 	// checked at object boundaries in writeObjectBodies so a cancelled
 	// render stops emitting instead of writing the whole file. nil means
 	// no cancellation.
-	ctx context.Context
+	ctx        context.Context
+	root       *core.PdfIndirectReference // /Root entry in trailer
+	info       *core.PdfIndirectReference // /Info entry in trailer (optional)
+	encryptor  *core.Encryptor            // nil if no encryption
+	encryptRef *core.PdfIndirectReference // /Encrypt entry in trailer
+	version    string                     // e.g. "1.7"
+	objects    []IndirectObject
+	fileID     []byte // 16-byte file identifier for /ID in trailer
+
 }
 
 // NewWriter creates a Writer targeting the given PDF version.

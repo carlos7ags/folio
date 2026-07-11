@@ -49,6 +49,13 @@ type ViewerPreferences struct {
 	// What panel is visible on open.
 	PageMode PageMode
 
+	// Zoom on open: "Fit", "FitH", "FitV", "FitB", or a percentage (e.g. 100).
+	// Empty string = viewer default.
+	OpenZoom string
+
+	// Page to display on open (0-based). -1 = not set.
+	OpenPage int
+
 	// Hide viewer UI elements.
 	HideToolbar  bool
 	HideMenubar  bool
@@ -62,13 +69,6 @@ type ViewerPreferences struct {
 
 	// Display the document title (vs filename) in the title bar.
 	DisplayDocTitle bool
-
-	// Page to display on open (0-based). -1 = not set.
-	OpenPage int
-
-	// Zoom on open: "Fit", "FitH", "FitV", "FitB", or a percentage (e.g. 100).
-	// Empty string = viewer default.
-	OpenZoom string
 }
 
 // SetViewerPreferences configures how viewers display the document.

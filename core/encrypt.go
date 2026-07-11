@@ -66,16 +66,17 @@ var pdfPadding = [32]byte{
 
 // Encryptor handles PDF object encryption for a single document.
 type Encryptor struct {
-	Revision EncryptionRevision
-	FileKey  []byte // 16 bytes (RC4/AES-128) or 32 bytes (AES-256)
-	O, U     []byte // owner/user hash (32 bytes for R3/R4, 48 bytes for R6)
-	OE, UE   []byte // owner/user key encryption (32 bytes, R6 only)
-	Perms    []byte // encrypted permissions (16 bytes, R6 only)
-	P        int32  // permission flags
-	FileID   []byte // 16-byte file identifier
+	FileKey []byte // 16 bytes (RC4/AES-128) or 32 bytes (AES-256)
+	O, U    []byte // owner/user hash (32 bytes for R3/R4, 48 bytes for R6)
+	OE, UE  []byte // owner/user key encryption (32 bytes, R6 only)
+	Perms   []byte // encrypted permissions (16 bytes, R6 only)
+	FileID  []byte // 16-byte file identifier
 
-	keyLen            int // key length in bytes (16 or 32)
-	encryptDictObjNum int // object number of /Encrypt dict (skip during walk)
+	Revision EncryptionRevision
+
+	keyLen            int   // key length in bytes (16 or 32)
+	encryptDictObjNum int   // object number of /Encrypt dict (skip during walk)
+	P                 int32 // permission flags
 }
 
 // NewEncryptor creates an Encryptor for the given revision and passwords.

@@ -24,6 +24,12 @@ type DictEntry struct {
 // Insertion order is preserved to produce deterministic PDF output.
 // A lazily-built map index accelerates key lookups from O(n) to O(1).
 type PdfDictionary struct {
+
+	// index maps key name → position in Entries. It is lazily built on
+	// first use and rebuilt after any operation that reorders or removes
+	// entries. A nil index means "not yet built" and is safe to use —
+	// ensureIndex populates it on demand.
+	index map[string]int
 	// Entries is the ordered list of key-value pairs.
 	//
 	// Deprecated: since v0.7.0, scheduled for removal at v1.0. Use
@@ -31,12 +37,6 @@ type PdfDictionary struct {
 	// and [PdfDictionary.Remove] so the internal index stays consistent
 	// with mutations.
 	Entries []DictEntry
-
-	// index maps key name → position in Entries. It is lazily built on
-	// first use and rebuilt after any operation that reorders or removes
-	// entries. A nil index means "not yet built" and is safe to use —
-	// ensureIndex populates it on demand.
-	index map[string]int
 }
 
 // NewPdfDictionary creates a new empty PdfDictionary.

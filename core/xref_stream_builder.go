@@ -14,8 +14,8 @@ import "fmt"
 // [0, N] subsection. Sparse subsections are supported because incremental
 // updates need them, even though phase 1 of the optimizer does not.
 type XRefStreamSubsection struct {
-	First   int
 	Entries []XRefStreamEntry
+	First   int
 }
 
 // BuildXRefStream assembles a cross-reference stream object per

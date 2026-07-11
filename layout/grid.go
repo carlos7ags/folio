@@ -36,20 +36,20 @@ type GridPlacement struct {
 // Grid is a container that lays out children using CSS Grid semantics.
 // It implements Element, Measurable, and HeightSettable.
 type Grid struct {
+	background      *Color
+	heightUnit      *UnitValue // forced height (HeightSettable)
 	children        []Element
 	templateCols    []GridTrack
 	templateRows    []GridTrack
-	autoRows        []GridTrack // implicit row sizing from grid-auto-rows
-	templateAreas   [][]string  // named grid areas, e.g. [["header","header"],["sidebar","content"]]
+	autoRows        []GridTrack     // implicit row sizing from grid-auto-rows
+	templateAreas   [][]string      // named grid areas, e.g. [["header","header"],["sidebar","content"]]
+	placements      []GridPlacement // per-child placement; index matches children
 	rowGap          float64
 	colGap          float64
-	placements      []GridPlacement // per-child placement; index matches children
 	padding         Padding
 	borders         CellBorders
-	background      *Color
 	spaceBefore     float64
 	spaceAfter      float64
-	heightUnit      *UnitValue     // forced height (HeightSettable)
 	justifyItems    AlignItems     // horizontal alignment of items within cells
 	alignItems      AlignItems     // vertical alignment of items within cells
 	justifyContent  JustifyContent // distribute columns within container

@@ -46,17 +46,17 @@ const (
 // FlexItem wraps a child element with flex-specific properties.
 type FlexItem struct {
 	element        Element
+	basisUnit      *UnitValue  // lazy-resolved flex-basis (overrides basis when set)
+	alignSelf      *AlignItems // per-item override (nil = use container)
 	grow           float64     // flex-grow (default 0)
 	shrink         float64     // flex-shrink (default 1)
 	basis          float64     // flex-basis in points; 0 means auto
-	basisUnit      *UnitValue  // lazy-resolved flex-basis (overrides basis when set)
-	alignSelf      *AlignItems // per-item override (nil = use container)
-	marginTopAuto  bool        // if true, absorb remaining space before this item (flex column)
-	marginLeftAuto bool        // if true, absorb remaining space before this item (flex row)
 	marginTop      float64     // vertical margin (can be negative to pull item up)
 	marginBottom   float64     // vertical margin below item
 	marginLeft     float64     // horizontal margin (negative = extend left beyond parent)
 	marginRight    float64     // horizontal margin (negative = extend right beyond parent)
+	marginTopAuto  bool        // if true, absorb remaining space before this item (flex column)
+	marginLeftAuto bool        // if true, absorb remaining space before this item (flex row)
 }
 
 // SetMarginTopAuto marks this flex item to absorb remaining vertical space
@@ -103,6 +103,8 @@ func (fi *FlexItem) SetMargins(top, right, bottom, left float64) *FlexItem {
 // Flex is a container that lays out children using flexbox semantics.
 // It implements Element and Measurable.
 type Flex struct {
+	background           *Color
+	heightUnit           *UnitValue // forced height for cross-axis stretch
 	items                []*FlexItem
 	direction            FlexDirection
 	justify              JustifyContent
@@ -113,9 +115,7 @@ type Flex struct {
 	columnGap            float64
 	padding              Padding
 	borders              CellBorders
-	background           *Color
 	spaceBefore          float64
-	heightUnit           *UnitValue // forced height for cross-axis stretch
 	spaceAfter           float64
 	hasDefiniteCrossSize bool // true when parent constrains cross-axis (e.g. wrapper Div has explicit height)
 }

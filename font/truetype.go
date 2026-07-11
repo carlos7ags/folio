@@ -20,29 +20,33 @@ import (
 // previous `golang.org/x/image/font/sfnt`-backed implementation; the
 // dependency itself is gone from the metric path (issue #260).
 type sfntFace struct {
-	pf      *parsedFont
-	rawData []byte
+	pf *parsedFont
 
 	// Cached GSUB substitution tables. gsubParsed distinguishes "not
 	// yet parsed" (false) from "parsed and empty" (true, gsubResult nil).
 	gsubResult *GSUBSubstitutions
-	gsubParsed bool
 
 	// Cached GID→Unicode reverse map (nil = not yet built).
-	gidToUnicodeMap   map[uint16]rune
-	gidToUnicodeBuilt bool
+	gidToUnicodeMap map[uint16]rune
 
 	// Cached kern pairs: (leftGID, rightGID) → FUnit value. Populated on
 	// the first Kern() call. A nil map after parsing means the font has
 	// no kern table or no supported subtables; kernPairsParsed then
 	// guards re-parsing.
-	kernPairs       map[[2]uint16]int16
-	kernPairsParsed bool
+	kernPairs map[[2]uint16]int16
 
 	// Cached GPOS adjustments. gposParsed distinguishes "not yet parsed"
 	// (false) from "parsed and empty" (true, gposResult nil). Populated
 	// on the first GPOS() call.
 	gposResult *GPOSAdjustments
+	rawData    []byte
+
+	gsubParsed bool
+
+	gidToUnicodeBuilt bool
+
+	kernPairsParsed bool
+
 	gposParsed bool
 }
 

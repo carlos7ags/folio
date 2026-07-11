@@ -7,32 +7,6 @@ import "github.com/carlos7ags/folio/layout"
 
 // computedStyle holds the resolved CSS properties for a single HTML node.
 type computedStyle struct {
-	// Text
-	FontFamily           string // "helvetica", "courier", "times"
-	FontSize             float64
-	FontWeight           int    // CSS Fonts L4 numeric ladder (100..900). 400 = normal, 700 = bold. 0 means "not set" (treated as 400).
-	FontStyle            string // "normal", "italic"
-	Color                layout.Color
-	TextAlign            layout.Align
-	TextAlignSet         bool         // true if text-align was explicitly declared
-	TextAlignKeyword     string       // "start" or "end" when the author used the direction-relative keyword; otherwise "". Resolved at consumer time via resolveTextAlign(style).
-	TextAlignLast        layout.Align // text-align-last override for the last line
-	TextAlignLastSet     bool         // true if text-align-last was explicitly set
-	TextAlignLastKeyword string       // "start"/"end" for direction-relative text-align-last; resolve via resolveTextAlignLast(style)
-	TextDecoration       layout.TextDecoration
-	TextTransform        string // "none", "uppercase", "lowercase", "capitalize"
-	WhiteSpace           string // "normal", "nowrap", "pre", "pre-wrap", "pre-line"
-	LineHeight           float64
-	LetterSpacing        float64 // extra space between characters (points)
-	WordSpacing          float64 // extra space between words (points)
-	TextIndent           float64 // first-line indent (points)
-	WordBreak            string  // "normal", "break-all"
-	Hyphens              string  // "none", "manual", "auto"
-
-	// Box model
-	MarginTopAuto   bool // true if margin-top: auto (for flex layout)
-	MarginLeftAuto  bool // true if margin-left: auto (for centering)
-	MarginRightAuto bool // true if margin-right: auto (for centering)
 
 	// Margin / padding are stored as unresolved *cssLength values so that
 	// percent / calc / min / max / clamp expressions can be resolved
@@ -55,36 +29,53 @@ type computedStyle struct {
 	PaddingBottomLength *cssLength
 	PaddingLeftLength   *cssLength
 
-	// Borders
-	BorderTopWidth    float64
-	BorderRightWidth  float64
-	BorderBottomWidth float64
-	BorderLeftWidth   float64
+	Width           *cssLength
+	Height          *cssLength
+	MaxWidth        *cssLength
+	MinWidth        *cssLength
+	BackgroundColor *layout.Color
 
-	BorderTopColor    layout.Color
-	BorderRightColor  layout.Color
-	BorderBottomColor layout.Color
-	BorderLeftColor   layout.Color
+	Top             *cssLength
+	Left            *cssLength
+	Right           *cssLength
+	Bottom          *cssLength
+	FlexBasis       *cssLength
+	ListMarkerColor *layout.Color // marker color from ::marker pseudo-element
+
+	// Text shadow
+	TextShadow *boxShadow // reuses boxShadow struct (same fields minus Inset)
+
+	// Text decoration extensions
+	TextDecorationColor *layout.Color
+
+	// Height constraints
+	MinHeight *cssLength
+	MaxHeight *cssLength
+
+	// CSS custom properties (variables)
+	CustomProperties map[string]string
+
+	// Text
+	FontFamily           string // "helvetica", "courier", "times"
+	FontStyle            string // "normal", "italic"
+	TextAlignKeyword     string // "start" or "end" when the author used the direction-relative keyword; otherwise "". Resolved at consumer time via resolveTextAlign(style).
+	TextAlignLastKeyword string // "start"/"end" for direction-relative text-align-last; resolve via resolveTextAlignLast(style)
+	TextTransform        string // "none", "uppercase", "lowercase", "capitalize"
+	WhiteSpace           string // "normal", "nowrap", "pre", "pre-wrap", "pre-line"
+	WordBreak            string // "normal", "break-all"
+	Hyphens              string // "none", "manual", "auto"
 
 	BorderTopStyle    string
 	BorderRightStyle  string
 	BorderBottomStyle string
 	BorderLeftStyle   string
 
-	// Text direction (bidi)
-	Direction   layout.Direction // DirectionAuto (default), DirectionLTR, DirectionRTL
-	UnicodeBidi string           // "normal", "embed", "bidi-override", "isolate"
+	UnicodeBidi string // "normal", "embed", "bidi-override", "isolate"
 
 	// Layout
-	Display         string // "block", "inline", "flex", "none", "table", etc.
-	Float           string // "left", "right", "none"
-	Clear           string // "left", "right", "both", "none"
-	Width           *cssLength
-	Height          *cssLength
-	MaxWidth        *cssLength
-	MinWidth        *cssLength
-	AspectRatio     float64 // width/height ratio (0 = not set); e.g. 16/9 = 1.778
-	BackgroundColor *layout.Color
+	Display string // "block", "inline", "flex", "none", "table", etc.
+	Float   string // "left", "right", "none"
+	Clear   string // "left", "right", "both", "none"
 
 	// Background image
 	BackgroundImage    string // "url(...)" or "linear-gradient(...)" or "radial-gradient(...)"
@@ -97,47 +88,27 @@ type computedStyle struct {
 	ObjectPosition string // e.g. "center", "top left", "50% 50%"
 
 	// Positioning
-	Position  string // "static", "relative", "absolute", "fixed"
-	Top       *cssLength
-	Left      *cssLength
-	Right     *cssLength
-	Bottom    *cssLength
-	ZIndex    int  // z-index (default 0; negative = behind normal flow)
-	ZIndexSet bool // true if z-index was explicitly set
+	Position string // "static", "relative", "absolute", "fixed"
 
 	// Flex
 	FlexDirection  string
 	JustifyContent string
 	AlignItems     string
 	FlexWrap       string
-	FlexGrow       float64
-	FlexShrink     float64
-	FlexBasis      *cssLength
 	AlignSelf      string // "auto", "flex-start", "flex-end", "center", "stretch"
 	AlignContent   string // "flex-start", "flex-end", "center", "space-between", "space-around", "stretch"
 	JustifyItems   string // "start", "end", "center", "stretch" (grid only)
-	Gap            float64
-	Order          int // CSS order property; ascending sort key for flex children, ties broken by DOM order
 
 	// Grid
-	GridTemplateColumns string     // raw CSS value e.g. "1fr 1fr 1fr", "200px 1fr 2fr"
-	GridTemplateRows    string     // raw CSS value
-	GridColumnStart     int        // 1-based line number, 0 = auto
-	GridColumnEnd       int        // 1-based line number, 0 = auto
-	GridRowStart        int        // 1-based line number, 0 = auto
-	GridRowEnd          int        // 1-based line number, 0 = auto
-	GridAutoFlow        string     // "row" (default)
-	GridAutoRows        string     // raw CSS value for implicit row sizing
-	GridTemplateAreas   [][]string // parsed grid-template-areas, e.g. [["header","header"],["sidebar","content"]]
-	GridArea            string     // grid-area name for placement
-	RowGap              float64    // row-gap (takes priority over Gap for grid)
-	GridColumnGap       float64    // column-gap for grid (takes priority over Gap for grid)
+	GridTemplateColumns string // raw CSS value e.g. "1fr 1fr 1fr", "200px 1fr 2fr"
+	GridTemplateRows    string // raw CSS value
+	GridAutoFlow        string // "row" (default)
+	GridAutoRows        string // raw CSS value for implicit row sizing
+	GridArea            string // grid-area name for placement
 
 	// List
-	ListStyleType      string
-	ListStylePosition  string        // "inside" or "outside" (empty = outside default)
-	ListMarkerColor    *layout.Color // marker color from ::marker pseudo-element
-	ListMarkerFontSize float64       // marker font size from ::marker (0 = use default)
+	ListStyleType     string
+	ListStylePosition string // "inside" or "outside" (empty = outside default)
 
 	// CSS string-set for running headers (e.g. string-set: chapter content())
 	StringSetName  string // name of the string (e.g. "chapter")
@@ -148,23 +119,93 @@ type computedStyle struct {
 	PageBreakAfter  string // "auto", "always", "avoid"
 	PageBreakInside string // "auto", "avoid"
 
+	BookmarkLabel string // bookmark-label override (empty = use heading text)
+	BookmarkState string // bookmark-state: "open" (default) or "closed"
+
+	// Table
+	BorderCollapse string // "separate", "collapse"
+	VerticalAlign  string // "top", "middle", "bottom", "super", "sub" (for table cells and inline)
+	Overflow       string // "visible", "hidden"
+
+	// Text overflow
+	TextOverflow string // "clip" (default), "ellipsis"
+
+	OutlineStyle    string
+	ColumnRuleStyle string // "solid", "dashed", "dotted"
+	ColumnSpan      string // "none" (default), "all"
+
+	TextDecorationStyle string // "solid", "dashed", "dotted", "double", "wavy"
+
+	// Box sizing
+	BoxSizing string // "content-box" (default), "border-box"
+
+	// Visibility
+	Visibility string // "visible" (default), "hidden", "collapse"
+
+	// CSS transforms
+	Transform       string // raw CSS transform value, e.g. "rotate(45deg) scale(1.5)"
+	TransformOrigin string // e.g. "center center", "top left", "50% 50%"
+
+	GridTemplateAreas [][]string // parsed grid-template-areas, e.g. [["header","header"],["sidebar","content"]]
+
+	// Box shadow (multiple shadows supported, drawn bottom-to-top)
+	BoxShadows []boxShadow
+
+	// CSS counters
+	CounterReset     []counterEntry // counter-reset declarations
+	CounterIncrement []counterEntry // counter-increment declarations
+	Color            layout.Color
+
+	BorderTopColor    layout.Color
+	BorderRightColor  layout.Color
+	BorderBottomColor layout.Color
+	BorderLeftColor   layout.Color
+
+	OutlineColor    layout.Color
+	ColumnRuleColor layout.Color
+	FontSize        float64
+	FontWeight      int // CSS Fonts L4 numeric ladder (100..900). 400 = normal, 700 = bold. 0 means "not set" (treated as 400).
+	TextAlign       layout.Align
+	TextAlignLast   layout.Align // text-align-last override for the last line
+	TextDecoration  layout.TextDecoration
+	LineHeight      float64
+	LetterSpacing   float64 // extra space between characters (points)
+	WordSpacing     float64 // extra space between words (points)
+	TextIndent      float64 // first-line indent (points)
+
+	// Borders
+	BorderTopWidth    float64
+	BorderRightWidth  float64
+	BorderBottomWidth float64
+	BorderLeftWidth   float64
+
+	// Text direction (bidi)
+	Direction   layout.Direction // DirectionAuto (default), DirectionLTR, DirectionRTL
+	AspectRatio float64          // width/height ratio (0 = not set); e.g. 16/9 = 1.778
+	ZIndex      int              // z-index (default 0; negative = behind normal flow)
+	FlexGrow    float64
+	FlexShrink  float64
+	Gap         float64
+	Order       int // CSS order property; ascending sort key for flex children, ties broken by DOM order
+
+	GridColumnStart int     // 1-based line number, 0 = auto
+	GridColumnEnd   int     // 1-based line number, 0 = auto
+	GridRowStart    int     // 1-based line number, 0 = auto
+	GridRowEnd      int     // 1-based line number, 0 = auto
+	RowGap          float64 // row-gap (takes priority over Gap for grid)
+	GridColumnGap   float64 // column-gap for grid (takes priority over Gap for grid)
+
+	ListMarkerFontSize float64 // marker font size from ::marker (0 = use default)
+
 	// Orphans and widows (paged media)
 	Orphans int // minimum lines at bottom of page (0 = not set)
 	Widows  int // minimum lines at top of page (0 = not set)
 
 	// CSS bookmark properties
-	BookmarkLevel    int    // bookmark-level override (0 = use heading level, -1 = "none" / skip)
-	BookmarkLevelSet bool   // true if bookmark-level was explicitly set
-	BookmarkLabel    string // bookmark-label override (empty = use heading text)
-	BookmarkState    string // bookmark-state: "open" (default) or "closed"
-
-	// Table
-	BorderCollapse     string  // "separate", "collapse"
+	BookmarkLevel      int     // bookmark-level override (0 = use heading level, -1 = "none" / skip)
 	BorderSpacingH     float64 // horizontal border-spacing (points)
 	BorderSpacingV     float64 // vertical border-spacing (points)
-	VerticalAlign      string  // "top", "middle", "bottom", "super", "sub" (for table cells and inline)
 	BaselineShiftValue float64 // explicit baseline-shift in points (from CSS baseline-shift property)
-	BaselineShiftSet   bool    // true if baseline-shift was explicitly set via CSS
 
 	// Visual effects
 	BorderRadius   float64 // uniform corner radius (points, 0 = sharp)
@@ -180,56 +221,29 @@ type computedStyle struct {
 	BorderRadiusBRPct float64
 	BorderRadiusBLPct float64
 	Opacity           float64 // 0..1 (0 = default, meaning "not set")
-	Overflow          string  // "visible", "hidden"
-
-	// Box shadow (multiple shadows supported, drawn bottom-to-top)
-	BoxShadows []boxShadow
-
-	// Text shadow
-	TextShadow *boxShadow // reuses boxShadow struct (same fields minus Inset)
-
-	// Text overflow
-	TextOverflow string // "clip" (default), "ellipsis"
 
 	// Outline
 	OutlineWidth  float64
-	OutlineStyle  string
-	OutlineColor  layout.Color
 	OutlineOffset float64
 
 	// Columns
-	ColumnCount     int
-	ColumnWidth     float64 // CSS column-width in points (0 = auto)
-	ColumnGap       float64
-	ColumnRuleWidth float64
-	ColumnRuleStyle string // "solid", "dashed", "dotted"
-	ColumnRuleColor layout.Color
-	ColumnSpan      string // "none" (default), "all"
+	ColumnCount      int
+	ColumnWidth      float64 // CSS column-width in points (0 = auto)
+	ColumnGap        float64
+	ColumnRuleWidth  float64
+	TextAlignSet     bool // true if text-align was explicitly declared
+	TextAlignLastSet bool // true if text-align-last was explicitly set
 
-	// Text decoration extensions
-	TextDecorationColor *layout.Color
-	TextDecorationStyle string // "solid", "dashed", "dotted", "double", "wavy"
+	// Box model
+	MarginTopAuto   bool // true if margin-top: auto (for flex layout)
+	MarginLeftAuto  bool // true if margin-left: auto (for centering)
+	MarginRightAuto bool // true if margin-right: auto (for centering)
 
-	// Box sizing
-	BoxSizing string // "content-box" (default), "border-box"
+	ZIndexSet bool // true if z-index was explicitly set
 
-	// Visibility
-	Visibility string // "visible" (default), "hidden", "collapse"
+	BookmarkLevelSet bool // true if bookmark-level was explicitly set
+	BaselineShiftSet bool // true if baseline-shift was explicitly set via CSS
 
-	// Height constraints
-	MinHeight *cssLength
-	MaxHeight *cssLength
-
-	// CSS transforms
-	Transform       string // raw CSS transform value, e.g. "rotate(45deg) scale(1.5)"
-	TransformOrigin string // e.g. "center center", "top left", "50% 50%"
-
-	// CSS custom properties (variables)
-	CustomProperties map[string]string
-
-	// CSS counters
-	CounterReset     []counterEntry // counter-reset declarations
-	CounterIncrement []counterEntry // counter-increment declarations
 }
 
 // counterEntry represents a single counter name/value pair in
@@ -251,18 +265,19 @@ type boxShadow struct {
 
 // cssLength represents a CSS length value, including calc() expressions.
 type cssLength struct {
-	Value float64
-	Unit  string // "px", "pt", "em", "%", "rem"
 
 	// calc expression: if non-nil, this length is a calc() and
 	// Value/Unit are ignored. Resolved at toPoints() time.
 	calc *calcExpr
+
+	Unit string // "px", "pt", "em", "%", "rem"
 
 	// Math functions: min(), max(), clamp().
 	// If minArgs or maxArgs is non-nil, this is a min()/max() function.
 	// For clamp(min, preferred, max), clampArgs holds [3]*cssLength.
 	minArgs []*cssLength // min(a, b, ...)
 	maxArgs []*cssLength // max(a, b, ...)
+	Value   float64
 }
 
 // calcOp is an operator in a calc expression.
@@ -283,8 +298,8 @@ type calcExpr struct {
 
 	// Branch: left op right.
 	left  *calcExpr
-	op    calcOp
 	right *calcExpr
+	op    calcOp
 }
 
 // dependsOnPercent reports whether the resolved value would change with

@@ -33,13 +33,13 @@ const (
 // PdfReader holds the parsed state of an existing PDF file, including
 // the cross-reference table, object resolver, document catalog, and pages.
 type PdfReader struct {
-	data       []byte
 	xref       *xrefTable
 	resolver   *resolver
 	catalog    *core.PdfDictionary
+	fontCache  map[int]*FontEntry // shared font cache keyed by indirect ref object number
+	data       []byte
 	pages      []*PageInfo
 	strictness Strictness
-	fontCache  map[int]*FontEntry // shared font cache keyed by indirect ref object number
 }
 
 // Box represents a PDF rectangle: [x1, y1, x2, y2] in points.
@@ -59,10 +59,10 @@ func (b Box) IsZero() bool { return b == Box{} }
 
 // PageInfo holds parsed information about a single page.
 type PageInfo struct {
-	Number int     // 1-based page number
-	Width  float64 // page width in points (from effective visible box)
-	Height float64 // page height in points (from effective visible box)
-	Rotate int     // rotation in degrees (0, 90, 180, 270)
+	inheritedResources core.PdfObject // /Resources inherited from ancestor Pages node
+
+	pageDict *core.PdfDictionary
+	reader   *PdfReader
 
 	// The 5 PDF page geometry boxes (ISO 32000 §14.11.2).
 	// MediaBox is required; others are optional and inherit from MediaBox if absent.
@@ -72,9 +72,11 @@ type PageInfo struct {
 	TrimBox  Box // intended finished page dimensions (default = CropBox)
 	ArtBox   Box // meaningful content area (default = CropBox)
 
-	pageDict           *core.PdfDictionary
-	reader             *PdfReader
-	inheritedResources core.PdfObject // /Resources inherited from ancestor Pages node
+	Number int     // 1-based page number
+	Width  float64 // page width in points (from effective visible box)
+	Height float64 // page height in points (from effective visible box)
+	Rotate int     // rotation in degrees (0, 90, 180, 270)
+
 }
 
 // VisibleBox returns the effective visible area of the page.

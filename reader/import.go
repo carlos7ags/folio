@@ -17,13 +17,14 @@ import (
 // and deep-copied, so the PageImport is self-contained and independent
 // of the source PdfReader.
 type PageImport struct {
-	// ContentStream is the decompressed page content stream bytes.
-	ContentStream []byte
 
 	// Resources is the page's /Resources dictionary with all indirect
 	// references resolved. Fonts, images, color spaces, and other
 	// objects are inlined as direct objects.
 	Resources *core.PdfDictionary
+
+	// ContentStream is the decompressed page content stream bytes.
+	ContentStream []byte
 
 	// Width is the page width in PDF points.
 	Width float64

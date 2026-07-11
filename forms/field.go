@@ -54,30 +54,31 @@ const (
 
 // Field represents a single form field.
 type Field struct {
-	Name      string     // /T — field name (required)
-	Type      FieldType  // determines /FT
-	Value     string     // /V — current value
-	Default   string     // /DV — default value
-	Flags     FieldFlags // /Ff — field flags
-	Rect      [4]float64 // widget annotation rectangle [x1, y1, x2, y2]
-	PageIndex int        // which page this field is on (0-based)
-
-	// Appearance properties.
-	FontSize    float64     // 0 = auto-size
-	FontName    string      // default: "Helv" (Helvetica)
-	TextColor   [3]float64  // RGB [0-1], default black
 	BGColor     *[3]float64 // background color (nil = transparent)
 	BorderColor *[3]float64 // border color (nil = no border)
-	BorderWidth float64     // default 1
-
-	// Choice field options.
-	Options []string // for dropdown/listbox
+	Name        string      // /T — field name (required)
+	Value       string      // /V — current value
+	Default     string      // /DV — default value
+	FontName    string      // default: "Helv" (Helvetica)
 
 	// Radio/checkbox.
 	ExportValue string // /AS or /V value when checked (default "Yes")
 
+	// Choice field options.
+	Options []string // for dropdown/listbox
+
 	// children holds the individual buttons in a radio button group.
-	children []*Field
+	children  []*Field
+	Rect      [4]float64 // widget annotation rectangle [x1, y1, x2, y2]
+	TextColor [3]float64 // RGB [0-1], default black
+	Type      FieldType  // determines /FT
+	PageIndex int        // which page this field is on (0-based)
+
+	// Appearance properties.
+	FontSize    float64 // 0 = auto-size
+	BorderWidth float64 // default 1
+
+	Flags FieldFlags // /Ff — field flags
 }
 
 // NewTextField creates a text input field.
