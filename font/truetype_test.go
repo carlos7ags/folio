@@ -5,6 +5,7 @@ package font
 
 import (
 	"os"
+	"sync"
 	"testing"
 )
 
@@ -225,6 +226,94 @@ func TestStemV(t *testing.T) {
 	}
 }
 
+func TestPostItalicAngle(t *testing.T) {
+	tests := []struct {
+		name string
+		post []byte
+		want float64
+	}{
+		{"nil", nil, 0},
+		{"too short", make([]byte, 7), 0},
+		{"zero angle", make([]byte, 8), 0},
+		{"-12.5 degrees", []byte{0, 0, 0, 0, 0xFF, 0xF3, 0x80, 0x00}, -12.5},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := postItalicAngle(tt.post); got != tt.want {
+				t.Errorf("postItalicAngle(%v) = %f, want %f", tt.post, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestPostIsFixedPitch(t *testing.T) {
+	nonZero := make([]byte, 16)
+	nonZero[12] = 1
+	tests := []struct {
+		name string
+		post []byte
+		want bool
+	}{
+		{"nil", nil, false},
+		{"zero", make([]byte, 16), false},
+		{"nonzero", nonZero, true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := postIsFixedPitch(tt.post); got != tt.want {
+				t.Errorf("postIsFixedPitch(%v) = %v, want %v", tt.post, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestOS2StemV(t *testing.T) {
+	tests := []struct {
+		name string
+		os2  []byte
+		want int
+	}{
+		{"nil", nil, 80},
+		{"too short", make([]byte, 5), 80},
+		{"weight 400", []byte{0, 0, 0, 0, 0x01, 0x90}, 96},
+		{"weight 0 clamps to 10", make([]byte, 6), 10},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := os2StemV(tt.os2); got != tt.want {
+				t.Errorf("os2StemV(%v) = %d, want %d", tt.os2, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestOS2IsSerif(t *testing.T) {
+	classBytes := func(class byte) []byte {
+		b := make([]byte, 32)
+		b[30] = class
+		return b
+	}
+	tests := []struct {
+		name string
+		os2  []byte
+		want bool
+	}{
+		{"nil", nil, false},
+		{"class 1", classBytes(1), true},
+		{"class 5", classBytes(5), true},
+		{"class 7", classBytes(7), true},
+		{"class 8", classBytes(8), false},
+		{"class 0", classBytes(0), false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := os2IsSerif(tt.os2); got != tt.want {
+				t.Errorf("os2IsSerif(%v) = %v, want %v", tt.os2, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestFaceInterface(t *testing.T) {
 	// Verify sfntFace implements Face at compile time
 	face := loadTestFace(t)
@@ -297,12 +386,8 @@ func TestFlagsItalic(t *testing.T) {
 
 func TestFaceGSUBCaching(t *testing.T) {
 	face := loadTestFace(t)
-	provider, ok := face.(GSUBProvider)
-	if !ok {
-		t.Fatal("sfntFace should implement GSUBProvider")
-	}
-	first := provider.GSUB()
-	second := provider.GSUB()
+	first := face.GSUB()
+	second := face.GSUB()
 
 	// Both calls must agree on nil-ness.
 	if (first == nil) != (second == nil) {
@@ -321,11 +406,7 @@ func TestFaceGSUBCaching(t *testing.T) {
 
 func TestFaceGIDToUnicode(t *testing.T) {
 	face := loadTestFace(t)
-	provider, ok := face.(GSUBProvider)
-	if !ok {
-		t.Fatal("sfntFace should implement GSUBProvider")
-	}
-	m := provider.GIDToUnicode()
+	m := face.GIDToUnicode()
 	if len(m) == 0 {
 		t.Fatal("GIDToUnicode returned empty map")
 	}
@@ -343,7 +424,7 @@ func TestFaceGIDToUnicode(t *testing.T) {
 	}
 
 	// Cache check: second call returns equivalent map.
-	m2 := provider.GIDToUnicode()
+	m2 := face.GIDToUnicode()
 	if len(m2) != len(m) {
 		t.Errorf("GIDToUnicode map length changed: first=%d second=%d", len(m), len(m2))
 	}
@@ -382,4 +463,60 @@ func TestBuildGIDToUnicodeInvalidData(t *testing.T) {
 	if len(m) != 0 {
 		t.Errorf("expected empty map for invalid data, got %d entries", len(m))
 	}
+}
+
+// TestSfntFaceConcurrentLazyCaches shares a single Face across goroutines
+// and hammers its lazy caches (Kern, GSUB, GPOS, GIDToUnicode). It only
+// proves anything under -race: the detector is the oracle here, not any
+// return value. The one value check is a baseline comparison, which
+// confirms synchronization didn't change what gets computed.
+func TestSfntFaceConcurrentLazyCaches(t *testing.T) {
+	exercise := func(t *testing.T, face Face) {
+		gidA, gidV := face.GlyphIndex('A'), face.GlyphIndex('V')
+		if gidA == 0 {
+			gidA = 1
+		}
+		if gidV == 0 {
+			gidV = 2
+		}
+
+		baseline := face.Kern(gidA, gidV)
+
+		var wg sync.WaitGroup
+		for i := 0; i < 8; i++ {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				for j := 0; j < 100; j++ {
+					_ = face.Kern(gidA, gidV)
+					_ = face.GlyphAdvance(gidA)
+					_ = face.GSUB()
+					_ = face.GIDToUnicode()
+					_ = face.GPOS()
+				}
+			}()
+		}
+		wg.Wait()
+
+		if got := face.Kern(gidA, gidV); got != baseline {
+			t.Errorf("Kern(%d,%d) after concurrent access = %d, want baseline %d", gidA, gidV, got, baseline)
+		}
+	}
+
+	t.Run("fixture", func(t *testing.T) {
+		face, err := LoadTTF("testdata/synthetic_cjk.ttf")
+		if err != nil {
+			t.Fatalf("LoadTTF(testdata/synthetic_cjk.ttf) failed: %v", err)
+		}
+		exercise(t, face)
+	})
+
+	t.Run("system", func(t *testing.T) {
+		path := testFontPath(t)
+		face, err := LoadTTF(path)
+		if err != nil {
+			t.Fatalf("LoadTTF(%s) failed: %v", path, err)
+		}
+		exercise(t, face)
+	})
 }

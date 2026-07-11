@@ -41,6 +41,38 @@ type PdfReader struct {
 	pages      []*PageInfo
 	strictness Strictness
 	fontCache  map[int]*FontEntry // shared font cache keyed by indirect ref object number
+	access     AccessLevel
+}
+
+// AccessLevel reports which password authenticated an encrypted
+// document. See [core.AccessLevel].
+type AccessLevel = core.AccessLevel
+
+// Access levels returned by [PdfReader.Access].
+const (
+	AccessNone  = core.AccessNone  // document is not encrypted
+	AccessUser  = core.AccessUser  // opened with the user (open) password
+	AccessOwner = core.AccessOwner // opened with the owner (permissions) password
+)
+
+// ErrInvalidPassword is returned by [ParseWithOptions] when an
+// encrypted document's password does not match the user or owner
+// password recorded in its /Encrypt dictionary.
+var ErrInvalidPassword = core.ErrInvalidPassword
+
+// ErrUnsupportedEncryption is returned by [ParseWithOptions] for
+// encrypted documents using a security-handler configuration this
+// reader does not implement (see [core.NewDecryptor]).
+var ErrUnsupportedEncryption = core.ErrUnsupportedEncryption
+
+// Access reports which password unlocked an encrypted document:
+// [AccessNone] if the document is not encrypted, [AccessUser] if the
+// supplied password matched the user (open) password, or [AccessOwner]
+// if it matched the owner (permissions) password instead. /P permission
+// bits are exposed via the /Encrypt dictionary in [PdfReader.Trailer]
+// but are not enforced — folio is a library, not a viewer.
+func (r *PdfReader) Access() AccessLevel {
+	return r.access
 }
 
 // Box represents a PDF rectangle: [x1, y1, x2, y2] in points.
@@ -101,6 +133,12 @@ type ReadOptions struct {
 	Strictness   Strictness
 	MaxCache     int          // max cached objects (0 = default 10000)
 	MemoryLimits MemoryLimits // memory safety limits for decompression
+
+	// Password authenticates an encrypted document. An empty string
+	// attempts the empty password — the common case for files whose
+	// "protection" only restricts permissions — not "no password
+	// supplied". Ignored for unencrypted documents.
+	Password string
 }
 
 // Parse reads and parses a PDF from a byte slice.
@@ -126,7 +164,7 @@ func ParseWithOptions(data []byte, opts ReadOptions) (*PdfReader, error) {
 	}
 
 	// Parse xref table and trailer.
-	xref, err := parseXrefTable(data)
+	xref, err := parseXrefTable(data, opts.MemoryLimits.effectiveMaxXrefSize())
 	if err != nil {
 		// Tolerant mode: try to repair xref by scanning for objects.
 		if opts.Strictness == StrictnessTolerant {
@@ -135,11 +173,6 @@ func ParseWithOptions(data []byte, opts ReadOptions) (*PdfReader, error) {
 		if err != nil {
 			return nil, err
 		}
-	}
-
-	// Check for encryption — not currently supported.
-	if xref.trailer != nil && xref.trailer.Get("Encrypt") != nil {
-		return nil, fmt.Errorf("reader: PDF is encrypted; decryption is not supported")
 	}
 
 	mem := newMemoryTracker(opts.MemoryLimits)
@@ -156,11 +189,32 @@ func ParseWithOptions(data []byte, opts ReadOptions) (*PdfReader, error) {
 		res.SetMaxCache(opts.MaxCache)
 	}
 
+	// Encrypted documents: authenticate the password and attach a
+	// decryptor to the resolver before any other object is resolved.
+	// The /Encrypt dictionary is resolved first, while the resolver
+	// still has no decryptor — its own strings are never encrypted.
+	access := core.AccessNone
+	if xref.trailer != nil {
+		if encObj := xref.trailer.Get("Encrypt"); encObj != nil {
+			encDict, err := resolveEncryptDict(res, encObj)
+			if err != nil {
+				return nil, err
+			}
+			decryptor, err := core.NewDecryptor(encDict, firstTrailerID(xref.trailer), opts.Password)
+			if err != nil {
+				return nil, fmt.Errorf("reader: %w", err)
+			}
+			res.SetDecryptor(decryptor)
+			access = decryptor.Access
+		}
+	}
+
 	r := &PdfReader{
 		data:       data,
 		xref:       xref,
 		resolver:   res,
 		strictness: opts.Strictness,
+		access:     access,
 	}
 
 	// Resolve the document catalog.
@@ -184,6 +238,36 @@ func ParseWithOptions(data []byte, opts ReadOptions) (*PdfReader, error) {
 	}
 
 	return r, nil
+}
+
+// resolveEncryptDict resolves the trailer's /Encrypt entry to a
+// dictionary. Called before any decryptor is attached to res, so the
+// dictionary's own strings (/O, /U, ...) come back exactly as written —
+// they are never encrypted, per ISO 32000-1 §7.6.
+func resolveEncryptDict(res *resolver, obj core.PdfObject) (*core.PdfDictionary, error) {
+	resolved, err := res.ResolveDeep(obj)
+	if err != nil {
+		return nil, fmt.Errorf("reader: resolve /Encrypt: %w", err)
+	}
+	dict, ok := resolved.(*core.PdfDictionary)
+	if !ok {
+		return nil, fmt.Errorf("reader: /Encrypt is not a dictionary")
+	}
+	return dict, nil
+}
+
+// firstTrailerID returns the first element of the trailer's /ID array —
+// the file identifier the Standard security handler folds into its key
+// derivation — or nil if absent or malformed.
+func firstTrailerID(trailer *core.PdfDictionary) []byte {
+	idArr, ok := trailer.Get("ID").(*core.PdfArray)
+	if !ok || idArr.Len() == 0 {
+		return nil
+	}
+	if s, ok := idArr.At(0).(*core.PdfString); ok {
+		return []byte(s.Text())
+	}
+	return nil
 }
 
 // RawBytes returns the raw PDF data that was parsed.

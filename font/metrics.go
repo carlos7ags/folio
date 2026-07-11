@@ -4,10 +4,20 @@
 package font
 
 import (
+	"sync"
 	"unicode/utf8"
 
 	"github.com/carlos7ags/folio/unicode/grapheme"
 )
+
+// breakBufPool recycles the grapheme-boundary scratch slices used by the
+// MeasureString methods, which run concurrently on shared faces.
+var breakBufPool = sync.Pool{
+	New: func() any {
+		b := make([]int, 0, 32)
+		return &b
+	},
+}
 
 // TextMeasurer measures the width of text for layout purposes.
 type TextMeasurer interface {
@@ -114,7 +124,8 @@ func (f *Standard) MeasureString(text string, fontSize float64) float64 {
 	var prevTail rune // last contributing rune of the previous cluster, for kerning
 	havePrev := false
 
-	breaks := grapheme.Breaks(text)
+	buf := breakBufPool.Get().(*[]int)
+	breaks := grapheme.AppendBreaks((*buf)[:0], text)
 	for i := 0; i+1 < len(breaks); i++ {
 		cluster := text[breaks[i]:breaks[i+1]]
 		// First rune is the cluster base — always contributes advance.
@@ -138,9 +149,168 @@ func (f *Standard) MeasureString(text string, fontSize float64) float64 {
 		prevTail = tail
 		havePrev = true
 	}
+	*buf = breaks
+	breakBufPool.Put(buf)
 
 	// Widths and kern values are in units of 1/1000 of text space.
 	return total / 1000.0 * fontSize
+}
+
+// MeasureStringPrefixes returns cumulative widths at every rune boundary of
+// text: element i is the width of the prefix holding the first i runes,
+// bit-identical to MeasureString(prefix, fontSize) for that prefix. One walk
+// computes all len(runes)+1 entries. Grapheme segmentation is prefix-stable,
+// so recording the running total at each rune boundary reproduces the exact
+// additions, in the same order, that an independent prefix measurement
+// performs.
+func (f *Standard) MeasureStringPrefixes(text string, fontSize float64) []float64 {
+	runeCount := utf8.RuneCountInString(text)
+	prefixes := make([]float64, runeCount+1)
+
+	widths := standardWidths[f.name]
+	if widths == nil {
+		// Fallback mirrors MeasureString's single-expression byte-length
+		// formula: each entry is computed fresh from the byte offset, not
+		// accumulated, so the bit pattern matches an independent measure.
+		idx := 0
+		byteLen := 0
+		for _, r := range text {
+			byteLen += utf8.RuneLen(r)
+			idx++
+			prefixes[idx] = float64(byteLen) * 600.0 / 1000.0 * fontSize
+		}
+		return prefixes
+	}
+
+	lookupWidth := func(r rune) float64 {
+		w, ok := widths[r]
+		if !ok {
+			w = widths[0] // .notdef / default width
+			if w == 0 {
+				w = 500 // reasonable default
+			}
+		}
+		return float64(w)
+	}
+
+	var total float64
+	var prevTail rune
+	havePrev := false
+	idx := 0
+
+	buf := breakBufPool.Get().(*[]int)
+	breaks := grapheme.AppendBreaks((*buf)[:0], text)
+	for i := 0; i+1 < len(breaks); i++ {
+		cluster := text[breaks[i]:breaks[i+1]]
+		baseRune, baseSize := utf8.DecodeRuneInString(cluster)
+		if havePrev {
+			total += f.Kern(prevTail, baseRune)
+		}
+		total += lookupWidth(baseRune)
+		idx++
+		prefixes[idx] = total / 1000.0 * fontSize
+		tail := baseRune
+		for off := baseSize; off < len(cluster); {
+			r, size := utf8.DecodeRuneInString(cluster[off:])
+			if grapheme.PropertyOf(r) == grapheme.PropSpacingMark {
+				total += lookupWidth(r)
+				tail = r
+			}
+			idx++
+			prefixes[idx] = total / 1000.0 * fontSize
+			off += size
+		}
+		prevTail = tail
+		havePrev = true
+	}
+	*buf = breaks
+	breakBufPool.Put(buf)
+
+	return prefixes
+}
+
+// PrefixFit scans text accumulating cumulative rune-boundary widths (each
+// bit-identical to MeasureString of that prefix) and returns the byte length,
+// rune count, and width of the longest leading run that fits maxWidth under
+// the first-overflow rule used by word chunking: runes are added while the
+// width including the next rune stays within maxWidth, always keeping at least
+// one rune. The scan stops at the first overflow, so it is O(fit length), not
+// O(len(text)).
+func (f *Standard) PrefixFit(text string, fontSize, maxWidth float64) (byteLen, runeLen int, width float64) {
+	widths := standardWidths[f.name]
+	if widths == nil {
+		// Fallback width is a single expression on the prefix byte length
+		// (see MeasureString) and is non-decreasing, so the same
+		// first-overflow scan applies over rune boundaries. The expression
+		// must match MeasureString's left-to-right form exactly for the
+		// returned width to be bit-identical.
+		for i := 0; i < len(text); {
+			_, size := utf8.DecodeRuneInString(text[i:])
+			nb := byteLen + size
+			w := float64(nb) * 600.0 / 1000.0 * fontSize
+			if runeLen >= 1 && w > maxWidth {
+				return byteLen, runeLen, width
+			}
+			byteLen, runeLen, width = nb, runeLen+1, w
+			i += size
+		}
+		return byteLen, runeLen, width
+	}
+
+	lookupWidth := func(r rune) float64 {
+		w, ok := widths[r]
+		if !ok {
+			w = widths[0] // .notdef / default width
+			if w == 0 {
+				w = 500 // reasonable default
+			}
+		}
+		return float64(w)
+	}
+
+	var total float64
+	var prevTail rune
+	havePrev := false
+	pos := 0
+
+	buf := breakBufPool.Get().(*[]int)
+	breaks := grapheme.AppendBreaks((*buf)[:0], text)
+outer:
+	for i := 0; i+1 < len(breaks); i++ {
+		cluster := text[breaks[i]:breaks[i+1]]
+		baseRune, baseSize := utf8.DecodeRuneInString(cluster)
+		if havePrev {
+			total += f.Kern(prevTail, baseRune)
+		}
+		total += lookupWidth(baseRune)
+		pos += baseSize
+		w := total / 1000.0 * fontSize
+		if runeLen >= 1 && w > maxWidth {
+			break outer
+		}
+		byteLen, runeLen, width = pos, runeLen+1, w
+		tail := baseRune
+		for off := baseSize; off < len(cluster); {
+			r, size := utf8.DecodeRuneInString(cluster[off:])
+			if grapheme.PropertyOf(r) == grapheme.PropSpacingMark {
+				total += lookupWidth(r)
+				tail = r
+			}
+			pos += size
+			w := total / 1000.0 * fontSize
+			if w > maxWidth {
+				break outer
+			}
+			byteLen, runeLen, width = pos, runeLen+1, w
+			off += size
+		}
+		prevTail = tail
+		havePrev = true
+	}
+	*buf = breaks
+	breakBufPool.Put(buf)
+
+	return byteLen, runeLen, width
 }
 
 // MeasureString implements TextMeasurer for embedded fonts. The returned
@@ -168,7 +338,8 @@ func (ef *EmbeddedFont) MeasureString(text string, fontSize float64) float64 {
 	var prevTail uint16
 	havePrev := false
 
-	breaks := grapheme.Breaks(text)
+	buf := breakBufPool.Get().(*[]int)
+	breaks := grapheme.AppendBreaks((*buf)[:0], text)
 	for i := 0; i+1 < len(breaks); i++ {
 		cluster := text[breaks[i]:breaks[i+1]]
 		baseRune, baseSize := utf8.DecodeRuneInString(cluster)
@@ -190,7 +361,121 @@ func (ef *EmbeddedFont) MeasureString(text string, fontSize float64) float64 {
 		prevTail = tail
 		havePrev = true
 	}
+	*buf = breaks
+	breakBufPool.Put(buf)
 	return total / float64(upem) * fontSize
+}
+
+// MeasureStringPrefixes returns cumulative widths at every rune boundary of
+// text, bit-identical to MeasureString(prefix, fontSize) for each prefix.
+// See Standard.MeasureStringPrefixes for the prefix-stability argument.
+func (ef *EmbeddedFont) MeasureStringPrefixes(text string, fontSize float64) []float64 {
+	runeCount := utf8.RuneCountInString(text)
+	prefixes := make([]float64, runeCount+1)
+
+	face := ef.face
+	upem := face.UnitsPerEm()
+	if upem == 0 {
+		// MeasureString returns 0 for every input in this case.
+		return prefixes
+	}
+
+	var total float64
+	var prevTail uint16
+	havePrev := false
+	idx := 0
+
+	buf := breakBufPool.Get().(*[]int)
+	breaks := grapheme.AppendBreaks((*buf)[:0], text)
+	for i := 0; i+1 < len(breaks); i++ {
+		cluster := text[breaks[i]:breaks[i+1]]
+		baseRune, baseSize := utf8.DecodeRuneInString(cluster)
+		baseGID := face.GlyphIndex(baseRune)
+		if havePrev {
+			total += float64(face.Kern(prevTail, baseGID))
+		}
+		total += float64(face.GlyphAdvance(baseGID))
+		idx++
+		prefixes[idx] = total / float64(upem) * fontSize
+		tail := baseGID
+		for off := baseSize; off < len(cluster); {
+			r, size := utf8.DecodeRuneInString(cluster[off:])
+			if grapheme.PropertyOf(r) == grapheme.PropSpacingMark {
+				gid := face.GlyphIndex(r)
+				total += float64(face.GlyphAdvance(gid))
+				tail = gid
+			}
+			idx++
+			prefixes[idx] = total / float64(upem) * fontSize
+			off += size
+		}
+		prevTail = tail
+		havePrev = true
+	}
+	*buf = breaks
+	breakBufPool.Put(buf)
+
+	return prefixes
+}
+
+// PrefixFit is the embedded-font counterpart of Standard.PrefixFit: it
+// returns the byte length, rune count, and width of the longest leading run of
+// text that fits maxWidth under the first-overflow rule, scanning only as far
+// as the break point.
+func (ef *EmbeddedFont) PrefixFit(text string, fontSize, maxWidth float64) (byteLen, runeLen int, width float64) {
+	face := ef.face
+	upem := face.UnitsPerEm()
+	if upem == 0 {
+		// MeasureString returns 0 for every prefix; nothing overflows, so
+		// the whole text fits as one run.
+		return len(text), utf8.RuneCountInString(text), 0
+	}
+
+	var total float64
+	var prevTail uint16
+	havePrev := false
+	pos := 0
+
+	buf := breakBufPool.Get().(*[]int)
+	breaks := grapheme.AppendBreaks((*buf)[:0], text)
+outer:
+	for i := 0; i+1 < len(breaks); i++ {
+		cluster := text[breaks[i]:breaks[i+1]]
+		baseRune, baseSize := utf8.DecodeRuneInString(cluster)
+		baseGID := face.GlyphIndex(baseRune)
+		if havePrev {
+			total += float64(face.Kern(prevTail, baseGID))
+		}
+		total += float64(face.GlyphAdvance(baseGID))
+		pos += baseSize
+		w := total / float64(upem) * fontSize
+		if runeLen >= 1 && w > maxWidth {
+			break outer
+		}
+		byteLen, runeLen, width = pos, runeLen+1, w
+		tail := baseGID
+		for off := baseSize; off < len(cluster); {
+			r, size := utf8.DecodeRuneInString(cluster[off:])
+			if grapheme.PropertyOf(r) == grapheme.PropSpacingMark {
+				gid := face.GlyphIndex(r)
+				total += float64(face.GlyphAdvance(gid))
+				tail = gid
+			}
+			pos += size
+			w := total / float64(upem) * fontSize
+			if w > maxWidth {
+				break outer
+			}
+			byteLen, runeLen, width = pos, runeLen+1, w
+			off += size
+		}
+		prevTail = tail
+		havePrev = true
+	}
+	*buf = breaks
+	breakBufPool.Put(buf)
+
+	return byteLen, runeLen, width
 }
 
 // Kern returns the kerning adjustment between two characters in thousandths

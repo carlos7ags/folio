@@ -13,12 +13,21 @@
  *
  * 3. Strings returned FROM the library:
  *    - folio_version(): persistent pointer, do NOT free.
- *    - folio_last_error(): library-owned, valid until the next C ABI call.
+ *    - folio_last_error(): returns a fresh copy owned by the CALLER; release
+ *      it with folio_string_free(). Returns NULL when no error is set.
  *    - All other string data is returned as buffer handles (see below).
  *
  * 4. Buffer handles (folio_buffer_data / folio_buffer_len / folio_buffer_free):
  *    The library allocates the buffer; the caller MUST call folio_buffer_free()
  *    when done. The data pointer is valid until folio_buffer_free() is called.
+ *    For buffers that can exceed 2 GiB use folio_buffer_len64; folio_buffer_len
+ *    saturates at INT32_MAX and sets the last error.
+ *
+ * 5. Array arguments (pointer + count): the pointer must reference at least
+ *    `count` elements, valid for the duration of the call; the library reads,
+ *    never retains, them. count must be in [0, 1048576]; larger counts are
+ *    rejected with FOLIO_ERR_ARG (or a 0 handle) and set the last error.
+ *    A NULL pointer with count > 0 is rejected the same way.
  *
  * ERROR CONVENTION
  * ----------------
@@ -153,11 +162,13 @@ typedef void (*folio_page_decorator_fn)(
 
 const char *folio_version(void);
 const char *folio_last_error(void);
+void        folio_string_free(const char *s);
 
 /* ── Buffer ────────────────────────────────────────────────────────── */
 
 void    *folio_buffer_data(uint64_t buf);
-int32_t  folio_buffer_len(uint64_t buf);
+int32_t  folio_buffer_len(uint64_t buf);     /* saturates at INT32_MAX; see folio_buffer_len64 */
+int64_t  folio_buffer_len64(uint64_t buf);
 void     folio_buffer_free(uint64_t buf);
 
 /* ── Document ──────────────────────────────────────────────────────── */

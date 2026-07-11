@@ -689,3 +689,54 @@ func TestRendererAddAbsoluteWithNestedList(t *testing.T) {
 		t.Fatalf("expected 1 page, got %d", len(pages))
 	}
 }
+
+// TestMarginBoxesDeterministicOutput guards against map iteration order
+// leaking into the content stream: drawMarginBoxes must draw boxes (and
+// register their fonts) in a fixed order, not map order.
+func TestMarginBoxesDeterministicOutput(t *testing.T) {
+	render := func() []byte {
+		r := NewRenderer(612, 792, Margins{Top: 72, Right: 72, Bottom: 72, Left: 72})
+		r.SetMarginBoxes(map[string]MarginBox{
+			"top-left":      {Content: "Left header"},
+			"top-center":    {Content: "Doc title"},
+			"top-right":     {Content: "Page {counter(page)}"},
+			"bottom-center": {Content: "Footer"},
+		})
+		r.Add(NewParagraph("body text", font.Helvetica, 12))
+		pages := r.Render()
+		var buf bytes.Buffer
+		for _, p := range pages {
+			buf.Write(p.Stream.Bytes())
+			for _, fe := range p.Fonts {
+				buf.WriteString(fe.Name)
+			}
+		}
+		return buf.Bytes()
+	}
+
+	want := render()
+	for i := 0; i < 20; i++ {
+		got := render()
+		if !bytes.Equal(want, got) {
+			t.Fatalf("iteration %d: output not deterministic (want %d bytes, got %d bytes)", i, len(want), len(got))
+		}
+	}
+}
+
+// TestMarginBoxesFixedOrderMatchesSwitch ensures marginBoxOrder stays in
+// sync with the position names drawMarginBoxes' switch recognizes; adding a
+// new position requires updating both.
+func TestMarginBoxesFixedOrderMatchesSwitch(t *testing.T) {
+	want := []string{
+		"top-left", "top-center", "top-right",
+		"bottom-left", "bottom-center", "bottom-right",
+	}
+	if len(marginBoxOrder) != len(want) {
+		t.Fatalf("marginBoxOrder has %d entries, want %d", len(marginBoxOrder), len(want))
+	}
+	for i, name := range want {
+		if marginBoxOrder[i] != name {
+			t.Errorf("marginBoxOrder[%d] = %q, want %q", i, marginBoxOrder[i], name)
+		}
+	}
+}

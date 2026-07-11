@@ -307,9 +307,12 @@ func TestParseColorComponentClamping(t *testing.T) {
 		{"-10%", 0},   // clamped to 0
 	}
 	for _, tt := range tests {
-		got := parseColorComponent(tt.input)
-		if diff := got - tt.want; diff > 0.001 || diff < -0.001 {
-			t.Errorf("parseColorComponent(%q) = %f, want %f", tt.input, got, tt.want)
+		c, ok := parseColor("rgb(" + tt.input + ", 0, 0)")
+		if !ok {
+			t.Fatalf("parseColor(rgb(%s, 0, 0)) failed to parse", tt.input)
+		}
+		if diff := c.R - tt.want; diff > 0.001 || diff < -0.001 {
+			t.Errorf("parseColor(rgb(%s, 0, 0)).R = %f, want %f", tt.input, c.R, tt.want)
 		}
 	}
 }
@@ -8402,6 +8405,32 @@ func TestConvertTableBorderSpacing(t *testing.T) {
 	_ = totalW
 }
 
+// TestConvertTableCellBorderStyleHiddenOnly covers a <td> that declares
+// only border-style: hidden (no width, no other side). hasBorder()'s
+// width>0 check alone would miss this — the border-collapse resolver
+// needs "hidden" to reach buildCellBorders as a distinguishable value
+// (see cellHasBorderDeclaration) rather than being treated the same as no
+// border at all. This test only guards against a crash in the full
+// pipeline; the hidden-always-wins conflict rule itself is exercised in
+// layout/bordercollapse_test.go and html/issue378_bordercollapse_test.go.
+func TestConvertTableCellBorderStyleHiddenOnly(t *testing.T) {
+	src := `<table style="border-collapse: collapse">
+<tr><td style="border-style: hidden">A</td><td>B</td></tr>
+</table>`
+	elems, err := Convert(src, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := layout.NewRenderer(612, 792, layout.Margins{Top: 72, Right: 72, Bottom: 72, Left: 72})
+	for _, e := range elems {
+		r.Add(e)
+	}
+	pages := r.Render()
+	if len(pages) == 0 {
+		t.Fatal("expected at least 1 page")
+	}
+}
+
 func TestConvertTableBorderSpacingTwoValues(t *testing.T) {
 	// Two-value border-spacing: horizontal vertical.
 	html := `<table style="border-collapse: separate; border-spacing: 5px 10px">
@@ -8592,7 +8621,7 @@ func TestBackgroundImageHTTPURL(t *testing.T) {
 		`<div style="background-image: url('%s/bg.png'); width: 100px; height: 100px;"><p>Hello</p></div>`,
 		srv.URL,
 	)
-	elems, err := Convert(htmlStr, nil)
+	elems, err := Convert(htmlStr, &Options{AllowRemoteFetch: true, URLPolicy: allowAllURLs})
 	if err != nil {
 		t.Fatal(err)
 	}

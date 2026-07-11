@@ -14,6 +14,14 @@ import (
 // as a soft mask if present. Dimensions are validated against
 // [MaxDimension] and [MaxPixels] before the pixel buffer is allocated.
 func NewGIF(data []byte) (*Image, error) {
+	cfg, err := gif.DecodeConfig(bytes.NewReader(data))
+	if err != nil {
+		return nil, fmt.Errorf("image: gif: %w", err)
+	}
+	if err := checkDimensions(cfg.Width, cfg.Height); err != nil {
+		return nil, fmt.Errorf("image: gif: %w", err)
+	}
+
 	img, err := gif.Decode(bytes.NewReader(data))
 	if err != nil {
 		return nil, fmt.Errorf("image: gif: %w", err)

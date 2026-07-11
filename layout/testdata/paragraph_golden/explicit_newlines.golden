@@ -1,0 +1,10 @@
+line 0: width=46.0320 height=14.4000 spaceW=3.3360 isLast=false align=0 spaceBefore=0.0000
+  word 0: "Line" w=22.6800 spaceAfter=3.3360 fontSize=12.0000 break=false embedded=false
+  word 1: "one" w=20.0160 spaceAfter=3.3360 fontSize=12.0000 break=false embedded=false
+line 1: width=44.5680 height=14.4000 spaceW=3.3360 isLast=false align=0 spaceBefore=0.0000
+  word 0: "Line" w=22.6800 spaceAfter=3.3360 fontSize=12.0000 break=true embedded=false
+  word 1: "two" w=18.5520 spaceAfter=3.3360 fontSize=12.0000 break=false embedded=false
+line 2: width=53.3640 height=14.4000 spaceW=3.3360 isLast=true align=0 spaceBefore=0.0000
+  word 0: "Line" w=22.6800 spaceAfter=3.3360 fontSize=12.0000 break=true embedded=false
+  word 1: "three" w=27.3480 spaceAfter=3.3360 fontSize=12.0000 break=false embedded=false
+minWidth=52.0200 maxWidth=264.6840 measureHeight(W)=43.2000 lines(W)=3

@@ -4,6 +4,7 @@
 package reader
 
 import (
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -372,4 +373,32 @@ func intToStr(n int) string {
 		n /= 10
 	}
 	return string(buf)
+}
+
+// buildPDFWithXrefStreamW returns a minimal PDF whose xref stream declares
+// the given /W array literal, e.g. "[-5 3 1]".
+func buildPDFWithXrefStreamW(w string) []byte {
+	// 8 bytes of entry data; content is irrelevant because parsing must
+	// fail on /W validation before entries are read.
+	entries := "\x01\x00\x09\x00\x01\x00\x00\x00"
+	obj := "1 0 obj\n<</Type/XRef/W" + w + "/Size 2/Length 8/Root 2 0 R>>\nstream\n" +
+		entries + "\nendstream\nendobj\n"
+	header := "%PDF-1.5\n"
+	body := header + obj
+	startxref := len(header)
+	return []byte(body + "startxref\n" + strconv.Itoa(startxref) + "\n%%EOF")
+}
+
+func TestMalformedXrefStreamNegativeW(t *testing.T) {
+	noPanic(t, "negative /W width", func() error {
+		_, err := Parse(buildPDFWithXrefStreamW("[-5 3 1]"))
+		return err
+	})
+}
+
+func TestMalformedXrefStreamHugeW(t *testing.T) {
+	noPanic(t, "huge /W width", func() error {
+		_, err := Parse(buildPDFWithXrefStreamW("[1000000000 3 1]"))
+		return err
+	})
 }

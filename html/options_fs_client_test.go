@@ -149,7 +149,9 @@ func TestClientUsedForImageFetch(t *testing.T) {
 	}
 
 	elems, err := Convert(fmt.Sprintf(`<img src="%s/photo.jpg"/>`, srv.URL), &Options{
-		Client: client,
+		AllowRemoteFetch: true,
+		URLPolicy:        allowAllURLs,
+		Client:           client,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -180,7 +182,7 @@ func TestClientUsedForStylesheetFetch(t *testing.T) {
 	}
 	html := fmt.Sprintf(`<html><head><link rel="stylesheet" href="%s/s.css"/></head><body><p>hi</p></body></html>`, srv.URL)
 
-	if _, err := ConvertFull(html, &Options{Client: client}); err != nil {
+	if _, err := ConvertFull(html, &Options{AllowRemoteFetch: true, URLPolicy: allowAllURLs, Client: client}); err != nil {
 		t.Fatal(err)
 	}
 	if seen == 0 {
@@ -196,8 +198,9 @@ func TestURLPolicyStillBlocksWithCustomClient(t *testing.T) {
 		Transport: &countingTransport{inner: http.DefaultTransport, counter: &seen},
 	}
 	_, err := Convert(`<img src="http://example.invalid/x.jpg"/>`, &Options{
-		Client:    client,
-		URLPolicy: func(string) error { return fmt.Errorf("denied") },
+		AllowRemoteFetch: true,
+		Client:           client,
+		URLPolicy:        func(string) error { return fmt.Errorf("denied") },
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -350,7 +353,7 @@ func TestFontFaceRelativeToHTTPStylesheet(t *testing.T) {
 	defer srv.Close()
 
 	html := fmt.Sprintf(`<html><head><link rel="stylesheet" href="%s/css/site.css"/></head><body><p>hi</p></body></html>`, srv.URL)
-	if _, err := Convert(html, &Options{Client: srv.Client()}); err != nil {
+	if _, err := Convert(html, &Options{AllowRemoteFetch: true, URLPolicy: allowAllURLs, Client: srv.Client()}); err != nil {
 		t.Fatal(err)
 	}
 	mu.Lock()
@@ -707,7 +710,7 @@ func TestFontFaceRootAnchoredFromHTTPStylesheet(t *testing.T) {
 	defer srv.Close()
 
 	html := fmt.Sprintf(`<html><head><link rel="stylesheet" href="%s/css/site.css"/></head><body><p>hi</p></body></html>`, srv.URL)
-	if _, err := Convert(html, &Options{Client: srv.Client()}); err != nil {
+	if _, err := Convert(html, &Options{AllowRemoteFetch: true, URLPolicy: allowAllURLs, Client: srv.Client()}); err != nil {
 		t.Fatal(err)
 	}
 	mu.Lock()

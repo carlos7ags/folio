@@ -16,7 +16,7 @@
     if (!(cond)) { \
         fprintf(stderr, "FAIL: %s (line %d)\n", msg, __LINE__); \
         const char* err = folio_last_error(); \
-        if (err) fprintf(stderr, "  last_error: %s\n", err); \
+        if (err) { fprintf(stderr, "  last_error: %s\n", err); folio_string_free(err); } \
         failures++; \
     } else { \
         passes++; \
@@ -56,6 +56,13 @@ int main(void) {
 
     int32_t len = folio_buffer_len(buf);
     ASSERT(len > 0, "buffer has data");
+
+    int64_t len64 = folio_buffer_len64(buf);
+    ASSERT(len64 > 0, "buffer_len64 has data");
+    ASSERT(len64 == (int64_t)len, "buffer_len64 matches buffer_len for small buffer");
+
+    /* invalid handle returns 0 for both variants */
+    ASSERT(folio_buffer_len64(0xDEADBEEF) == 0, "buffer_len64 invalid handle is 0");
 
     void* data = folio_buffer_data(buf);
     ASSERT(data != NULL, "buffer data is non-null");
@@ -97,7 +104,9 @@ int main(void) {
     /* Test 4: Invalid handle */
     rc = folio_document_set_title(99999, "bad");
     ASSERT(rc != 0, "invalid handle returns error");
-    ASSERT(folio_last_error() != NULL, "last_error set for invalid handle");
+    const char* e0 = folio_last_error();
+    ASSERT(e0 != NULL, "last_error set for invalid handle");
+    folio_string_free(e0);
 
     /* Test 5: Font lookup by name */
     uint64_t courier = folio_font_standard("Courier");
@@ -1804,6 +1813,112 @@ int main(void) {
      * Go-side tests in font/load_test.go already exercise the face-pick
      * matrix against synthetic TTCs. Here we cover only the C-boundary
      * argument handling. */
+
+    /* ===== Stage 40: array-bounds rejection at the C ABI ===== */
+    printf("Testing oversized/NULL/negative array-count rejection...\n");
+
+    uint64_t tblBounds = folio_table_new();
+    ASSERT(tblBounds != 0, "table_new returns handle");
+    double widthsBounds[2] = {100.0, 200.0};
+
+    /* count above the 1<<20 cap: rejected, not a crash */
+    rc = folio_table_set_column_widths(tblBounds, widthsBounds, (1 << 20) + 1);
+    ASSERT(rc != 0, "oversized count rejected");
+    const char* eBounds = folio_last_error();
+    ASSERT(eBounds != NULL, "last_error set for oversized count");
+    folio_string_free(eBounds);
+
+    /* NULL pointer with count > 0: rejected */
+    rc = folio_table_set_column_widths(tblBounds, NULL, 3);
+    ASSERT(rc != 0, "NULL array with count>0 rejected");
+
+    /* negative count: rejected */
+    rc = folio_table_set_column_widths(tblBounds, widthsBounds, -1);
+    ASSERT(rc != 0, "negative count rejected");
+
+    /* sane call still works */
+    rc = folio_table_set_column_widths(tblBounds, widthsBounds, 2);
+    ASSERT(rc == 0, "valid widths still accepted");
+    folio_table_free(tblBounds);
+
+    /* handle-returning path: oversized count returns a 0 handle, not a crash */
+    const char* boundsPaths[1] = {"nonexistent.pdf"};
+    uint64_t mBounds = folio_merge_files((char**)boundsPaths, (1 << 20) + 1);
+    ASSERT(mBounds == 0, "merge_files oversized count returns 0 handle");
+
+    /* ===== Stage 41: last_error copies are stable across subsequent errors ===== */
+    {
+        /* trigger error 1: invalid handle */
+        folio_document_set_title(0xDEAD, "x");
+        const char* e1 = folio_last_error();
+        ASSERT(e1 != NULL, "first error captured");
+        char first[256];
+        snprintf(first, sizeof first, "%s", e1 ? e1 : "");
+
+        /* trigger error 2: another invalid handle call replaces the stored message */
+        folio_document_add_page(0xBEEF);
+        const char* e2 = folio_last_error();
+        ASSERT(e2 != NULL, "second error captured");
+
+        /* e1 must still be a valid, unchanged C string (was freed under the
+           old contract; under ASan/valgrind this read would flag a UAF) */
+        ASSERT(strcmp(e1, first) == 0, "first error string still intact after second error");
+        ASSERT(e1 != e2, "each call returns a distinct allocation");
+
+        folio_string_free(e1);
+        folio_string_free(e2);
+        folio_string_free(NULL); /* NULL is a documented no-op */
+    }
+
+    /* ===== Stage 42: Error paths — handles, buffers, IO ===== */
+    printf("Testing error paths...\n");
+
+    /* Buffer lifecycle: freed and invalid handles are safe and inert */
+    doc = folio_document_new_letter();
+    folio_document_add_page(doc);
+    buf = folio_document_write_to_buffer(doc);
+    ASSERT(buf != 0, "write_to_buffer for error-path stage");
+    ASSERT(folio_buffer_len(buf) > 0, "buffer live before free");
+    folio_buffer_free(buf);
+    ASSERT(folio_buffer_data(buf) == NULL, "buffer_data on freed handle is NULL");
+    ASSERT(folio_buffer_len(buf) == 0, "buffer_len on freed handle is 0");
+    folio_buffer_free(buf); /* double-free: documented no-op, must not crash */
+    ASSERT(folio_buffer_data(0) == NULL, "buffer_data on handle 0 is NULL");
+    ASSERT(folio_buffer_len(99999) == 0, "buffer_len on unknown handle is 0");
+
+    /* Wrong-type handle: a document handle is not a buffer */
+    ASSERT(folio_buffer_data(doc) == NULL, "buffer_data on doc handle is NULL");
+    ASSERT(folio_buffer_len(doc) == 0, "buffer_len on doc handle is 0");
+
+    /* Invalid handles across modules return documented error values */
+    ASSERT(folio_document_add_page(99999) == 0, "add_page on bad doc returns 0 handle");
+    ASSERT(folio_document_page_count(99999) == 0, "page_count on bad doc returns 0"); /* pins current contract: errors are not encoded in this int32_t's sign */
+    ASSERT(folio_paragraph_set_leading(99999, 1.5) != 0, "paragraph op on bad handle errors");
+    ASSERT(folio_table_set_min_width(99999, 10) != 0, "table op on bad handle errors");
+    ASSERT(folio_div_set_padding(99999, 1, 1, 1, 1) != 0, "div op on bad handle errors");
+    ASSERT(folio_flex_set_gap(99999, 1) != 0, "flex op on bad handle errors");
+    ASSERT(folio_form_add_text_field(99999, "f", 0, 0, 10, 10, 0) != 0, "form op on bad handle errors");
+    ASSERT(folio_svg_width(99999) == 0, "svg_width on bad handle is 0");
+    ASSERT(folio_barcode_width(99999) == 0, "barcode_width on bad handle is 0");
+    ASSERT(folio_reader_page_count(99999) == 0, "reader_page_count on bad handle is 0"); /* pins current contract */
+
+    /* last_error is populated after a failing call; caller owns the copy */
+    folio_document_set_title(99999, "x");
+    const char* errPath = folio_last_error();
+    ASSERT(errPath != NULL, "last_error non-NULL after failure");
+    folio_string_free(errPath);
+
+    /* IO error: unwritable path */
+    rc = folio_document_save(doc, "/nonexistent-dir-folio-test/out.pdf");
+    ASSERT(rc != 0, "save to unwritable path returns error");
+
+    /* Type mismatch: pass a font handle where an element is expected */
+    helv = folio_font_helvetica();
+    rc = folio_document_add(doc, helv);
+    ASSERT(rc != 0, "document_add rejects non-element handle");
+
+    folio_document_free(doc);
+    folio_document_free(doc); /* double-free of document: must not crash */
 
     /* Summary */
     printf("\n%d passed, %d failed\n", passes, failures);

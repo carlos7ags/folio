@@ -987,7 +987,7 @@ func TestFaceKernPrefersGPOS(t *testing.T) {
 			},
 		},
 	}
-	face.gposParsed = true
+	face.gposOnce.Do(func() {})
 
 	// Force the legacy kern cache to contain a different value for the
 	// same pair plus a legacy-only pair.
@@ -995,7 +995,7 @@ func TestFaceKernPrefersGPOS(t *testing.T) {
 		{1, 2}: -11,
 		{3, 4}: -22,
 	}
-	face.kernPairsParsed = true
+	face.kernOnce.Do(func() {})
 
 	if got := face.Kern(1, 2); got != -77 {
 		t.Errorf("Kern(1,2) = %d, want -77 (GPOS wins over legacy kern)", got)
@@ -1408,12 +1408,14 @@ func TestParseGPOSMarkLigExtensionWrap(t *testing.T) {
 	}
 }
 
-// TestFaceGPOSCacheIdentity exercises the GPOS one-shot cache flag.
+// TestFaceGPOSCacheIdentity exercises the GPOS one-shot cache guard.
 func TestFaceGPOSCacheIdentity(t *testing.T) {
 	face := loadTestFace(t).(*sfntFace)
 	_ = face.GPOS()
-	if !face.gposParsed {
-		t.Fatal("expected gposParsed=true after first GPOS call")
+	fired := true
+	face.gposOnce.Do(func() { fired = false })
+	if !fired {
+		t.Fatal("expected GPOS cache Once to have fired after first GPOS call")
 	}
 	first := face.gposResult
 	_ = face.GPOS()

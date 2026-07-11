@@ -7,10 +7,17 @@ import (
 	"bytes"
 	"compress/zlib"
 	"encoding/binary"
+	"errors"
+	"io"
 	"os"
 	"sort"
 	"testing"
 )
+
+// zeroReader yields an endless stream of zero bytes without allocating.
+type zeroReader struct{}
+
+func (zeroReader) Read(p []byte) (int, error) { return len(p), nil }
 
 // buildWOFF creates a WOFF1 file from raw TTF data for testing purposes.
 func buildWOFF(t *testing.T, ttfData []byte) []byte {
@@ -275,6 +282,54 @@ func TestDecodeWOFF_Errors(t *testing.T) {
 		_, err := decodeWOFF(data)
 		if err == nil {
 			t.Fatal("expected error for zero tables")
+		}
+	})
+
+	t.Run("decompression bomb rejected", func(t *testing.T) {
+		// A small zlib stream that expands far past its declared origLength.
+		var compressed bytes.Buffer
+		zw := zlib.NewWriter(&compressed)
+		if _, err := io.CopyN(zw, zeroReader{}, 10<<20); err != nil {
+			t.Fatal(err)
+		}
+		_ = zw.Close()
+		blob := compressed.Bytes()
+
+		// origLength just above compLength selects the compressed branch but
+		// stays far below the true expanded size, so the LimitReader stops
+		// the bomb long before 10 MB is materialized.
+		origLength := uint32(len(blob)) + 1024
+
+		tableOff := woffHeaderSize + woffTableDirEntrySize
+		data := make([]byte, tableOff+len(blob))
+		binary.BigEndian.PutUint32(data[0:4], woffMagic)
+		binary.BigEndian.PutUint32(data[4:8], 0x00010000) // flavor
+		binary.BigEndian.PutUint16(data[12:14], 1)        // numTables
+		entryOff := woffHeaderSize
+		binary.BigEndian.PutUint32(data[entryOff+4:entryOff+8], uint32(tableOff))   // offset
+		binary.BigEndian.PutUint32(data[entryOff+8:entryOff+12], uint32(len(blob))) // compLength
+		binary.BigEndian.PutUint32(data[entryOff+12:entryOff+16], origLength)       // origLength
+		copy(data[tableOff:], blob)
+
+		_, err := decodeWOFF(data)
+		if !errors.Is(err, ErrCorruptTable) {
+			t.Fatalf("expected ErrCorruptTable, got %v", err)
+		}
+	})
+
+	t.Run("oversized declared size rejected", func(t *testing.T) {
+		tableOff := woffHeaderSize + woffTableDirEntrySize
+		data := make([]byte, tableOff+4)
+		binary.BigEndian.PutUint32(data[0:4], woffMagic)
+		binary.BigEndian.PutUint32(data[4:8], 0x00010000) // flavor
+		binary.BigEndian.PutUint16(data[12:14], 1)        // numTables
+		entryOff := woffHeaderSize
+		binary.BigEndian.PutUint32(data[entryOff+4:entryOff+8], uint32(tableOff)) // offset
+		binary.BigEndian.PutUint32(data[entryOff+8:entryOff+12], 4)               // compLength
+		binary.BigEndian.PutUint32(data[entryOff+12:entryOff+16], 300<<20)        // origLength (> cap)
+		_, err := decodeWOFF(data)
+		if !errors.Is(err, ErrCorruptTable) {
+			t.Fatalf("expected ErrCorruptTable, got %v", err)
 		}
 	})
 }

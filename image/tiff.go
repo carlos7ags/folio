@@ -16,6 +16,14 @@ import (
 // uncommon in PDF workflows. Dimensions are validated against
 // [MaxDimension] and [MaxPixels] before the pixel buffer is allocated.
 func NewTIFF(data []byte) (*Image, error) {
+	cfg, err := tiff.DecodeConfig(bytes.NewReader(data))
+	if err != nil {
+		return nil, fmt.Errorf("image: tiff: %w", err)
+	}
+	if err := checkDimensions(cfg.Width, cfg.Height); err != nil {
+		return nil, fmt.Errorf("image: tiff: %w", err)
+	}
+
 	img, err := tiff.Decode(bytes.NewReader(data))
 	if err != nil {
 		return nil, fmt.Errorf("image: tiff: %w", err)

@@ -57,7 +57,7 @@ func TestResolverMatrixAbsolutePathNoBaseFS(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			if _, err := Convert(tc.html, &Options{StrictAssets: true}); err != nil {
+			if _, err := Convert(tc.html, &Options{AllowAbsolutePaths: true, StrictAssets: true}); err != nil {
 				t.Errorf("absolute path with BaseFS=nil should resolve via OS: %v", err)
 			}
 		})
@@ -74,7 +74,7 @@ func TestResolverMatrixAbsolutePathNoBaseFS(t *testing.T) {
 		src := fmt.Sprintf(`<html><head><style>
 			@font-face { font-family: 'X'; src: url('%s'); }
 		</style></head><body><p>x</p></body></html>`, missing)
-		_, err := Convert(src, &Options{StrictAssets: true})
+		_, err := Convert(src, &Options{AllowAbsolutePaths: true, StrictAssets: true})
 		if err == nil {
 			t.Fatal("expected error for missing absolute font path")
 		}
@@ -132,7 +132,7 @@ func TestSVGImgSrcGoesThroughURLPolicy(t *testing.T) {
 	}
 
 	src := fmt.Sprintf(`<html><body><img src="%s/icon.svg"/></body></html>`, srv.URL)
-	if _, err := Convert(src, &Options{URLPolicy: deny}); err != nil {
+	if _, err := Convert(src, &Options{AllowRemoteFetch: true, URLPolicy: deny}); err != nil {
 		t.Fatalf("Convert: %v", err)
 	}
 
@@ -161,7 +161,7 @@ func TestImageFormatDetectionPrefersExtensionOverContentType(t *testing.T) {
 	defer srv.Close()
 
 	src := fmt.Sprintf(`<html><body><img src="%s/photo.jpg"/></body></html>`, srv.URL)
-	_, err := Convert(src, &Options{StrictAssets: true})
+	_, err := Convert(src, &Options{AllowRemoteFetch: true, URLPolicy: allowAllURLs, StrictAssets: true})
 	if err != nil {
 		t.Errorf("image with mismatched Content-Type but valid extension+bytes should decode: %v", err)
 	}
@@ -181,7 +181,7 @@ func TestStrictAssetsRemoteFontHTTPFailureEscalatesNotPolicyTagged(t *testing.T)
 	src := fmt.Sprintf(`<html><head><style>
 		@font-face { font-family: 'X'; src: url('%s/font.ttf'); }
 	</style></head><body><p>hi</p></body></html>`, srv.URL)
-	_, err := Convert(src, &Options{StrictAssets: true})
+	_, err := Convert(src, &Options{AllowRemoteFetch: true, URLPolicy: allowAllURLs, StrictAssets: true})
 	if err == nil {
 		t.Fatal("expected error from HTTP 500")
 	}

@@ -312,6 +312,76 @@ func TestParseCmapFormat12LargeGroupCount(t *testing.T) {
 	}
 }
 
+// TestParseCmapFormat12OverlappingRangesRejected pins the range-
+// expansion budget: 8 identical full-range groups charge
+// 8 x 1,114,112 = 8,912,896 mapped codes, well over cmapMaxMappedCodes
+// (1<<22). Overlapping declared ranges only arise from hostile or
+// broken fonts — legitimate coverage cannot exceed the Unicode range
+// once. The fixture is small enough that even unfixed code finishes
+// in well under a second, so a regression here fails on `err == nil`
+// rather than hanging CI.
+func TestParseCmapFormat12OverlappingRangesRejected(t *testing.T) {
+	groups := make([]struct{ startChar, endChar, startGID uint32 }, 8)
+	for i := range groups {
+		groups[i] = struct{ startChar, endChar, startGID uint32 }{0, 0x10FFFF, 1}
+	}
+	sub := buildFormat12Subtable(groups)
+	cmap := wrapCmap([]struct {
+		platformID, encodingID uint16
+		subtable               []byte
+	}{{platformID: 0, encodingID: 4, subtable: sub}})
+	_, err := parseCmapTable(cmap)
+	if !errors.Is(err, ErrCorruptTable) {
+		t.Fatalf("overlapping full-range groups: err = %v, want ErrCorruptTable", err)
+	}
+}
+
+// TestParseCmapFormat4OverlappingSegmentsRejected pins the same budget
+// for format 4: 70 segments each covering the full BMP charge
+// 70 x 65,535 = 4,587,450 mapped codes, over cmapMaxMappedCodes.
+func TestParseCmapFormat4OverlappingSegmentsRejected(t *testing.T) {
+	segments := make([]struct {
+		start, end uint16
+		delta      int16
+	}, 70)
+	for i := range segments {
+		segments[i] = struct {
+			start, end uint16
+			delta      int16
+		}{start: 0, end: 0xFFFE, delta: 1}
+	}
+	sub := buildFormat4Subtable(segments)
+	cmap := wrapCmap([]struct {
+		platformID, encodingID uint16
+		subtable               []byte
+	}{{platformID: 3, encodingID: 1, subtable: sub}})
+	_, err := parseCmapTable(cmap)
+	if !errors.Is(err, ErrCorruptTable) {
+		t.Fatalf("overlapping full-BMP segments: err = %v, want ErrCorruptTable", err)
+	}
+}
+
+// TestParseCmapFormat12SingleFullRangeAccepted pins that the budget
+// does not reject the largest legitimate shape: one group spanning
+// the entire Unicode range charges 1,114,112 codes, comfortably under
+// cmapMaxMappedCodes.
+func TestParseCmapFormat12SingleFullRangeAccepted(t *testing.T) {
+	sub := buildFormat12Subtable([]struct{ startChar, endChar, startGID uint32 }{
+		{startChar: 0, endChar: 0x10FFFF, startGID: 1},
+	})
+	cmap := wrapCmap([]struct {
+		platformID, encodingID uint16
+		subtable               []byte
+	}{{platformID: 0, encodingID: 4, subtable: sub}})
+	tab, err := parseCmapTable(cmap)
+	if err != nil {
+		t.Fatalf("single full-range group should stay under budget: %v", err)
+	}
+	if tab[0x41] != 0x42 {
+		t.Errorf("tab[0x41] = %d, want 0x42", tab[0x41])
+	}
+}
+
 // TestParseCmapAcceptsMicrosoftSymbol pins the symbol-font fallback
 // in scoreSubtable. Wingdings, Symbol, and dingbat fonts ship a
 // (platformID=3, encodingID=0) format-4 subtable mapping PUA

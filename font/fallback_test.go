@@ -22,20 +22,23 @@ func newFakeFace(runes ...rune) *fakeFace {
 	return &fakeFace{covers: covers}
 }
 
-func (f *fakeFace) PostScriptName() string    { return "FakeFace" }
-func (f *fakeFace) UnitsPerEm() int           { return 1000 }
-func (f *fakeFace) GlyphIndex(r rune) uint16  { return f.covers[r] }
-func (f *fakeFace) GlyphAdvance(_ uint16) int { return 500 }
-func (f *fakeFace) Ascent() int               { return 800 }
-func (f *fakeFace) Descent() int              { return -200 }
-func (f *fakeFace) BBox() [4]int              { return [4]int{0, -200, 1000, 800} }
-func (f *fakeFace) ItalicAngle() float64      { return 0 }
-func (f *fakeFace) CapHeight() int            { return 700 }
-func (f *fakeFace) StemV() int                { return 80 }
-func (f *fakeFace) Kern(_, _ uint16) int      { return 0 }
-func (f *fakeFace) Flags() uint32             { return 0 }
-func (f *fakeFace) RawData() []byte           { return nil }
-func (f *fakeFace) NumGlyphs() int            { return len(f.covers) + 1 }
+func (f *fakeFace) PostScriptName() string        { return "FakeFace" }
+func (f *fakeFace) UnitsPerEm() int               { return 1000 }
+func (f *fakeFace) GlyphIndex(r rune) uint16      { return f.covers[r] }
+func (f *fakeFace) GlyphAdvance(_ uint16) int     { return 500 }
+func (f *fakeFace) Ascent() int                   { return 800 }
+func (f *fakeFace) Descent() int                  { return -200 }
+func (f *fakeFace) BBox() [4]int                  { return [4]int{0, -200, 1000, 800} }
+func (f *fakeFace) ItalicAngle() float64          { return 0 }
+func (f *fakeFace) CapHeight() int                { return 700 }
+func (f *fakeFace) StemV() int                    { return 80 }
+func (f *fakeFace) Kern(_, _ uint16) int          { return 0 }
+func (f *fakeFace) Flags() uint32                 { return 0 }
+func (f *fakeFace) RawData() []byte               { return nil }
+func (f *fakeFace) NumGlyphs() int                { return len(f.covers) + 1 }
+func (f *fakeFace) GSUB() *GSUBSubstitutions      { return nil }
+func (f *fakeFace) GIDToUnicode() map[uint16]rune { return nil }
+func (f *fakeFace) GPOS() *GPOSAdjustments        { return nil }
 
 func TestNewFallbackPanicsOnEmpty(t *testing.T) {
 	defer func() {

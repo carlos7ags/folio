@@ -19,6 +19,7 @@ const (
 	BorderDotted                    // repeating dot pattern
 	BorderDouble                    // two parallel lines
 	BorderNone                      // no border (same as Width=0)
+	BorderHidden                    // CSS2.1 §17.6.2: never draws, and always wins a border conflict
 )
 
 // Border defines the style for one side of a cell or container border.
@@ -722,10 +723,13 @@ func cellIntrinsicWidths(cell *Cell, availWidth float64) (minW, maxW float64) {
 
 // gridCell is a cell positioned in the flat grid.
 type gridCell struct {
-	cell       *Cell
-	col        int     // starting column index
-	spanWidth  float64 // total width across spanned columns
-	spanHeight float64 // total height across spanned rows (0 = single row)
+	cell         *Cell
+	col          int         // starting column index
+	spanWidth    float64     // total width across spanned columns
+	spanHeight   float64     // total height across spanned rows (0 = single row)
+	colSpanCount int         // occupied columns, clipped to table width
+	rowSpanCount int         // occupied rows, clipped to table row count (1 = single row)
+	resolved     CellBorders // per-render resolved borders under border-collapse; never copied back into cell.borders
 }
 
 // gridRow is a row in the flat grid with computed height.
@@ -747,7 +751,7 @@ func (t *Table) buildGrid(colWidths []float64) []gridRow {
 
 	var grid []gridRow
 
-	for _, row := range t.rows {
+	for rIdx, row := range t.rows {
 		gr := gridRow{isHeader: row.isHeader, isFooter: row.isFooter}
 		cellIdx := 0
 		col := 0
@@ -768,6 +772,15 @@ func (t *Table) buildGrid(colWidths []float64) []gridRow {
 			cell := row.cells[cellIdx]
 			colspan := min(cell.colspan, nCols-col)
 
+			// Rowspan clipped to the table's actual row count, so a
+			// spanning cell's true bottom edge (used by resolveBorders)
+			// is never mistaken for an earlier row.
+			rowspan := cell.rowspan
+			if rowspan < 1 {
+				rowspan = 1
+			}
+			rowSpanCount := min(rowspan, len(t.rows)-rIdx)
+
 			// Compute span width.
 			spanW := 0.0
 			for c := col; c < col+colspan; c++ {
@@ -775,9 +788,11 @@ func (t *Table) buildGrid(colWidths []float64) []gridRow {
 			}
 
 			gr.cells = append(gr.cells, gridCell{
-				cell:      cell,
-				col:       col,
-				spanWidth: spanW,
+				cell:         cell,
+				col:          col,
+				spanWidth:    spanW,
+				colSpanCount: colspan,
+				rowSpanCount: rowSpanCount,
 			})
 
 			// Mark rowspan occupancy for future rows.
@@ -826,9 +841,10 @@ func (t *Table) buildGrid(colWidths []float64) []gridRow {
 // is then the total covered height (spanned row heights plus the spacing gaps
 // between them).
 //
-// Note: a rowspan that straddles a page break is not handled — PlanLayout
-// splits between rows without span awareness, so such a cell draws its full
-// height past the page bottom. Tracked as a known limitation (issue #357).
+// Note: PlanLayout keeps a rowspan and every row it covers together as one
+// atomic group when splitting across a page break (issue #362); a group
+// taller than a full page falls back to drawing past the page bottom, same
+// as an oversized plain row.
 func (t *Table) resolveRowspanHeights(grid []gridRow) {
 	sv := t.effectiveSpacingV()
 
@@ -868,6 +884,33 @@ func (t *Table) resolveRowspanHeights(grid []gridRow) {
 	}
 }
 
+// spanGroupStarts returns, for each grid row, the index of the first row of
+// the atomic span group containing it. A group is the transitive closure of
+// rowspan coverage: any row covered by a span belongs to the span's starting
+// row's group, and a span starting inside a group extends that group. Rows
+// without span coverage are their own group.
+func spanGroupStarts(grid []gridRow) []int {
+	starts := make([]int, len(grid))
+	i := 0
+	for i < len(grid) {
+		end := i + 1
+		for j := i; j < end; j++ {
+			for _, gc := range grid[j].cells {
+				if gc.cell.rowspan > 1 {
+					if e := min(j+gc.cell.rowspan, len(grid)); e > end {
+						end = e
+					}
+				}
+			}
+		}
+		for j := i; j < end; j++ {
+			starts[j] = i
+		}
+		i = end
+	}
+	return starts
+}
+
 // cellContentHeight computes the height needed for a cell's content.
 // For Element cells, it also caches the laid-out lines in gc.
 func (t *Table) cellContentHeight(gc *gridCell) float64 {
@@ -883,7 +926,7 @@ func (t *Table) cellContentHeight(gc *gridCell) float64 {
 		return measureConsumed(cell.content, innerWidth) + padH
 	}
 
-	measurer := t.cellMeasurer(cell)
+	measurer := cellTextMeasurer(cell)
 	if measurer == nil {
 		return padH
 	}
@@ -911,17 +954,6 @@ func (t *Table) cellContentHeight(gc *gridCell) float64 {
 	return float64(lines)*cell.fontSize*1.2 + padH
 }
 
-// cellMeasurer returns the text measurer for a cell's font, or nil if none is set.
-func (t *Table) cellMeasurer(cell *Cell) font.TextMeasurer {
-	if cell.embedded != nil {
-		return cell.embedded
-	}
-	if cell.font != nil {
-		return cell.font
-	}
-	return nil
-}
-
 // Layout implements the Element interface.
 func (t *Table) Layout(maxWidth float64) []Line {
 	// Tables don't use the Line-based layout. They render directly
@@ -933,7 +965,7 @@ func (t *Table) Layout(maxWidth float64) []Line {
 	colWidths := t.resolveColWidths(maxWidth)
 	grid := t.buildGrid(colWidths)
 	if t.borderCollapse {
-		collapseBorders(grid)
+		resolveBorders(grid, len(colWidths))
 	}
 
 	sv := t.effectiveSpacingV()
@@ -963,8 +995,8 @@ func (t *Table) Layout(maxWidth float64) []Line {
 	return lines
 }
 
-// PlanLayout implements Element. Tables split between rows, repeating
-// header rows on each new page.
+// PlanLayout implements Element. Tables split between rows — never inside a
+// rowspan group — repeating header rows on each new page.
 func (t *Table) PlanLayout(area LayoutArea) LayoutPlan {
 	if area.Height <= 0 {
 		return LayoutPlan{Status: LayoutNothing}
@@ -976,10 +1008,14 @@ func (t *Table) PlanLayout(area LayoutArea) LayoutPlan {
 		return LayoutPlan{Status: LayoutFull}
 	}
 
-	// Apply border-collapse: remove duplicate borders between adjacent cells.
+	// Apply border-collapse: resolve competing borders on shared cell edges.
 	if t.borderCollapse {
-		collapseBorders(grid)
+		resolveBorders(grid, len(colWidths))
 	}
+
+	// groupStarts[i] is the first row of the rowspan group containing row
+	// i; a split must never land strictly inside a group (issue #362).
+	groupStarts := spanGroupStarts(grid)
 
 	// Identify header rows (at start) and footer rows (at end).
 	var headerHeight float64
@@ -1022,15 +1058,25 @@ func (t *Table) PlanLayout(area LayoutArea) LayoutPlan {
 		// Add vertical spacing before this row.
 		curY += sv
 
-		// Check if this body row fits (reserve space for footer if splitting).
-		needsFooter := footerRowCount > 0 && i > headerRowCount
-		reserveH := 0.0
-		if needsFooter {
-			reserveH = footerHeight
-		}
-		if curY+gr.height+reserveH > area.Height && area.Height > 0 && i > headerRowCount {
-			splitIdx = i
-			break
+		// Check if this row's span group fits (reserve space for footer if
+		// splitting). A row that isn't its group's leader never triggers a
+		// split — the group's space was reserved when the leader was
+		// checked. For a span-free row the group is just the row itself,
+		// so this reduces to the plain per-row check.
+		if groupStarts[i] == i {
+			needsFooter := footerRowCount > 0 && i > headerRowCount
+			reserveH := 0.0
+			if needsFooter {
+				reserveH = footerHeight
+			}
+			groupH := gr.height
+			for k := i + 1; k < len(grid) && groupStarts[k] == i; k++ {
+				groupH += sv + grid[k].height
+			}
+			if curY+groupH+reserveH > area.Height && area.Height > 0 && i > headerRowCount {
+				splitIdx = i
+				break
+			}
 		}
 
 		capturedGrid := grid
@@ -1133,39 +1179,127 @@ type tableRowRef struct {
 	maxWidth  float64
 }
 
-// collapseBorders removes duplicate borders between adjacent cells.
-// For each cell: remove the right border (except last column) and
-// the bottom border (except last row). The adjacent cell's left/top
-// border serves as the shared border.
-func collapseBorders(grid []gridRow) {
-	nCols := 0
-	for _, gr := range grid {
-		cols := 0
-		for _, gc := range gr.cells {
-			cols += max(gc.cell.colspan, 1)
+// buildOwnership returns a (row x col) matrix pointing each grid position
+// at the *gridCell that occupies it, accounting for colspan/rowspan. Used
+// by resolveBorders to find the true neighbor across a shared edge — a
+// gridCell's array position in gr.cells is NOT its grid column (colspan
+// shifts things), and its starting row is NOT necessarily its ending row
+// (rowspan). Returns nil at positions no cell logically reaches (shouldn't
+// happen for a well-formed grid, but guarded defensively).
+func buildOwnership(grid []gridRow, nCols int) [][]*gridCell {
+	owner := make([][]*gridCell, len(grid))
+	for r := range owner {
+		owner[r] = make([]*gridCell, nCols)
+	}
+	for r, gr := range grid {
+		for i := range gr.cells {
+			gc := &gr.cells[i]
+			for dr := 0; dr < gc.rowSpanCount && r+dr < len(grid); dr++ {
+				for dc := 0; dc < gc.colSpanCount && gc.col+dc < nCols; dc++ {
+					owner[r+dr][gc.col+dc] = gc
+				}
+			}
 		}
-		if cols > nCols {
-			nCols = cols
+	}
+	return owner
+}
+
+// borderPriority ranks a border's style for CSS2.1 §17.6.2 conflict
+// resolution once widths are tied. A zero-width border (undeclared, or
+// explicit width:0/style:none) always ranks lowest regardless of its Style
+// field's zero value — Go's Border{} zero value is Style==BorderSolid (0),
+// which must NOT be mistaken for a real, declared solid border.
+// groove/ridge/inset/outset are not distinguished from solid — they are
+// already flattened to BorderSolid upstream (html/converter_block.go).
+func borderPriority(b Border) int {
+	if b.Width <= 0 {
+		return -1
+	}
+	switch b.Style {
+	case BorderDouble:
+		return 3
+	case BorderDashed:
+		return 1
+	case BorderDotted:
+		return 0
+	default: // BorderSolid (covers groove/ridge/inset/outset)
+		return 2
+	}
+}
+
+// resolveEdge picks the winning border for one shared edge, given the two
+// cells' own-side declarations (near = the earlier cell's right/bottom,
+// far = the later cell's left/top). Per CSS2.1 §17.6.2:
+//  1. hidden always wins, even against a wider border, and suppresses the
+//     edge entirely if either side is hidden.
+//  2. Otherwise the wider border wins.
+//  3. Equal width: higher style-priority wins (see borderPriority).
+//  4. Full tie: the later element (far) wins — this also preserves the
+//     pre-existing behavior for the common case of identical borders on
+//     every cell (folio's default new-cell border).
+func resolveEdge(near, far Border) Border {
+	if near.Style == BorderHidden || far.Style == BorderHidden {
+		return Border{}
+	}
+	if near.Width != far.Width {
+		if near.Width > far.Width {
+			return near
+		}
+		return far
+	}
+	if p1, p2 := borderPriority(near), borderPriority(far); p1 != p2 {
+		if p1 > p2 {
+			return near
+		}
+		return far
+	}
+	return far
+}
+
+// resolveBorders implements border-collapse: collapse per CSS2.1 §17.6.2.
+// It never mutates gc.cell.borders (the cell's own declared border) —
+// Table.PlanLayout resolves borders once per Layout/PlanLayout call, and a
+// header row that is reused verbatim across the overflow continuation table
+// (cloneForOverflow) must be resolved fresh against its new neighbor each
+// time, not against a possibly-zeroed leftover from a previous resolution.
+// Each call resolves fresh from the untouched declarations, writing results
+// only into gc.resolved.
+func resolveBorders(grid []gridRow, nCols int) {
+	owner := buildOwnership(grid, nCols)
+
+	for r := range grid {
+		for i := range grid[r].cells {
+			gc := &grid[r].cells[i]
+			gc.resolved = gc.cell.borders       // start from the cell's own declaration
+			gc.cell.borderRadius = [4]float64{} // border-radius has no effect under collapse (CSS Backgrounds L3 §5.3)
 		}
 	}
 
-	for rowIdx, gr := range grid {
-		for cellIdx, gc := range gr.cells {
-			// Per CSS Backgrounds Level 3 §5.3, border-radius has no effect
-			// when border-collapse: collapse is active.
-			gc.cell.borderRadius = [4]float64{}
+	for r := range grid {
+		for i := range grid[r].cells {
+			near := &grid[r].cells[i]
 
-			// Remove right border unless this is the last cell in the row.
-			isLastCol := cellIdx == len(gr.cells)-1
-			if !isLastCol {
-				gc.cell.borders.Right = Border{}
-			}
+			// Vertical edge: near's right side vs. the cell starting at
+			// its right-adjacent column, same starting row.
+			rightCol := near.col + near.colSpanCount
+			if rightCol < nCols {
+				if far := owner[r][rightCol]; far != nil && far != near {
+					winner := resolveEdge(near.resolved.Right, far.resolved.Left)
+					near.resolved.Right = Border{}
+					far.resolved.Left = winner
+				}
+			} // else: table's right perimeter — near's own Right stands, untouched.
 
-			// Remove bottom border unless this is the last row.
-			isLastRow := rowIdx == len(grid)-1
-			if !isLastRow {
-				gc.cell.borders.Bottom = Border{}
-			}
+			// Horizontal edge: near's bottom side vs. the cell starting at
+			// its row-below-adjacent row, same starting column.
+			belowRow := r + near.rowSpanCount
+			if belowRow < len(grid) {
+				if far := owner[belowRow][near.col]; far != nil && far != near {
+					winner := resolveEdge(near.resolved.Bottom, far.resolved.Top)
+					near.resolved.Bottom = Border{}
+					far.resolved.Top = winner
+				}
+			} // else: table's bottom perimeter — near's own Bottom stands, untouched.
 		}
 	}
 }
@@ -1306,7 +1440,7 @@ func drawCellBordersRounded(stream *content.Stream, borders CellBorders, x, y, w
 
 // drawStyledBorder draws a single border line with the appropriate style.
 func drawStyledBorder(stream *content.Stream, b Border, x1, y1, x2, y2 float64) {
-	if b.Width <= 0 || b.Style == BorderNone {
+	if b.Width <= 0 || b.Style == BorderNone || b.Style == BorderHidden {
 		return
 	}
 
@@ -1369,13 +1503,7 @@ func drawStyledBorder(stream *content.Stream, b Border, x1, y1, x2, y2 float64) 
 
 // cellTextMeasurer returns the text measurer for a cell's font, or nil if none is set.
 func cellTextMeasurer(cell *Cell) font.TextMeasurer {
-	if cell.embedded != nil {
-		return cell.embedded
-	}
-	if cell.font != nil {
-		return cell.font
-	}
-	return nil
+	return resolveMeasurer(cell.embedded, cell.font, nil)
 }
 
 // IsTable reports whether a Line was produced by a Table element.
@@ -1431,11 +1559,18 @@ func drawTableRowDirect(ctx DrawContext, tbl *Table, grid []gridRow, rowIndex in
 			}
 		}
 
-		// Borders (with optional rounded corners).
+		// Borders (with optional rounded corners). Under border-collapse,
+		// gc.cell.borders holds each cell's own untouched declaration —
+		// the resolved, deduplicated borders live in gc.resolved instead
+		// (see resolveBorders).
+		borders := gc.cell.borders
+		if tbl.borderCollapse {
+			borders = gc.resolved
+		}
 		if hasRadius {
-			drawCellBordersRounded(ctx.Stream, gc.cell.borders, cellX, cellBottomY, gc.spanWidth, cellH, r)
+			drawCellBordersRounded(ctx.Stream, borders, cellX, cellBottomY, gc.spanWidth, cellH, r)
 		} else {
-			drawCellBorders(ctx.Stream, gc.cell.borders, cellX, cellBottomY, gc.spanWidth, cellH)
+			drawCellBorders(ctx.Stream, borders, cellX, cellBottomY, gc.spanWidth, cellH)
 		}
 
 		// Cell content.

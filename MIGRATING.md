@@ -4,6 +4,118 @@ For the full list of new features and fixes, see [CHANGELOG.md](CHANGELOG.md).
 
 ---
 
+## Upgrading from v0.9.x to v0.10.0
+
+### `font.Face` gains `GSUB()`, `GPOS()`, and `GIDToUnicode()`; `GSUBProvider`/`GPOSProvider` are removed
+
+Shaping support used to be an optional side-interface a `Face` could
+implement, discovered by callers via type assertion. Both provider
+interfaces are gone; `Face` now declares the three methods directly, so
+every implementation must provide them. Return nil to mean "no data for
+this font" — that was already the nil-return contract for the removed
+interfaces.
+
+Migration for external `Face` implementers:
+
+```go
+// before
+type myFace struct{ /* ... */ }
+
+// (GSUB/GPOS/GIDToUnicode only needed to satisfy the optional
+// GSUBProvider/GPOSProvider interfaces)
+
+// after
+type myFace struct{ /* ... */ }
+
+func (f *myFace) GSUB() *font.GSUBSubstitutions { return nil }
+func (f *myFace) GIDToUnicode() map[uint16]rune { return nil }
+func (f *myFace) GPOS() *font.GPOSAdjustments   { return nil }
+```
+
+Migration for callers that probed for shaping support:
+
+```go
+// before
+gp, ok := face.(font.GSUBProvider)
+if !ok {
+    // no shaping data
+}
+gsub := gp.GSUB()
+
+// after
+gsub := face.GSUB()
+if gsub == nil {
+    // no shaping data
+}
+```
+
+### Remote and absolute-path assets are now opt-in
+
+`html.Convert` / `html.ConvertFull` no longer fetch remote or
+absolute-path assets by default. A document's `http(s)` references
+(`<img>`, `background-image: url()`, linked stylesheets,
+`@font-face url()`) are fetched only when `Options.AllowRemoteFetch` is
+set, and absolute filesystem paths in document content are read only when
+`Options.AllowAbsolutePaths` is set. A blocked reference fails with
+`ErrRemoteFetchDisabled` or `ErrAbsolutePathDenied` — logged, and
+surfaced through the joined error under `StrictAssets`.
+
+When remote fetch is enabled with no `URLPolicy`, the built-in
+`DenyInternalHosts` policy blocks loopback, RFC1918, link-local, and
+non-http(s) targets and is re-checked on every redirect hop. Set
+`URLPolicy` to a function returning nil to allow every host.
+
+```go
+// before — remote images fetched with no filtering
+opts := &html.Options{}
+
+// after — enable remote fetch; internal hosts blocked by default
+opts := &html.Options{AllowRemoteFetch: true}
+
+// after — allow every host, including internal ones
+opts := &html.Options{
+    AllowRemoteFetch: true,
+    URLPolicy:        func(string) error { return nil },
+}
+```
+
+`Options.FallbackFontPath` and the built-in system-font search load
+absolute paths through a separate trusted code path and are unaffected.
+
+A conversion now also enforces an aggregate asset-size budget via the new
+`Options.MaxTotalAssetBytes` (default 512 MiB when 0), covering every
+asset it reads — images, fonts, and stylesheets alike. Documents within
+the default are unaffected; raise it for asset-heavy documents (many
+large embedded fonts) or lower it to tightly bound untrusted input. A
+crossed budget fails the offending load with `ErrAssetBudgetExceeded`.
+
+### C ABI: `folio_last_error` is now caller-owned
+
+`folio_last_error` previously returned a `char*` pointing at
+library-internal storage, valid only until the next C ABI call; callers
+were expected to treat it as borrowed and never free it. It now returns
+a fresh copy that the caller must release with the new
+`folio_string_free`.
+
+A caller that keeps the old assumption does not crash — it leaks one
+short error-message string per call to `folio_last_error` until it
+adopts `folio_string_free`.
+
+```c
+/* before */
+const char *msg = folio_last_error();
+printf("%s\n", msg);
+/* msg was borrowed; nothing to free */
+
+/* after */
+char *msg = folio_last_error();
+printf("%s\n", msg);
+folio_string_free(msg); /* NULL is a no-op */
+```
+
+`folio_version`'s return value is unaffected and must still not be
+passed to `folio_string_free`.
+
 ## Upgrading from v0.7.x to v0.8.0
 
 ### `html.Options.BasePath` is removed

@@ -352,11 +352,20 @@ func shouldBreakBetween(prev, curr Property, oddRI, zwjAfterPict bool) bool {
 // Example: Breaks("e\u0301f") returns [0, 3, 4] — the combining acute
 // (2 UTF-8 bytes) is part of the same cluster as 'e'.
 func Breaks(s string) []int {
+	return AppendBreaks(make([]int, 0, len(s)/2+2), s)
+}
+
+// AppendBreaks appends the grapheme cluster boundary offsets of s to dst
+// and returns the extended slice. The boundaries are identical to those
+// Breaks returns (0, then each interior boundary, then len(s); [0] for
+// the empty string). It lets callers reuse a scratch slice across calls
+// to avoid allocating a fresh break slice each time; pass dst[:0] to
+// refill an existing buffer.
+func AppendBreaks(dst []int, s string) []int {
 	// GB1: sot ÷ Any — always break at the start. The empty string
 	// still has the start boundary; GB2 (end boundary) then lands on
 	// the same offset and the caller gets [0].
-	out := make([]int, 0, len(s)/2+2)
-	out = append(out, 0)
+	out := append(dst, 0)
 	if s == "" {
 		return out
 	}

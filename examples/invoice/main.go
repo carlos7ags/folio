@@ -171,9 +171,38 @@ const invoiceBody = `
 func main() {
 	flag.Parse()
 
+	doc, err := buildDocument(*useTailwind)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "AddHTML: %v\n", err)
+		os.Exit(1)
+	}
+
+	// Write PDF.
+	f, err := os.Create("invoice.pdf")
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Create: %v\n", err)
+		os.Exit(1)
+	}
+	defer func() { _ = f.Close() }()
+
+	n, err := doc.WriteTo(f)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "WriteTo: %v\n", err)
+		os.Exit(1)
+	}
+
+	fmt.Printf("Generated invoice.pdf (%d bytes)\n", n)
+}
+
+// buildDocument assembles the invoice HTML (optionally pulling in the
+// Tailwind CDN stylesheet when useTailwind is true) and converts it
+// into a ready-to-write Document. Extracted from main() so the
+// example test (main_test.go) can exercise the offline (useTailwind
+// false) path directly, without opening a socket.
+func buildDocument(useTailwind bool) (*document.Document, error) {
 	// Build the full HTML document.
 	var cssBlock string
-	if *useTailwind {
+	if useTailwind {
 		// Tailwind v2 CDN: pre-built CSS with all utility classes (2.9MB).
 		// Tailwind v3+ requires a build step — no pre-built CDN file available.
 		cssBlock = `<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css">`
@@ -198,8 +227,7 @@ func main() {
 		PageWidth:  document.PageSizeLetter.Width,
 		PageHeight: document.PageSizeLetter.Height,
 	}); err != nil {
-		fmt.Fprintf(os.Stderr, "AddHTML: %v\n", err)
-		os.Exit(1)
+		return nil, err
 	}
 
 	// Footer with page numbers.
@@ -208,19 +236,5 @@ func main() {
 			SetAlign(layout.AlignCenter)
 	})
 
-	// Write PDF.
-	f, err := os.Create("invoice.pdf")
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Create: %v\n", err)
-		os.Exit(1)
-	}
-	defer func() { _ = f.Close() }()
-
-	n, err := doc.WriteTo(f)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "WriteTo: %v\n", err)
-		os.Exit(1)
-	}
-
-	fmt.Printf("Generated invoice.pdf (%d bytes)\n", n)
+	return doc, nil
 }

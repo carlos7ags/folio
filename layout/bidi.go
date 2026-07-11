@@ -84,7 +84,7 @@ func resolveLineBidi(words []Word, base Direction) ([]Word, Direction) {
 		}
 		spans[i].start = runePos
 		sb.WriteString(w.Text)
-		runePos += len([]rune(w.Text))
+		runePos += utf8.RuneCountInString(w.Text)
 		spans[i].end = runePos
 		textWordCount++
 	}
