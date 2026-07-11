@@ -153,7 +153,7 @@ func (r *Renderer) renderWithPlans() []PageResult {
 		}
 
 		// CSS clear: advance past active floats before placing this element.
-		if cl, ok := elem.(Clearable); ok {
+		if cl, ok := baseElement(elem).(Clearable); ok {
 			cv := cl.ClearValue()
 			if cv == "left" || cv == "right" || cv == "both" {
 				maxRemain := 0.0
@@ -265,7 +265,7 @@ func (r *Renderer) renderWithPlans() []PageResult {
 			// page-break-inside: avoid — if the element wants to stay
 			// together and we're not at the top of a fresh page, move
 			// the whole element to the next page instead of splitting.
-			if kt, ok := elem.(interface{ KeepTogether() bool }); ok && kt.KeepTogether() && !atPageTop {
+			if kt, ok := baseElement(elem).(interface{ KeepTogether() bool }); ok && kt.KeepTogether() && !atPageTop {
 				startNewPage()
 				floats = nil
 				queue = append([]Element{elem}, queue...)
@@ -357,6 +357,7 @@ func (r *Renderer) renderWithPlans() []PageResult {
 			Links:      page.Links,
 			ExtGStates: page.ExtGStates,
 			Headings:   page.Headings,
+			Anchors:    page.Anchors,
 		})
 	}
 
@@ -465,6 +466,14 @@ func drawBlockNested(block PlacedBlock, baseX, topY float64, ctx *DrawContext, t
 			H:        block.Height,
 			URI:      link.URI,
 			DestName: link.DestName,
+		})
+	}
+
+	// Record a named-destination target for this block's fragment id.
+	if block.AnchorName != "" {
+		ctx.Page.Anchors = append(ctx.Page.Anchors, AnchorInfo{
+			Name: block.AnchorName,
+			Y:    pdfY,
 		})
 	}
 

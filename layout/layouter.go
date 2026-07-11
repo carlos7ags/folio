@@ -83,6 +83,12 @@ type PlacedBlock struct {
 	// PDF viewers (ISO 32000 §12.3.3 — emitted as a negative /Count).
 	BookmarkClosed bool
 
+	// AnchorName is the fragment identifier (an element's HTML id) that
+	// resolves to this block's top position. The renderer surfaces it on
+	// PageResult.Anchors and the document layer registers it as a PDF
+	// named destination so <a href="#name"> links navigate here.
+	AnchorName string
+
 	// Children are nested content blocks (e.g. lines within a paragraph,
 	// cells within a table row). The renderer draws them in order.
 	Children []PlacedBlock
@@ -156,6 +162,29 @@ func maxBlockWidth(blocks []PlacedBlock) float64 {
 // Clearable is implemented by elements that support the CSS clear property.
 type Clearable interface {
 	ClearValue() string // "left", "right", "both", or ""
+}
+
+// elementWrapper is implemented by decorator elements (the anchor and
+// bookmark markers) that wrap an inner element but cannot reproduce its
+// optional layout interfaces (Clearable, HeightSettable, KeepTogether,
+// layoutable, ...). Layout code that type-asserts an optional interface must
+// do so against baseElement(e) so a decorated element still participates in
+// clear, keep-together, cross-axis stretch, column layout, and the like.
+type elementWrapper interface {
+	unwrap() Element
+}
+
+// baseElement returns the innermost element, seeing through any decorator
+// wrappers, so an optional-interface type assertion matches the real element
+// rather than the wrapper (which would otherwise silently mask it).
+func baseElement(e Element) Element {
+	for {
+		w, ok := e.(elementWrapper)
+		if !ok {
+			return e
+		}
+		e = w.unwrap()
+	}
 }
 
 // HeightSettable is implemented by elements that can have their height
