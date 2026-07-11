@@ -126,6 +126,14 @@ type Renderer struct {
 	ctxErr error
 }
 
+// marginBoxOrder fixes the drawing order of margin boxes so content-stream
+// bytes and font resource names are deterministic (map iteration order
+// must never reach an output path).
+var marginBoxOrder = [...]string{
+	"top-left", "top-center", "top-right",
+	"bottom-left", "bottom-center", "bottom-right",
+}
+
 // MarginBox holds the content template for a CSS margin box.
 // Content may contain placeholders like {counter(page)} and {counter(pages)}.
 type MarginBox struct {
@@ -137,11 +145,16 @@ type MarginBox struct {
 	// from an unset color: when false the renderer applies the default
 	// gray; when true it honours Color verbatim (including pure black).
 	HasColor bool
+	// Font is the standard PDF font to draw with when Embedded is nil,
+	// resolved from the margin box's own font-style/font-weight/
+	// font-family declarations. nil falls back to plain Helvetica — the
+	// pre-fix behavior for a box with no font declarations of its own.
+	Font *font.Standard
 	// Embedded is the document's default body font, used to draw the
 	// margin-box text. When non-nil the renderer emits the text with this
 	// embedded font (Identity-H GID encoding), so the glyphs are subset
 	// and embedded — required for PDF/A. When nil the renderer falls back
-	// to the built-in standard Helvetica (acceptable for non-PDF/A docs).
+	// to Font, or plain Helvetica if Font is also nil.
 	Embedded *font.EmbeddedFont
 }
 
@@ -260,11 +273,13 @@ func (r *Renderer) drawMarginBoxes(ctx *DrawContext, pageIdx int, margins Margin
 		return
 	}
 
-	f := font.Helvetica
 	contentWidth := r.pageWidth - margins.Left - margins.Right
 
-	for name, box := range boxes {
-		box := box
+	for _, name := range marginBoxOrder {
+		box, ok := boxes[name]
+		if !ok {
+			continue
+		}
 		text := box.Content
 		if text == "" {
 			continue
@@ -296,14 +311,19 @@ func (r *Renderer) drawMarginBoxes(ctx *DrawContext, pageIdx int, margins Margin
 
 		// Choose the drawing word: an embedded font (PDF/A-safe, Identity-H
 		// GID encoding) when one was stamped on the box, otherwise the
-		// built-in standard Helvetica. Width is measured with the same font
-		// so alignment math is consistent.
+		// box's own resolved standard font, falling back to plain
+		// Helvetica. Width is measured with the same font so alignment
+		// math is consistent.
 		word := Word{FontSize: fontSize, OriginalText: text, Text: text}
 		var textWidth float64
 		if box.Embedded != nil {
 			word.Embedded = box.Embedded
 			textWidth = box.Embedded.MeasureString(text, fontSize)
 		} else {
+			f := box.Font
+			if f == nil {
+				f = font.Helvetica
+			}
 			word.Font = f
 			textWidth = f.MeasureString(text, fontSize)
 		}

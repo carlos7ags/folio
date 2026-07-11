@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/carlos7ags/folio/content"
+	"github.com/carlos7ags/folio/internal/cssunit"
 )
 
 // RenderOptions configures SVG rendering into a PDF content stream.
@@ -1086,12 +1087,9 @@ func attrFloat(node *Node, attr string, def float64) float64 {
 	if !ok || s == "" {
 		return def
 	}
-	// Strip trailing "px" or other simple unit suffixes.
-	s = strings.TrimSpace(s)
-	s = strings.TrimSuffix(s, "px")
-	s = strings.TrimSuffix(s, "pt")
-	v, err := strconv.ParseFloat(s, 64)
-	if err != nil {
+	// User units — px/pt suffixes are stripped, not converted.
+	v, unit, ok := cssunit.Parse(s)
+	if !ok || (unit != "" && unit != "px" && unit != "pt") {
 		return def
 	}
 	return v

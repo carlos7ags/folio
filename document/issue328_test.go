@@ -39,7 +39,7 @@ body { font-family: 'CJK'; font-size: 14px; }
 	doc := NewDocument(PageSizeLetter)
 	doc.Info.Title = "Issue 328"
 	doc.SetPdfA(PdfAConfig{Level: PdfA3B})
-	if err := doc.AddHTML(htmlStr, &foliohtml.Options{StrictAssets: true}); err != nil {
+	if err := doc.AddHTML(htmlStr, &foliohtml.Options{AllowAbsolutePaths: true, StrictAssets: true}); err != nil {
 		t.Fatalf("AddHTML: %v", err)
 	}
 

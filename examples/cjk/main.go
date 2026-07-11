@@ -55,7 +55,7 @@ func main() {
 
 	htmlStr := buildHTML(fontPath)
 
-	result, err := html.ConvertFull(htmlStr, nil)
+	result, err := html.ConvertFull(htmlStr, &html.Options{AllowAbsolutePaths: true})
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "convert: %v\n", err)
 		os.Exit(1)

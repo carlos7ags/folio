@@ -5,6 +5,8 @@ package image
 
 import (
 	"bytes"
+	"encoding/binary"
+	"errors"
 	goimage "image"
 	"image/color"
 	"image/color/palette"
@@ -15,6 +17,25 @@ import (
 
 	"github.com/carlos7ags/folio/core"
 )
+
+// craftGIFHeader builds a GIF89a signature and logical screen descriptor
+// declaring the given canvas dimensions, with no global color table. This is
+// enough for DecodeConfig to report the size before any frame is decoded.
+func craftGIFHeader(w, h uint16) []byte {
+	b := append([]byte("GIF89a"), 0, 0, 0, 0, 0, 0, 0)
+	binary.LittleEndian.PutUint16(b[6:8], w)
+	binary.LittleEndian.PutUint16(b[8:10], h)
+	return b
+}
+
+// TestNewGIFOversizedHeader verifies the dimension limit is enforced from the
+// logical-screen descriptor, before the frame buffer is allocated.
+func TestNewGIFOversizedHeader(t *testing.T) {
+	_, err := NewGIF(craftGIFHeader(60000, 100))
+	if !errors.Is(err, ErrDimensionTooLarge) {
+		t.Fatalf("expected ErrDimensionTooLarge, got %v", err)
+	}
+}
 
 // createTestGIF generates a small GIF image in memory.
 func createTestGIF(t *testing.T, w, h int) []byte {

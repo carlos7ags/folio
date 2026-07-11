@@ -17,6 +17,7 @@ package main
 */
 import "C"
 import (
+	"fmt"
 	"sync"
 	"unsafe"
 )
@@ -96,32 +97,25 @@ func (t *handleTable) count() int {
 	return len(t.handles)
 }
 
-// lastError stores the most recent error message per-thread (approximated
-// via a single global since cgo serializes calls through a single OS thread
-// by default). The returned C string is valid until the next C ABI call.
+// lastError stores the most recent error message. folio_last_error returns
+// a fresh caller-owned copy, so no C pointer is retained here.
 var (
 	lastErrorMu  sync.Mutex
-	lastErrorMsg *C.char
+	lastErrorMsg string
 )
 
 // setLastError stores an error message retrievable via folio_last_error.
 func setLastError(msg string) {
 	lastErrorMu.Lock()
 	defer lastErrorMu.Unlock()
-	if lastErrorMsg != nil {
-		C.free(unsafe.Pointer(lastErrorMsg))
-	}
-	lastErrorMsg = C.CString(msg)
+	lastErrorMsg = msg
 }
 
 // clearLastError clears any previous error.
 func clearLastError() {
 	lastErrorMu.Lock()
 	defer lastErrorMu.Unlock()
-	if lastErrorMsg != nil {
-		C.free(unsafe.Pointer(lastErrorMsg))
-		lastErrorMsg = nil
-	}
+	lastErrorMsg = ""
 }
 
 // setErr sets the last error from an error value and returns the error code.
@@ -132,6 +126,24 @@ func setErr(code C.int32_t, err error) C.int32_t {
 	return code
 }
 
+// maxCArrayCount caps (pointer, count) array arguments accepted across the
+// C ABI. Counts above this are rejected instead of risking a crash.
+const maxCArrayCount = 1 << 20
+
+// checkCArray validates a (pointer, count) argument pair. On failure it sets
+// the last error and returns false.
+func checkCArray(ptr unsafe.Pointer, n int) bool {
+	if n < 0 || n > maxCArrayCount {
+		setLastError(fmt.Sprintf("array count %d out of range [0, %d]", n, maxCArrayCount))
+		return false
+	}
+	if n > 0 && ptr == nil {
+		setLastError("nil array pointer with non-zero count")
+		return false
+	}
+	return true
+}
+
 // folio_version returns the library version as a C string.
 //
 //export folio_version
@@ -139,13 +151,27 @@ func folio_version() *C.char {
 	return versionCStr
 }
 
-// folio_last_error returns the most recent error message, or nil if none.
+// folio_last_error returns the most recent error message as a fresh copy the
+// caller must release with folio_string_free, or nil if no error is set.
 //
 //export folio_last_error
 func folio_last_error() *C.char {
 	lastErrorMu.Lock()
 	defer lastErrorMu.Unlock()
-	return lastErrorMsg
+	if lastErrorMsg == "" {
+		return nil
+	}
+	return C.CString(lastErrorMsg)
+}
+
+// folio_string_free releases a string returned by folio_last_error.
+// Passing NULL is a no-op. Do NOT pass folio_version's return value.
+//
+//export folio_string_free
+func folio_string_free(s *C.char) {
+	if s != nil {
+		C.free(unsafe.Pointer(s))
+	}
 }
 
 func main() {}

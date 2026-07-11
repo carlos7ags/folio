@@ -25,6 +25,24 @@ import (
 )
 
 func main() {
+	doc, err := buildDocument()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "convert: %v\n", err)
+		os.Exit(1)
+	}
+
+	if err := doc.Save("fonts.pdf"); err != nil {
+		fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		os.Exit(1)
+	}
+	fmt.Println("Created fonts.pdf")
+}
+
+// buildDocument assembles the standard-fonts and discovered-custom-fonts
+// showcase and returns the ready-to-write Document. Extracted from
+// main() so the example test (main_test.go) can exercise the same
+// HTML-building pipeline against an in-memory buffer instead of disk.
+func buildDocument() (*document.Document, error) {
 	fonts := discoverFonts()
 
 	// Build @font-face rules and matching CSS classes.
@@ -83,10 +101,9 @@ hr { margin: 12px 0; }
 
 	htmlStr += `</body></html>`
 
-	result, err := html.ConvertFull(htmlStr, nil)
+	result, err := html.ConvertFull(htmlStr, &html.Options{AllowAbsolutePaths: true})
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "convert: %v\n", err)
-		os.Exit(1)
+		return nil, err
 	}
 
 	doc := document.NewDocument(document.PageSizeLetter)
@@ -97,11 +114,7 @@ hr { margin: 12px 0; }
 		doc.Add(e)
 	}
 
-	if err := doc.Save("fonts.pdf"); err != nil {
-		fmt.Fprintf(os.Stderr, "error: %v\n", err)
-		os.Exit(1)
-	}
-	fmt.Println("Created fonts.pdf")
+	return doc, nil
 }
 
 type fontEntry struct {

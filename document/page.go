@@ -126,6 +126,8 @@ type Page struct {
 	bleedBox *[4]float64 // bleed region for production
 	trimBox  *[4]float64 // intended finished page dimensions
 	artBox   *[4]float64 // meaningful content area
+
+	debugMediaBox *debugMediaBoxConfig // per-page debug MediaBox outline (nil = use document default)
 }
 
 // boxToArray converts a [4]float64 to a PdfArray.

@@ -42,8 +42,11 @@ func folio_columns_set_widths(colsH C.uint64_t, widths *C.double, count C.int32_
 		return errCode
 	}
 	n := int(count)
+	if !checkCArray(unsafe.Pointer(widths), n) {
+		return errInvalidArg
+	}
 	goWidths := make([]float64, n)
-	cWidths := (*[1 << 20]C.double)(unsafe.Pointer(widths))[:n:n]
+	cWidths := unsafe.Slice(widths, n)
 	for i := 0; i < n; i++ {
 		goWidths[i] = float64(cWidths[i])
 	}

@@ -48,6 +48,19 @@ import (
 )
 
 func main() {
+	doc := buildDocument()
+	if err := doc.Save("rtl.pdf"); err != nil {
+		fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		os.Exit(1)
+	}
+	fmt.Println("Created rtl.pdf")
+}
+
+// buildDocument assembles the RTL/bidi/shaping showcase and returns
+// the ready-to-write Document. Extracted from main() so the example
+// test (main_test.go) can exercise the same pipeline against an
+// in-memory buffer instead of disk.
+func buildDocument() *document.Document {
 	doc := document.NewDocument(document.PageSizeLetter)
 	doc.Info.Title = "Right-To-Left Text"
 	doc.Info.Author = "Folio"
@@ -296,13 +309,7 @@ func main() {
 		doc.Add(mixed)
 	}
 
-	// --- Save ---
-
-	if err := doc.Save("rtl.pdf"); err != nil {
-		fmt.Fprintf(os.Stderr, "error: %v\n", err)
-		os.Exit(1)
-	}
-	fmt.Println("Created rtl.pdf")
+	return doc
 }
 
 // makeParagraph creates a paragraph with either an embedded font or a

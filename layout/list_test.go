@@ -125,6 +125,47 @@ func TestListImplementsElement(t *testing.T) {
 	var _ Element = NewList(font.Helvetica, 12)
 }
 
+// SetMarkerFont overrides the marker's font independently of the list's
+// body font (used for CSS ::marker { font-style: italic }); the body text
+// keeps the list's own font.
+func TestSetMarkerFont(t *testing.T) {
+	l := NewList(font.Helvetica, 12).
+		SetStyle(ListOrdered).
+		SetMarkerFont(font.HelveticaOblique, nil).
+		AddItem("Alpha")
+
+	marker := l.markerParagraph(0)
+	if marker.runs[0].Font != font.HelveticaOblique {
+		t.Errorf("expected marker font %v, got %v", font.HelveticaOblique, marker.runs[0].Font)
+	}
+
+	lines := l.Layout(400)
+	if len(lines) == 0 || len(lines[0].Words) == 0 {
+		t.Fatal("expected body text words")
+	}
+	if lines[0].Words[0].Font != font.Helvetica {
+		t.Errorf("expected body text to keep the list font %v, got %v", font.Helvetica, lines[0].Words[0].Font)
+	}
+}
+
+// cloneWithItems (used for page-break continuation) must copy the marker
+// font override, so a list split across a page keeps its marker font on the
+// continuation fragment.
+func TestCloneWithItemsCopiesMarkerFont(t *testing.T) {
+	l := NewList(font.Helvetica, 12).
+		SetMarkerFont(font.HelveticaOblique, nil).
+		AddItem("Alpha").
+		AddItem("Beta")
+
+	clone := l.cloneWithItems(l.items)
+	if clone.markerFont != font.HelveticaOblique {
+		t.Errorf("expected cloned list to carry the marker font override, got %v", clone.markerFont)
+	}
+	if clone.markerEmbedded != nil {
+		t.Errorf("expected nil markerEmbedded on clone, got %v", clone.markerEmbedded)
+	}
+}
+
 func TestHeadingImplementsElement(t *testing.T) {
 	var _ Element = NewHeading("Title", H1)
 }

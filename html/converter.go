@@ -6,15 +6,9 @@ package html
 import (
 	"context"
 	"errors"
-	"fmt"
 	"io/fs"
 	"log/slog"
-	"math"
 	"net/http"
-	"os"
-	"path"
-	"path/filepath"
-	"strconv"
 	"strings"
 
 	"github.com/carlos7ags/folio/font"
@@ -49,10 +43,31 @@ type Options struct {
 	// converter searches common system font locations.
 	FallbackFontPath string
 	// URLPolicy is called before the converter fetches a remote URL
-	// (for <img src="http://...">, background-image: url(), etc.).
-	// Return nil to allow the fetch, or an error to block it.
-	// If nil, all URLs are allowed.
+	// (for <img src="http://...">, background-image: url(), etc.), and
+	// again for each redirect hop. Return nil to allow the fetch, or an
+	// error to block it. Only consulted when AllowRemoteFetch is true.
+	// If nil while AllowRemoteFetch is true, the built-in DenyInternalHosts
+	// policy is used; set URLPolicy to a function that always returns nil
+	// to allow every host.
 	URLPolicy URLPolicy
+	// AllowRemoteFetch enables fetching http(s) assets referenced by the
+	// document (<img src="http://...">, background-image: url(http://...),
+	// linked stylesheets, @font-face url(http://...)). Default false: no
+	// network request is made and such references fail with
+	// ErrRemoteFetchDisabled (logged, and surfaced under StrictAssets).
+	// When true, every fetch is filtered by URLPolicy; if URLPolicy is nil,
+	// the built-in DenyInternalHosts policy is applied, which blocks
+	// loopback, RFC1918, link-local, and non-http(s) targets and is
+	// re-checked on every redirect hop.
+	AllowRemoteFetch bool
+	// AllowAbsolutePaths enables reading absolute filesystem paths named in
+	// document content (<img src="/etc/..."> or @font-face url('/abs/...'))
+	// when BaseFS is nil. Default false: such references fail with
+	// ErrAbsolutePathDenied. When true, the read is capped at the same byte
+	// limit as the HTTP path. This does NOT affect Options.FallbackFontPath
+	// or the built-in system-font search, which load programmatic absolute
+	// paths through a separate trusted code path.
+	AllowAbsolutePaths bool
 	// Client is the HTTP client used to fetch remote images and stylesheets.
 	// If nil, http.DefaultClient is used.
 	Client *http.Client
@@ -98,6 +113,19 @@ type Options struct {
 	// goroutine stack) without bound. Exceeding it returns a *LimitError
 	// (Kind LimitDepth).
 	MaxDepth int
+
+	// MaxTotalAssetBytes caps the aggregate bytes read across every asset
+	// loaded during one conversion (images, fonts, linked stylesheets —
+	// remote, BaseFS-relative, and absolute alike). 0 selects a generous
+	// default (512 MiB) that comfortably fits realistic documents with
+	// several embedded fonts and images while bounding the worst case,
+	// where many references at the per-asset limit would otherwise
+	// multiply into unbounded memory. Once the running total is crossed,
+	// the offending and any later asset loads fail with
+	// ErrAssetBudgetExceeded (logged, and surfaced under StrictAssets).
+	// Set a large value to effectively disable, or a small one to tightly
+	// bound untrusted input.
+	MaxTotalAssetBytes int64
 }
 
 // URLPolicy controls whether the HTML converter may fetch a remote URL.
@@ -123,159 +151,15 @@ func (o *Options) defaults() Options {
 	out.BaseFS = o.BaseFS
 	out.FallbackFontPath = o.FallbackFontPath
 	out.URLPolicy = o.URLPolicy
+	out.AllowRemoteFetch = o.AllowRemoteFetch
+	out.AllowAbsolutePaths = o.AllowAbsolutePaths
 	out.Client = o.Client
 	out.Logger = o.Logger
 	out.StrictAssets = o.StrictAssets
 	out.MaxElements = o.MaxElements
 	out.MaxDepth = o.MaxDepth
+	out.MaxTotalAssetBytes = o.MaxTotalAssetBytes
 	return out
-}
-
-// errNoBaseFS is returned by readAsset when a relative or root-anchored path is
-// requested but the caller did not configure Options.BaseFS.
-var errNoBaseFS = errors.New("html: no BaseFS configured for local asset resolution")
-
-// readAsset resolves p through baseFS. Path normalisation:
-//   - Backslashes are converted to forward slashes (fs.FS convention).
-//   - A leading "/" is stripped (web-style root → BaseFS root).
-//   - "./" prefix is dropped; the result is path.Clean'ed.
-//   - The cleaned path must satisfy fs.ValidPath, so ".." traversal is
-//     rejected before fs.ReadFile is consulted.
-//
-// Returns errNoBaseFS when baseFS is nil. Callers that need OS access should
-// pass os.DirFS("/") (or a more specific root) explicitly.
-func readAsset(baseFS fs.FS, p string) ([]byte, error) {
-	if baseFS == nil {
-		return nil, errNoBaseFS
-	}
-	fsPath, err := normaliseFSPath(p)
-	if err != nil {
-		return nil, err
-	}
-	return fs.ReadFile(baseFS, fsPath)
-}
-
-// normaliseFSPath converts a user-supplied src/href into an fs.FS-valid path.
-// Errors when the path is empty, contains a backslash that produces an invalid
-// path after conversion, or escapes the root via "..". Backslashes are
-// converted unconditionally (filepath.ToSlash is a no-op on non-Windows
-// hosts, so we fold "\" → "/" explicitly so Windows-authored paths behave
-// the same on macOS / Linux).
-func normaliseFSPath(p string) (string, error) {
-	if p == "" {
-		return "", fmt.Errorf("html: empty path")
-	}
-	fsPath := strings.ReplaceAll(p, `\`, "/")
-	fsPath = strings.TrimPrefix(fsPath, "./")
-	fsPath = strings.TrimPrefix(fsPath, "/")
-	if fsPath == "" {
-		return "", fmt.Errorf("html: empty path after normalisation: %q", p)
-	}
-	fsPath = path.Clean(fsPath)
-	if !fs.ValidPath(fsPath) {
-		return "", fmt.Errorf("html: invalid path for BaseFS: %q", p)
-	}
-	return fsPath, nil
-}
-
-// resolveLocalAsset returns raw bytes for a local or remote asset reference,
-// applying the project's uniform resolution contract. Every consumer
-// (`<img>`, SVG inline, `<link rel="stylesheet">`, `@font-face url()`,
-// background-image, FallbackFontPath) routes through here so a behavior
-// change in one resolver becomes a behavior change in all of them.
-//
-// Resolution order:
-//
-//  1. src is an http/https URL — fetched via opts.Client subject to
-//     urlPolicy. A policy denial is wrapped with [ErrURLPolicyDenied].
-//
-//  2. origin is an http/https URL, src is relative — resolved as a URL
-//     against origin's host/path and fetched.
-//
-//  3. src is filepath.IsAbs and opts.BaseFS is nil — read directly from
-//     the OS via os.ReadFile. Typically a system font path like
-//     "/System/Library/Fonts/STHeiti Light.ttc" or
-//     `C:\Windows\Fonts\msyh.ttc` referenced from programmatically-built
-//     HTML where the caller chose not to configure a BaseFS. When
-//     opts.BaseFS is set, an absolute path is treated as web-style root
-//     of BaseFS instead — joinFSPath strips the leading slash and reads
-//     from the BaseFS root, matching how `<base href="/">` resolves in
-//     browsers.
-//
-//  4. Otherwise — resolved via joinFSPath relative to origin's directory
-//     (or BaseFS root for inline contexts) and read through opts.BaseFS.
-//     Returns errNoBaseFS when opts.BaseFS is nil and src is non-absolute.
-//
-// origin is the document or stylesheet path/URL containing src. Pass ""
-// for inline contexts: `<style>` blocks, top-level document references,
-// and programmatic options like FallbackFontPath. Relative src values
-// resolve relative to origin's directory (or BaseFS root when origin is
-// empty).
-//
-// src is expected pre-trimmed of surrounding whitespace; call sites
-// (parseStyleBlocks for href, parseFontFaceSrc for url(), getAttr for
-// img src) already trim before reaching the resolver.
-//
-// maxBytes caps HTTP downloads. 0 (or any non-positive value) means use
-// the default 50MB; pass 10MB for stylesheets to match the historical
-// CSS fetch limit. The cap is ignored for filesystem reads — those are
-// bounded by the source data.
-//
-// data: URIs are NOT handled here; callers parse them inline because
-// each asset type has its own metadata-aware decoder (font.Face from
-// font/x-truetype, *image.Image from image/png, raw bytes for CSS).
-func resolveLocalAsset(opts Options, urlPolicy URLPolicy, origin, src string, maxBytes int64) ([]byte, error) {
-	switch {
-	case isURL(src):
-		return fetchHTTPBytes(httpClientOrDefault(opts.Client), urlPolicy, src, maxBytes)
-	case isURL(origin):
-		return fetchHTTPBytes(httpClientOrDefault(opts.Client), urlPolicy, joinURL(origin, src), maxBytes)
-	case opts.BaseFS == nil && filepath.IsAbs(src):
-		return os.ReadFile(src)
-	default:
-		return readAsset(opts.BaseFS, joinFSPath(origin, src))
-	}
-}
-
-// fetchHTTPBytes consults urlPolicy first (wrapping denials with
-// ErrURLPolicyDenied so reportAssetError can distinguish caller intent
-// from genuine load failure), then performs the GET via httpGetBytes
-// with the supplied byte cap. A maxBytes value of 0 falls back to the
-// 50MB default, matching the historical fetchImage cap.
-func fetchHTTPBytes(client *http.Client, urlPolicy URLPolicy, url string, maxBytes int64) ([]byte, error) {
-	if urlPolicy != nil {
-		if err := urlPolicy(url); err != nil {
-			return nil, fmt.Errorf("%w: %w", ErrURLPolicyDenied, err)
-		}
-	}
-	if maxBytes <= 0 {
-		maxBytes = 50 << 20
-	}
-	return httpGetBytes(client, url, maxBytes)
-}
-
-// resolveLocalAsset is the converter-method wrapper around the package
-// free function. Use this from any code that already has a *converter;
-// pre-converter call sites (parseStyleBlocks) call the free function
-// directly with the already-built Options + URLPolicy values.
-func (c *converter) resolveLocalAsset(origin, src string, maxBytes int64) ([]byte, error) {
-	return resolveLocalAsset(c.opts, c.urlPolicy, origin, src, maxBytes)
-}
-
-// httpClientOrDefault returns the configured HTTP client or http.DefaultClient.
-func httpClientOrDefault(c *http.Client) *http.Client {
-	if c != nil {
-		return c
-	}
-	return http.DefaultClient
-}
-
-// loggerOrDiscard returns the configured logger or a no-op logger.
-func loggerOrDiscard(l *slog.Logger) *slog.Logger {
-	if l != nil {
-		return l
-	}
-	return slog.New(slog.DiscardHandler)
 }
 
 // ConvertResult holds the full result of an HTML → layout conversion,
@@ -340,11 +224,29 @@ type MarginBoxContent struct {
 	// margin-box rule. It lets the renderer distinguish an explicit
 	// `color: black` from an unset color (which defaults to gray).
 	HasColor bool
+	// FontStyle is the parsed font-style ("italic" or "normal"). Empty
+	// when the margin box declared none, in which case the box falls
+	// back to plain (non-italic) rather than inheriting <body>'s style —
+	// symmetric with how FontSize/Color already default rather than
+	// inherit.
+	FontStyle string
+	// FontWeight is the CSS Fonts L4 numeric weight (100-900). 0 means
+	// the margin box declared none (treated as 400).
+	FontWeight int
+	// FontFamily is the parsed font-family (lowercased, quotes/first-of-
+	// list stripped, see parseFontFamily). Empty when the margin box
+	// declared none.
+	FontFamily string
+	// Font is the resolved standard PDF font used when Embedded is nil,
+	// computed in resolveMarginBoxFont from FontStyle/FontWeight/
+	// FontFamily. nil until that resolution runs.
+	Font *font.Standard
 	// Embedded is the document's default body font, stamped during
 	// conversion so the renderer can draw the margin box with an embedded
 	// (PDF/A-safe) font instead of the non-embedded standard Helvetica.
-	// Nil when the document uses no embedded fonts. Font-family declared
-	// inside the margin box itself is not yet honoured (follow-up).
+	// Nil when the document uses no embedded fonts, or when the box's own
+	// font-style/font-weight/font-family resolves to a standard font
+	// instead (see resolveMarginBoxFont).
 	Embedded *font.EmbeddedFont
 }
 
@@ -508,13 +410,10 @@ func (pc *PageConfig) Resolve(defaultW, defaultH float64) (width, height float64
 	return width, height, autoHeight
 }
 
-// convertMarginBoxes converts html.MarginBoxContent to layout.MarginBox,
-// stamping the document's default body font (emb) onto each box so the
-// renderer draws running headers/footers with an embedded, PDF/A-safe font
-// instead of the non-embedded standard Helvetica (issue #328). emb may be
-// nil when the document has no embedded fonts; the renderer then falls back
-// to Helvetica, which is acceptable because such a document is not PDF/A.
-func convertMarginBoxes(src map[string]MarginBoxContent, emb *font.EmbeddedFont) map[string]layout.MarginBox {
+// convertMarginBoxes converts html.MarginBoxContent to layout.MarginBox. Each
+// box's Font/Embedded fields must already be resolved (see
+// resolveMarginBoxFonts) before this runs.
+func convertMarginBoxes(src map[string]MarginBoxContent) map[string]layout.MarginBox {
 	if len(src) == 0 {
 		return nil
 	}
@@ -525,19 +424,20 @@ func convertMarginBoxes(src map[string]MarginBoxContent, emb *font.EmbeddedFont)
 			FontSize: mbc.FontSize,
 			Color:    mbc.Color,
 			HasColor: mbc.HasColor,
-			Embedded: emb,
+			Font:     mbc.Font,
+			Embedded: mbc.Embedded,
 		}
 	}
 	return out
 }
 
-// stampMarginBoxFont writes emb onto the Embedded field of every
-// MarginBoxContent in src. It is used so the document.AddHTML path, which
-// reconstructs layout.MarginBox from PageConfig rather than from the
-// already-converted ConvertResult.MarginBoxes, embeds the same body font.
-func stampMarginBoxFont(src map[string]MarginBoxContent, emb *font.EmbeddedFont) {
+// resolveMarginBoxFonts fills in the Font/Embedded fields of every
+// MarginBoxContent in src via resolveMarginBoxFont (issue #378 gap A: a
+// box's own font-style/font-weight/font-family must be honored, not
+// just its color/font-size).
+func (c *converter) resolveMarginBoxFonts(src map[string]MarginBoxContent, bodyEmbedded *font.EmbeddedFont) {
 	for name, mbc := range src {
-		mbc.Embedded = emb
+		mbc.Font, mbc.Embedded = c.resolveMarginBoxFont(mbc, bodyEmbedded)
 		src[name] = mbc
 	}
 }
@@ -548,8 +448,9 @@ func stampMarginBoxFont(src map[string]MarginBoxContent, emb *font.EmbeddedFont)
 // matching @font-face is honoured) and resolves that style to an embedded
 // font. Returns nil when the document uses no embedded fonts (pure
 // standard-font document), in which case the renderer keeps the Helvetica
-// fallback. Font-family declared inside the margin box itself is not parsed
-// yet (deferred follow-up); the body font is the default per CSS GCPM.
+// fallback. Font-family declared inside the margin box itself is resolved
+// separately per box by resolveMarginBoxFont; this is only the fallback
+// default per CSS GCPM for boxes that declare none of their own.
 func (c *converter) defaultMarginBoxFont(doc *html.Node, root computedStyle) *font.EmbeddedFont {
 	if len(c.embeddedFonts) == 0 {
 		return nil
@@ -623,9 +524,10 @@ func ConvertFullWithContext(ctx context.Context, htmlStr string, opts *Options) 
 			stylesheetErrs = append(stylesheetErrs, formatAssetError("stylesheet", err, []any{"href", href}))
 		}
 	}
-	ss := parseStyleBlocks(doc, o, logStylesheetErr)
+	budget := newAssetBudget(o.MaxTotalAssetBytes)
+	ss := parseStyleBlocks(doc, o, budget, logStylesheetErr)
 
-	c := &converter{opts: o, logger: logger, rootFontSize: o.DefaultFontSize, sheet: ss, embeddedFonts: make(map[string]*font.EmbeddedFont), containerWidth: o.PageWidth, counters: make(map[string][]int), urlPolicy: o.URLPolicy, strictErrs: stylesheetErrs, ctx: ctx}
+	c := &converter{opts: o, logger: logger, rootFontSize: o.DefaultFontSize, sheet: ss, embeddedFonts: make(map[string]*font.EmbeddedFont), containerWidth: o.PageWidth, counters: make(map[string][]int), urlPolicy: o.URLPolicy, budget: budget, strictErrs: stylesheetErrs, ctx: ctx}
 
 	// Parse @page config early so containerWidth reflects the actual page size
 	// (e.g. landscape pages have a wider containerWidth).
@@ -659,26 +561,28 @@ func ConvertFullWithContext(ctx context.Context, htmlStr string, opts *Options) 
 	result.PageConfig = pageConfig
 
 	// Build ready-to-use margin box maps so callers can pass them
-	// directly to doc.SetMarginBoxes without type conversion. The
-	// document's default body font is stamped onto each box (issue #328)
-	// and also onto the MarginBoxContent values in pageConfig so the
-	// document.AddHTML path (which rebuilds layout.MarginBox from
-	// pageConfig) embeds the same font.
+	// directly to doc.SetMarginBoxes without type conversion. Each box's
+	// own font-style/font-weight/font-family is resolved against the
+	// document's default body font (issue #328's inherited fallback for
+	// boxes that declare none of their own) so the resolved Font/Embedded
+	// values can also be copied onto the MarginBoxContent values in
+	// pageConfig, letting the document.AddHTML path (which rebuilds
+	// layout.MarginBox from pageConfig) draw with the same font.
 	if pageConfig != nil {
-		marginFont := c.defaultMarginBoxFont(doc, style)
-		stampMarginBoxFont(pageConfig.MarginBoxes, marginFont)
-		result.MarginBoxes = convertMarginBoxes(pageConfig.MarginBoxes, marginFont)
+		bodyEmbedded := c.defaultMarginBoxFont(doc, style)
+		c.resolveMarginBoxFonts(pageConfig.MarginBoxes, bodyEmbedded)
+		result.MarginBoxes = convertMarginBoxes(pageConfig.MarginBoxes)
 		if pageConfig.First != nil {
-			stampMarginBoxFont(pageConfig.First.MarginBoxes, marginFont)
-			result.FirstMarginBoxes = convertMarginBoxes(pageConfig.First.MarginBoxes, marginFont)
+			c.resolveMarginBoxFonts(pageConfig.First.MarginBoxes, bodyEmbedded)
+			result.FirstMarginBoxes = convertMarginBoxes(pageConfig.First.MarginBoxes)
 		}
 		if pageConfig.Left != nil {
-			stampMarginBoxFont(pageConfig.Left.MarginBoxes, marginFont)
-			result.LeftMarginBoxes = convertMarginBoxes(pageConfig.Left.MarginBoxes, marginFont)
+			c.resolveMarginBoxFonts(pageConfig.Left.MarginBoxes, bodyEmbedded)
+			result.LeftMarginBoxes = convertMarginBoxes(pageConfig.Left.MarginBoxes)
 		}
 		if pageConfig.Right != nil {
-			stampMarginBoxFont(pageConfig.Right.MarginBoxes, marginFont)
-			result.RightMarginBoxes = convertMarginBoxes(pageConfig.Right.MarginBoxes, marginFont)
+			c.resolveMarginBoxFonts(pageConfig.Right.MarginBoxes, bodyEmbedded)
+			result.RightMarginBoxes = convertMarginBoxes(pageConfig.Right.MarginBoxes)
 		}
 	}
 
@@ -717,9 +621,10 @@ func ConvertWithContext(ctx context.Context, htmlStr string, opts *Options) ([]l
 			stylesheetErrs = append(stylesheetErrs, formatAssetError("stylesheet", err, []any{"href", href}))
 		}
 	}
-	ss := parseStyleBlocks(doc, o, logStylesheetErr)
+	budget := newAssetBudget(o.MaxTotalAssetBytes)
+	ss := parseStyleBlocks(doc, o, budget, logStylesheetErr)
 
-	c := &converter{opts: o, logger: logger, rootFontSize: o.DefaultFontSize, sheet: ss, embeddedFonts: make(map[string]*font.EmbeddedFont), containerWidth: o.PageWidth, counters: make(map[string][]int), urlPolicy: o.URLPolicy, strictErrs: stylesheetErrs, ctx: ctx}
+	c := &converter{opts: o, logger: logger, rootFontSize: o.DefaultFontSize, sheet: ss, embeddedFonts: make(map[string]*font.EmbeddedFont), containerWidth: o.PageWidth, counters: make(map[string][]int), urlPolicy: o.URLPolicy, budget: budget, strictErrs: stylesheetErrs, ctx: ctx}
 
 	// Update containerWidth if @page specifies a different page size.
 	if len(ss.pageRules) > 0 {
@@ -774,6 +679,11 @@ type converter struct {
 	// urlPolicy is called before fetching remote URLs. Nil means allow all.
 	urlPolicy URLPolicy
 
+	// budget bounds the aggregate asset bytes read across the conversion.
+	// Shared with the pre-converter stylesheet loads so every path counts
+	// against one total. Nil in unit tests that build a converter directly.
+	budget *assetBudget
+
 	// strictErrs accumulates asset-load failures when Options.StrictAssets
 	// is true. Convert / ConvertFull return errors.Join(strictErrs...) at
 	// the end of the run. When StrictAssets is false this slice is never
@@ -798,1024 +708,4 @@ type converter struct {
 	// aborts the remaining walk; Convert/ConvertFull return it.
 	ctx    context.Context
 	ctxErr error
-}
-
-// reportAssetError records a single asset-load failure. The event is always
-// logged at warn level through Options.Logger (or dropped when Logger is
-// nil); when Options.StrictAssets is true and the error is not an
-// ErrURLPolicyDenied (which represents the caller's intent, not a load
-// failure) it is additionally appended to c.strictErrs for return at the
-// end of the conversion. category is a short label like "@font-face",
-// "image", "background-image", "stylesheet". The error wrapped into
-// strictErrs preserves the underlying err with errors.Is. attrs follows
-// slog's variadic key/value convention; it is forwarded to the logger
-// (with "error", err appended last to match the historical attr order
-// callers may grep against) and inlined into the strict error message
-// for grep-ability without needing structured-tree traversal.
-func (c *converter) reportAssetError(category string, err error, attrs ...any) {
-	logArgs := append(attrs, "error", err)
-	c.logger.Warn("folio/html: "+category+" load failed", logArgs...)
-	if c.opts.StrictAssets && !errors.Is(err, ErrURLPolicyDenied) {
-		c.strictErrs = append(c.strictErrs, formatAssetError(category, err, attrs))
-	}
-}
-
-// containingBlock tracks a positioned ancestor for absolute positioning resolution.
-type containingBlock struct {
-	width   float64          // resolved content width in points
-	height  float64          // resolved content height in points (0 if unknown)
-	pending []pendingOverlay // absolute children waiting to be attached to the Div
-}
-
-// pendingOverlay stores an absolute element waiting to be attached to its
-// containing block's Div.
-type pendingOverlay struct {
-	elem         layout.Element
-	x, y         float64
-	width        float64
-	rightAligned bool
-	zIndex       int
-}
-
-// loadFontFaces loads @font-face fonts into the converter's embeddedFonts map.
-// data: URIs are decoded inline; every other src — http(s) URL, BaseFS-
-// relative path, and absolute filesystem path — flows through the unified
-// [resolveLocalAsset] contract. The font is resolved relative to the
-// stylesheet it was declared in (its origin), so url("../fonts/x.ttf")
-// inside styles/site.css resolves to fonts/x.ttf at the BaseFS root.
-// Inline <style> blocks resolve from the BaseFS root.
-//
-// Failures (missing data, invalid font bytes, fetch errors) are reported
-// through Options.Logger at warn level and skipped — they never abort the
-// conversion.
-func (c *converter) loadFontFaces(faces []fontFaceRule) {
-	// Document-level lang drives TTC face selection. Empty lang is
-	// the no-op default — font.ParseFontForLanguage with "" picks
-	// face 0, matching the legacy font.ParseFont behaviour for
-	// back-compat. Per-element lang overrides (<p lang="ja">) are
-	// not yet honoured (#280 Phase 2): a single face is loaded per
-	// @font-face rule at converter setup time, so an element-level
-	// override would need either eager multi-face loading or a
-	// shape-time face selector — both deferred.
-	lang := c.metadata.Language
-	for _, ff := range faces {
-		src := ff.src
-
-		var face font.Face
-		var data []byte
-		var err error
-
-		if strings.HasPrefix(src, "data:") {
-			face, err = decodeFontDataURI(src)
-		} else {
-			data, err = c.resolveLocalAsset(ff.origin, src, 50<<20)
-			if err == nil {
-				face, err = font.ParseFontForLanguage(data, lang)
-			}
-		}
-
-		if err != nil {
-			c.reportAssetError("@font-face", err,
-				"family", ff.family, "src", src, "origin", ff.origin)
-			continue
-		}
-		ef := font.NewEmbeddedFont(face)
-		// Key shape: family|<numeric weight>|style. The numeric weight
-		// matches what computedStyle.FontWeight stores after
-		// parseFontWeight, which lets resolveFontPair walk the available
-		// weights for nearest-match selection.
-		key := ff.family + "|" + strconv.Itoa(ff.weight) + "|" + ff.style
-		c.embeddedFonts[key] = ef
-	}
-}
-
-// joinFSPath resolves a relative src against the directory of an origin
-// stylesheet path. An absolute src (leading "/" or "\") or empty origin
-// resolves from the BaseFS root. A "../" in src is left for normaliseFSPath /
-// fs.ValidPath to reject upstream. Backslashes in either argument are
-// converted to forward slashes so Windows-authored paths behave the same on
-// every host (filepath.ToSlash is a no-op on non-Windows builds).
-func joinFSPath(origin, src string) string {
-	src = strings.ReplaceAll(src, `\`, "/")
-	if strings.HasPrefix(src, "/") {
-		return src
-	}
-	if origin == "" {
-		return src
-	}
-	dir := path.Dir(strings.ReplaceAll(origin, `\`, "/"))
-	if dir == "." || dir == "/" {
-		return src
-	}
-	return dir + "/" + src
-}
-
-// joinURL resolves a relative src against an HTTP origin URL. Absolute URLs
-// in src bypass the origin. Anchor-style "/" paths resolve against the
-// origin's host.
-func joinURL(originURL, src string) string {
-	if isURL(src) {
-		return src
-	}
-	slash := strings.Index(originURL, "://")
-	if slash < 0 {
-		return src
-	}
-	hostStart := slash + 3
-	hostEnd := strings.IndexByte(originURL[hostStart:], '/')
-	if hostEnd < 0 {
-		// origin has no path component; treat root as the host itself.
-		if strings.HasPrefix(src, "/") {
-			return originURL + src
-		}
-		return originURL + "/" + src
-	}
-	pathStart := hostStart + hostEnd
-	if strings.HasPrefix(src, "/") {
-		return originURL[:pathStart] + src
-	}
-	dir := path.Dir(originURL[pathStart:])
-	if dir == "." || dir == "/" {
-		return originURL[:pathStart] + "/" + src
-	}
-	resolved := path.Join(dir, src)
-	return originURL[:pathStart] + "/" + strings.TrimPrefix(resolved, "/")
-}
-
-// decodeFontDataURI decodes a base64-encoded font from a data: URI.
-// Supports data:font/truetype;base64,..., data:font/opentype;base64,...,
-// data:application/x-font-ttf;base64,..., and similar media types.
-func decodeFontDataURI(uri string) (font.Face, error) {
-	rest := strings.TrimPrefix(uri, "data:")
-	commaIdx := strings.IndexByte(rest, ',')
-	if commaIdx < 0 {
-		return nil, fmt.Errorf("html: invalid data URI: no comma")
-	}
-	meta := rest[:commaIdx]
-	encoded := rest[commaIdx+1:]
-
-	if !strings.Contains(meta, ";base64") {
-		return nil, fmt.Errorf("html: font data URI must be base64-encoded")
-	}
-
-	data, err := base64Decode(encoded)
-	if err != nil {
-		return nil, fmt.Errorf("html: font data URI base64: %w", err)
-	}
-
-	return font.ParseTTF(data)
-}
-
-// getFallbackFont returns a Unicode-capable embedded font for text that
-// can't be encoded in WinAnsiEncoding. The font is loaded lazily on first
-// use. Returns nil if no suitable font is found.
-//
-// Lookup order: Options.FallbackFontPath via BaseFS, then via OS, then a
-// hardcoded list of common system font locations.
-func (c *converter) getFallbackFont() *font.EmbeddedFont {
-	if c.fallbackFontLoaded {
-		return c.fallbackFont
-	}
-	c.fallbackFontLoaded = true
-
-	// Document lang reaches this lazy load because getFallbackFont
-	// is only invoked from chooseFont during walkChildren, which
-	// runs after findHTMLLang in ConvertFull/Convert. The same TTC
-	// face-selection rules that govern @font-face apply: a doc with
-	// lang="zh-CN" pulling NotoSansCJK-Regular.ttc as the system
-	// fallback picks the SC face instead of JP face-0.
-	lang := c.metadata.Language
-
-	if c.opts.FallbackFontPath != "" {
-		if face, err := c.loadFallbackFont(c.opts.FallbackFontPath, lang); err == nil {
-			c.fallbackFont = font.NewEmbeddedFont(face)
-			return c.fallbackFont
-		} else {
-			c.reportAssetError("FallbackFontPath", err,
-				"path", c.opts.FallbackFontPath)
-		}
-	}
-
-	// Search common system font locations for a Unicode-capable font.
-	// CJK-specific fonts are listed first since they provide the widest
-	// coverage for East Asian scripts while also covering Latin.
-	candidates := []string{
-		// macOS — CJK fonts
-		"/Library/Fonts/Arial Unicode.ttf",
-		"/System/Library/Fonts/Supplemental/Arial Unicode.ttf",
-		"/System/Library/Fonts/STHeiti Light.ttc",
-		"/System/Library/Fonts/PingFang.ttc",
-		"/System/Library/Fonts/Hiragino Sans GB.ttc",
-		// macOS — general Unicode
-		"/System/Library/Fonts/Supplemental/Arial.ttf",
-		"/System/Library/Fonts/Helvetica.ttc",
-		// Linux — CJK fonts
-		"/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
-		"/usr/share/fonts/noto-cjk/NotoSansCJK-Regular.ttc",
-		"/usr/share/fonts/google-noto-cjk/NotoSansCJK-Regular.ttc",
-		"/usr/share/fonts/truetype/noto/NotoSansCJK-Regular.ttc",
-		// Linux — general Unicode
-		"/usr/share/fonts/truetype/noto/NotoSans-Regular.ttf",
-		"/usr/share/fonts/noto/NotoSans-Regular.ttf",
-		"/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
-		"/usr/share/fonts/dejavu/DejaVuSans.ttf",
-		// Windows — CJK fonts
-		`C:\Windows\Fonts\msyh.ttc`,
-		`C:\Windows\Fonts\msgothic.ttc`,
-		`C:\Windows\Fonts\malgun.ttf`,
-		`C:\Windows\Fonts\simsun.ttc`,
-		// Windows — general Unicode
-		`C:\Windows\Fonts\arial.ttf`,
-		`C:\Windows\Fonts\segoeui.ttf`,
-	}
-	for _, path := range candidates {
-		if face, err := font.LoadFontForLanguage(path, lang); err == nil {
-			c.fallbackFont = font.NewEmbeddedFont(face)
-			return c.fallbackFont
-		}
-	}
-
-	return nil
-}
-
-// loadFallbackFont resolves the FallbackFontPath option with two
-// programmatic-only carve-outs from the standard [resolveLocalAsset]
-// contract that document-content resolvers do not get:
-//
-//  1. An absolute path always bypasses BaseFS to the OS, regardless of
-//     whether BaseFS is set. FallbackFontPath is configured by the
-//     embedding application, almost always at a system font location;
-//     callers typically build BaseFS for their asset directory rather
-//     than the system font tree. Document-supplied absolute paths
-//     (`<img src="/abs">`, `@font-face url('/abs')`) follow the
-//     centralized rule because the asset reference comes from
-//     untrusted content.
-//
-//  2. A relative path that misses in BaseFS retries against the OS so
-//     a typo in the option does not silently produce no-fallback text.
-//     The retry is logged at debug level so the BaseFS attempt remains
-//     observable when investigating which path the loader took.
-func (c *converter) loadFallbackFont(p, lang string) (font.Face, error) {
-	if filepath.IsAbs(p) {
-		return font.LoadFontForLanguage(p, lang)
-	}
-	if c.opts.BaseFS != nil {
-		data, baseErr := c.resolveLocalAsset("", p, 50<<20)
-		if baseErr == nil {
-			return font.ParseFontForLanguage(data, lang)
-		}
-		c.logger.Debug("folio/html: FallbackFontPath not in BaseFS, trying OS",
-			"path", p, "error", baseErr)
-	}
-	return font.LoadFontForLanguage(p, lang)
-}
-
-// resolveFontForText returns the best font for the given text. If the text
-// can be encoded in WinAnsiEncoding, returns the standard font. Otherwise,
-// tries the embedded fonts from @font-face, then the system fallback font.
-func (c *converter) resolveFontForText(style computedStyle, text string) (*font.Standard, *font.EmbeddedFont) {
-	stdFont, embFont := c.resolveFontPair(style)
-
-	// If already using an embedded font (from @font-face), it handles Unicode.
-	if embFont != nil {
-		return nil, embFont
-	}
-
-	// Standard font — check if text fits in WinAnsiEncoding.
-	if font.CanEncodeWinAnsi(text) {
-		return stdFont, nil
-	}
-
-	// Text has non-WinAnsi characters — try fallback.
-	if fb := c.getFallbackFont(); fb != nil {
-		return nil, fb
-	}
-
-	// No fallback available — use standard font (chars will become ?).
-	return stdFont, nil
-}
-
-// applyUnicodeBidi wraps text in Unicode bidi control characters based on
-// the computed CSS direction and unicode-bidi properties. This implements
-// CSS Unicode Bidirectional Algorithm integration:
-//
-//   - bidi-override + rtl: wraps in RLO...PDF (U+202E...U+202C) to force
-//     all characters to RTL visual order regardless of their bidi class.
-//   - bidi-override + ltr: wraps in LRO...PDF (U+202D...U+202C).
-//   - embed + rtl: wraps in RLE...PDF (U+202B...U+202C).
-//   - embed + ltr: wraps in LRE...PDF (U+202A...U+202C).
-//   - isolate + rtl: wraps in RLI...PDI (U+2067...U+2069).
-//   - isolate + ltr: wraps in LRI...PDI (U+2066...U+2069).
-//
-// These characters are consumed by the bidi algorithm in x/text/unicode/bidi
-// during resolveLineBidi, producing the correct embedding levels.
-func applyUnicodeBidi(text string, style computedStyle) string {
-	if style.UnicodeBidi == "" || style.UnicodeBidi == "normal" {
-		return text
-	}
-	switch style.UnicodeBidi {
-	case "bidi-override":
-		if style.Direction == layout.DirectionRTL {
-			return "\u202E" + text + "\u202C" // RLO + text + PDF
-		}
-		if style.Direction == layout.DirectionLTR {
-			return "\u202D" + text + "\u202C" // LRO + text + PDF
-		}
-	case "embed":
-		if style.Direction == layout.DirectionRTL {
-			return "\u202B" + text + "\u202C" // RLE + text + PDF
-		}
-		if style.Direction == layout.DirectionLTR {
-			return "\u202A" + text + "\u202C" // LRE + text + PDF
-		}
-	case "isolate":
-		if style.Direction == layout.DirectionRTL {
-			return "\u2067" + text + "\u2069" // RLI + text + PDI
-		}
-		if style.Direction == layout.DirectionLTR {
-			return "\u2066" + text + "\u2069" // LRI + text + PDI
-		}
-	case "isolate-override":
-		if style.Direction == layout.DirectionRTL {
-			return "\u2067\u202E" + text + "\u202C\u2069"
-		}
-		if style.Direction == layout.DirectionLTR {
-			return "\u2067\u202D" + text + "\u202C\u2069"
-		}
-	}
-	return text
-}
-
-// splitTextByFont splits a text string into one or more TextRuns at script
-// boundaries where the font needs to change. Characters encodable in
-// WinAnsiEncoding use the standard font; characters that need a fallback
-// (Hebrew, Arabic, CJK, etc.) use the embedded fallback font. This enables
-// mixed-script text like "Hello שלום" to render correctly when the standard
-// font lacks Hebrew glyphs but the fallback font covers both scripts.
-//
-// When the style already specifies an embedded font (via @font-face), or
-// when no fallback font is available, the text is returned as a single run
-// (no splitting needed — same behavior as before this function existed).
-func (c *converter) splitTextByFont(text string, style computedStyle) []layout.TextRun {
-	// Apply unicode-bidi overrides by wrapping text in Unicode bidi
-	// control characters. This forces the base embedding level per
-	// CSS Unicode Bidirectional Algorithm §2.2.
-	text = applyUnicodeBidi(text, style)
-
-	stdFont, embFont := c.resolveFontPair(style)
-
-	// If already using an embedded font, it handles all Unicode — no split.
-	if embFont != nil {
-		return []layout.TextRun{c.makeTextRun(text, nil, embFont, style)}
-	}
-
-	// If all text fits in WinAnsi, use standard font — no split.
-	if font.CanEncodeWinAnsi(text) {
-		return []layout.TextRun{c.makeTextRun(text, stdFont, nil, style)}
-	}
-
-	// Get the fallback font. If unavailable, return single run with std font.
-	fb := c.getFallbackFont()
-	if fb == nil {
-		return []layout.TextRun{c.makeTextRun(text, stdFont, nil, style)}
-	}
-
-	// Split at boundaries between WinAnsi-encodable and non-WinAnsi characters.
-	// Consecutive characters that share the same "needs fallback" status are
-	// grouped into a single run to minimize run count.
-	runes := []rune(text)
-	var runs []layout.TextRun
-	start := 0
-	startNeedsFallback := !font.CanEncodeWinAnsiRune(runes[0])
-
-	for i := 1; i <= len(runes); i++ {
-		needsFallback := false
-		if i < len(runes) {
-			needsFallback = !font.CanEncodeWinAnsiRune(runes[i])
-		}
-		// Emit a run at boundaries or at end of string.
-		if i == len(runes) || needsFallback != startNeedsFallback {
-			seg := string(runes[start:i])
-			if startNeedsFallback {
-				runs = append(runs, c.makeTextRun(seg, nil, fb, style))
-			} else {
-				runs = append(runs, c.makeTextRun(seg, stdFont, nil, style))
-			}
-			start = i
-			startNeedsFallback = needsFallback
-		}
-	}
-
-	return runs
-}
-
-// makeTextRun creates a TextRun with all styling fields from the computed style.
-func (c *converter) makeTextRun(text string, std *font.Standard, emb *font.EmbeddedFont, style computedStyle) layout.TextRun {
-	return layout.TextRun{
-		Text:            text,
-		Font:            std,
-		Embedded:        emb,
-		FontSize:        style.FontSize,
-		Color:           style.Color,
-		Decoration:      style.TextDecoration,
-		DecorationColor: style.TextDecorationColor,
-		DecorationStyle: style.TextDecorationStyle,
-		LetterSpacing:   style.LetterSpacing,
-		WordSpacing:     style.WordSpacing,
-		BaselineShift:   baselineShiftFromStyle(style),
-		TextShadow:      textShadowFromStyle(style),
-		BackgroundColor: style.BackgroundColor,
-	}
-}
-
-// walkChildren processes all child nodes and collects layout elements.
-// It applies CSS margin collapsing between adjacent block-level elements:
-// when one element's margin-bottom is followed by the next element's margin-top,
-// the margins collapse to the larger of the two instead of summing.
-//
-// It also implements CSS 2.1 §9.2.1.1 anonymous block boxes: when a block
-// container has mixed inline and block children, any run of consecutive
-// inline content (text nodes and inline elements like <strong>, <em>,
-// <span>, <a>) is wrapped into a single anonymous paragraph rather than
-// being split into one paragraph per sibling node. Without this grouping,
-// "We're pleased to offer <strong>Acme</strong>. Please..." would render
-// as three paragraphs on three lines with the period orphaned at the start
-// of line 3, instead of one wrapped paragraph with "Acme" bold inline.
-func (c *converter) walkChildren(n *html.Node, parentStyle computedStyle) []layout.Element {
-	var elems []layout.Element
-	var prevMarginBottom float64
-	var inlineBuf []*html.Node
-
-	appendBlock := func(e layout.Element) {
-		prevMarginBottom = collapseMargins(prevMarginBottom, e)
-		elems = append(elems, e)
-	}
-
-	flushInline := func() {
-		if len(inlineBuf) == 0 {
-			return
-		}
-		var runs []layout.TextRun
-		for _, node := range inlineBuf {
-			runs = append(runs, c.collectRunsFromNode(node, parentStyle)...)
-		}
-		inlineBuf = inlineBuf[:0]
-		if len(runs) == 0 {
-			return
-		}
-		for _, group := range splitRunsAtBr(runs) {
-			if len(group) == 0 {
-				continue
-			}
-			p := c.buildParagraphFromRuns(group, parentStyle)
-			appendBlock(p)
-		}
-	}
-
-	for child := n.FirstChild; child != nil; child = child.NextSibling {
-		if c.limitErr != nil || c.ctxErr != nil {
-			break
-		}
-		if c.isInlineFlowChild(child, parentStyle) {
-			inlineBuf = append(inlineBuf, child)
-			continue
-		}
-		flushInline()
-		for _, e := range c.convertNode(child, parentStyle) {
-			appendBlock(e)
-		}
-	}
-	flushInline()
-	return elems
-}
-
-// isInlineFlowChild reports whether a child node, when encountered inside
-// a block container, should participate in inline flow (and therefore be
-// grouped with its inline siblings into an anonymous block box) rather
-// than be converted as a standalone block element.
-//
-// Text nodes are always inline. Whitespace-only text nodes between block
-// siblings are deliberately NOT inline — they would cause spurious
-// anonymous paragraphs containing nothing but a space between, say, two
-// <div>s. Known text-level inline HTML tags (<span>, <strong>, <em>,
-// <a>, etc.) are inline unless their computed style overrides display
-// to block, flex, grid, or none.
-//
-// Replaced inline elements (<img>, <svg>) and form controls (<input>,
-// <button>, <select>, <textarea>, <label>), and <br>, are intentionally
-// NOT in the list. <img>/<svg> need standalone block handling for the
-// top-level case (a bare <svg> as the whole document must become an
-// SVGElement, not a paragraph wrapping an SVGElement) and mixing them
-// inline with text is a pre-existing limitation — not worse than main.
-// Form controls need their own element-level conversion (convertInput /
-// convertButton / etc.) which collectRunsFromNode does not handle, so
-// grouping them as inline flow would silently drop them. <br> between
-// two blocks is historically emitted as a standalone spacer paragraph —
-// buffering it as inline produces no output because splitRunsAtBr
-// splits its lone "\n" into two empty groups. Mixing <br> inside a
-// real inline run (e.g. "line1<br>line2" inside a <div>) still works
-// correctly via the buffered text on either side.
-func (c *converter) isInlineFlowChild(child *html.Node, parentStyle computedStyle) bool {
-	switch child.Type {
-	case html.TextNode:
-		// Whitespace-only text between block siblings must not be
-		// promoted to an anonymous paragraph.
-		if strings.TrimSpace(child.Data) == "" {
-			return false
-		}
-		return true
-	case html.ElementNode:
-		switch child.DataAtom {
-		case atom.Span, atom.Em, atom.Strong, atom.B, atom.I, atom.U, atom.S,
-			atom.Del, atom.Mark, atom.Small, atom.Sub, atom.Sup, atom.Code,
-			atom.A:
-			// Honor CSS display overrides — a <span style="display:block">
-			// should still be treated as a block.
-			style := c.computeElementStyle(child, parentStyle)
-			if style.Display == "block" || style.Display == "flex" ||
-				style.Display == "grid" || style.Display == "none" {
-				return false
-			}
-			return true
-		}
-		return false
-	}
-	return false
-}
-
-// collapseMargins implements adjacent-sibling margin collapsing for
-// block-level layout elements. Given the previous element's SpaceAfter,
-// it reduces the next element's SpaceBefore so the gap between them is
-// max(prevAfter, nextBefore) instead of their sum, then returns the
-// SpaceAfter of e for use as prevAfter in the next iteration.
-func collapseMargins(prevAfter float64, e layout.Element) float64 {
-	if prevAfter > 0 {
-		if sb, ok := e.(interface{ GetSpaceBefore() float64 }); ok {
-			before := sb.GetSpaceBefore()
-			if before > 0 {
-				collapsed := math.Max(prevAfter, before)
-				reduction := prevAfter + before - collapsed
-				if reduction > 0 {
-					if setter, ok2 := e.(interface{ SetSpaceBefore(float64) }); ok2 {
-						setter.SetSpaceBefore(before - reduction)
-					}
-				}
-			}
-		}
-	}
-	if sa, ok := e.(interface{ GetSpaceAfter() float64 }); ok {
-		return sa.GetSpaceAfter()
-	}
-	return 0
-}
-
-// convertNode converts a single HTML node into zero or more layout elements.
-func (c *converter) convertNode(n *html.Node, parentStyle computedStyle) []layout.Element {
-	// Boundary guards. convertNode is the single chokepoint every element
-	// node flows through (walkChildren and the flex/grid/table child loops
-	// all call it), so checking here bounds every conversion path. Once
-	// either ctxErr or limitErr is set the walk unwinds without further work.
-	if c.ctxErr != nil || c.limitErr != nil {
-		return nil
-	}
-	// Cancellation check at this element boundary.
-	if c.ctx != nil {
-		if err := c.ctx.Err(); err != nil {
-			c.ctxErr = err
-			return nil
-		}
-	}
-	// Resource guards (Options.MaxElements / MaxDepth).
-	c.nodeCount++
-	if c.opts.MaxElements > 0 && c.nodeCount > c.opts.MaxElements {
-		c.limitErr = &LimitError{Kind: LimitElements, Limit: c.opts.MaxElements}
-		return nil
-	}
-	c.depth++
-	defer func() { c.depth-- }()
-	if c.opts.MaxDepth > 0 && c.depth > c.opts.MaxDepth {
-		c.limitErr = &LimitError{Kind: LimitDepth, Limit: c.opts.MaxDepth}
-		return nil
-	}
-
-	switch n.Type {
-	case html.TextNode:
-		return c.convertText(n, parentStyle)
-	case html.ElementNode:
-		return c.convertElement(n, parentStyle)
-	case html.DocumentNode:
-		return c.walkChildren(n, parentStyle)
-	default:
-		return nil
-	}
-}
-
-// convertElement dispatches on element tag.
-func (c *converter) convertElement(n *html.Node, parentStyle computedStyle) []layout.Element {
-	style := c.computeElementStyle(n, parentStyle)
-
-	if style.Display == "none" {
-		return nil
-	}
-
-	// Handle visibility: hidden — render as invisible (preserves space).
-	if style.Visibility == "hidden" || style.Visibility == "collapse" {
-		style.Opacity = 0.001 // nearly transparent — preserves layout space
-		style.Color = layout.ColorWhite
-		style.BackgroundColor = nil
-		style.BorderTopWidth = 0
-		style.BorderRightWidth = 0
-		style.BorderBottomWidth = 0
-		style.BorderLeftWidth = 0
-	}
-
-	// Apply CSS counter-reset: push new counter values onto the stack.
-	for _, cr := range style.CounterReset {
-		c.resetCounter(cr.Name, cr.Value)
-	}
-	// Apply CSS counter-increment: add to the innermost counter.
-	for _, ci := range style.CounterIncrement {
-		c.incrementCounter(ci.Name, ci.Value)
-	}
-
-	// Apply box-sizing: border-box adjustment.
-	// CSS border-box means the declared width/height include padding and border.
-	// Our layout Div treats widthUnit as the OUTER width (it subtracts padding
-	// internally), so we only subtract border widths here — padding is handled
-	// by the Div's own layout logic.
-	if style.BoxSizing == "border-box" {
-		if style.Width != nil {
-			adjusted := *style.Width
-			pts := adjusted.toPoints(0, style.FontSize)
-			sub := style.BorderLeftWidth + style.BorderRightWidth
-			if sub > 0 && pts-sub > 0 {
-				adjusted = cssLength{Value: pts - sub, Unit: "pt"}
-				style.Width = &adjusted
-			}
-		}
-		if style.Height != nil {
-			adjusted := *style.Height
-			pts := adjusted.toPoints(0, style.FontSize)
-			sub := style.BorderTopWidth + style.BorderBottomWidth
-			if sub > 0 && pts-sub > 0 {
-				adjusted = cssLength{Value: pts - sub, Unit: "pt"}
-				style.Height = &adjusted
-			}
-		}
-	}
-
-	// Page break before.
-	var before []layout.Element
-	if style.PageBreakBefore == "always" {
-		before = append(before, layout.NewAreaBreak())
-	}
-
-	// If this element establishes a containing block (position: relative,
-	// absolute, or fixed), push it onto the positioned ancestor stack so
-	// that descendant absolute elements resolve against it.
-	isContainingBlock := style.Position == "relative" || style.Position == "absolute" || style.Position == "fixed"
-	if isContainingBlock {
-		cbWidth := c.containerWidth
-		if style.Width != nil {
-			if w := style.Width.toPoints(c.containerWidth, style.FontSize); w > 0 {
-				cbWidth = w
-			}
-		}
-		cbHeight := 0.0
-		if style.Height != nil {
-			cbHeight = style.Height.toPoints(c.opts.PageHeight, style.FontSize)
-		}
-		c.positionedAncestors = append(c.positionedAncestors, containingBlock{
-			width:  cbWidth,
-			height: cbHeight,
-		})
-	}
-
-	elems := c.convertElementInner(n, style)
-
-	// Apply CSS bookmark-level on non-heading elements. Headings carry
-	// their own bookmark metadata via convertHeading → layout.Heading;
-	// for other elements we wrap the produced Element so its first
-	// PlacedBlock records the outline target. Skip the wrap when no
-	// elements were produced or when the level is non-positive (0 is a
-	// no-op, -1 / "none" is meaningful only on a heading where it
-	// suppresses the default outline entry).
-	if style.BookmarkLevelSet && style.BookmarkLevel >= 1 && !isHeadingNode(n) && len(elems) > 0 {
-		text := collectText(n)
-		label := resolveBookmarkLabel(style.BookmarkLabel, n, text)
-		if label != "" {
-			closed := style.BookmarkState == "closed"
-			elems[0] = layout.NewBookmarkAnchor(elems[0], style.BookmarkLevel, label, closed)
-		}
-	}
-
-	// ::before pseudo-element.
-	if c.sheet != nil {
-		beforeDecls := c.sheet.matchingPseudoElementDeclarations(n, "before")
-		if text := c.parsePseudoContent(beforeDecls); text != "" {
-			elem := c.generatePseudoElement(text, style)
-			elems = append([]layout.Element{elem}, elems...)
-		}
-	}
-
-	// ::after pseudo-element.
-	if c.sheet != nil {
-		afterDecls := c.sheet.matchingPseudoElementDeclarations(n, "after")
-		if text := c.parsePseudoContent(afterDecls); text != "" {
-			elem := c.generatePseudoElement(text, style)
-			elems = append(elems, elem)
-		}
-	}
-
-	// Pop the containing block and collect pending overlays.
-	var pendingOverlays []pendingOverlay
-	if isContainingBlock {
-		top := c.positionedAncestors[len(c.positionedAncestors)-1]
-		pendingOverlays = top.pending
-		c.positionedAncestors = c.positionedAncestors[:len(c.positionedAncestors)-1]
-	}
-
-	// Wrap in float if CSS float is set.
-	if style.Float == "left" || style.Float == "right" {
-		side := layout.FloatLeft
-		if style.Float == "right" {
-			side = layout.FloatRight
-		}
-		var floated []layout.Element
-		for _, e := range elems {
-			floated = append(floated, layout.NewFloat(side, e))
-		}
-		elems = floated
-	}
-
-	// Handle position:absolute/fixed — remove from normal flow.
-	if style.Position == "absolute" || style.Position == "fixed" {
-		// Determine the containing block for resolving offsets.
-		cbWidth := c.opts.PageWidth
-		cbHeight := c.opts.PageHeight
-		hasContainingBlock := len(c.positionedAncestors) > 0 && style.Position == "absolute"
-		if hasContainingBlock {
-			cb := &c.positionedAncestors[len(c.positionedAncestors)-1]
-			cbWidth = cb.width
-			if cb.height > 0 {
-				cbHeight = cb.height
-			}
-		}
-
-		for _, e := range elems {
-			if hasContainingBlock {
-				// Add as overlay on the nearest positioned ancestor.
-				ov := pendingOverlay{elem: e, zIndex: style.ZIndex}
-				if style.Left != nil {
-					ov.x = style.Left.toPoints(cbWidth, style.FontSize)
-				} else if style.Right != nil {
-					ov.x = style.Right.toPoints(cbWidth, style.FontSize)
-					ov.rightAligned = true
-				}
-				if style.Top != nil {
-					ov.y = style.Top.toPoints(cbHeight, style.FontSize)
-				} else if style.Bottom != nil {
-					// CSS bottom in containing block: offset from the bottom edge.
-					bottomVal := style.Bottom.toPoints(cbHeight, style.FontSize)
-					if cbHeight > 0 {
-						ov.y = cbHeight - bottomVal
-					}
-				}
-				if style.Width != nil {
-					ov.width = style.Width.toPoints(cbWidth, style.FontSize)
-				}
-				cb := &c.positionedAncestors[len(c.positionedAncestors)-1]
-				cb.pending = append(cb.pending, ov)
-			} else {
-				// No positioned ancestor — fall back to page-level absolute.
-				item := AbsoluteItem{
-					Element: e,
-					Fixed:   style.Position == "fixed",
-				}
-				if style.Left != nil {
-					item.X = style.Left.toPoints(cbWidth, style.FontSize)
-				} else if style.Right != nil {
-					item.X = style.Right.toPoints(cbWidth, style.FontSize)
-					item.RightAligned = true
-				}
-				if style.Top != nil {
-					// CSS top → PDF y: page_height - top
-					item.Y = cbHeight - style.Top.toPoints(cbHeight, style.FontSize)
-				} else if style.Bottom != nil {
-					item.Y = style.Bottom.toPoints(cbHeight, style.FontSize)
-				}
-				if style.Width != nil {
-					item.Width = style.Width.toPoints(cbWidth, style.FontSize)
-				}
-				item.ZIndex = style.ZIndex
-				c.absolutes = append(c.absolutes, item)
-			}
-		}
-		// Attach any overlays from descendants of this absolute element
-		// to the result elements (there are none to attach since we
-		// return nil, but we still need to handle them if they were
-		// collected). In practice, absolute children of absolute elements
-		// are handled because the absolute element pushed/popped its own
-		// containing block above.
-
-		// Pop any counters that were reset by this element.
-		for _, cr := range style.CounterReset {
-			c.popCounter(cr.Name)
-		}
-		return nil // don't add to normal flow
-	}
-
-	// Attach pending overlay children (absolute descendants) to the
-	// element's Div. If the element produced a single Div, attach
-	// directly; otherwise wrap in a new Div to serve as the container.
-	if len(pendingOverlays) > 0 {
-		var targetDiv *layout.Div
-		if len(elems) == 1 {
-			targetDiv, _ = elems[0].(*layout.Div)
-		}
-		if targetDiv == nil {
-			// Wrap in a new Div to serve as the containing block.
-			targetDiv = layout.NewDiv()
-			for _, e := range elems {
-				targetDiv.Add(e)
-			}
-			elems = []layout.Element{targetDiv}
-		}
-		for _, ov := range pendingOverlays {
-			targetDiv.AddOverlay(ov.elem, ov.x, ov.y, ov.width, ov.rightAligned, ov.zIndex)
-		}
-	}
-
-	// Handle position:relative — offset visually without affecting flow.
-	if style.Position == "relative" && (style.Top != nil || style.Left != nil || style.Right != nil || style.Bottom != nil) {
-		dx := 0.0
-		dy := 0.0
-		if style.Left != nil {
-			dx = style.Left.toPoints(c.containerWidth, style.FontSize)
-		} else if style.Right != nil {
-			dx = -style.Right.toPoints(c.containerWidth, style.FontSize)
-		}
-		// Per CSS, top/bottom percentages on a relatively positioned box
-		// resolve against the height of its containing block. We don't track
-		// the containing block height through normal flow here, so we
-		// approximate with the page height (the nearest available basis),
-		// mirroring how left/right use c.containerWidth. Absolute lengths
-		// (px/pt/em) are unaffected since they ignore the percentage basis.
-		if style.Top != nil {
-			dy = style.Top.toPoints(c.opts.PageHeight, style.FontSize)
-		} else if style.Bottom != nil {
-			dy = -style.Bottom.toPoints(c.opts.PageHeight, style.FontSize)
-		}
-		if dx != 0 || dy != 0 {
-			var result []layout.Element
-			for _, e := range elems {
-				div := layout.NewDiv()
-				div.Add(e)
-				div.SetRelativeOffset(dx, dy)
-				result = append(result, div)
-			}
-			elems = result
-		}
-	}
-
-	// Page break after.
-	if style.PageBreakAfter == "always" {
-		elems = append(elems, layout.NewAreaBreak())
-	}
-
-	// Pop any counters that were reset by this element (restore nesting).
-	for _, cr := range style.CounterReset {
-		c.popCounter(cr.Name)
-	}
-
-	if len(before) > 0 {
-		elems = append(before, elems...)
-	}
-	return elems
-}
-
-// convertElementInner handles the actual element dispatch after page break handling.
-func (c *converter) convertElementInner(n *html.Node, style computedStyle) []layout.Element {
-	// Flex containers.
-	if style.Display == "flex" {
-		return c.convertFlex(n, style)
-	}
-
-	// Grid containers.
-	if style.Display == "grid" {
-		return c.convertGrid(n, style)
-	}
-
-	// CSS table layout: elements with display:table are rendered as tables.
-	if style.Display == "table" {
-		return c.convertCSSTable(n, style)
-	}
-
-	// Replaced elements (images, SVGs) must use their specialized converters
-	// regardless of display value. CSS display on a replaced element affects
-	// layout participation, not how the media itself is rendered. Without
-	// this early dispatch, display:inline-block SVG/IMG would enter
-	// convertBlock and produce an empty container instead of actual media.
-	// (In paragraph-level inline flow, collectRuns handles these elements
-	// via convertInlineElement before the display:inline-block branch.)
-	switch n.DataAtom {
-	case atom.Img:
-		return c.convertImage(n, style)
-	case atom.Svg:
-		return c.convertSVG(n, style)
-	}
-
-	// Inline-block: renders as a block (Div) but participates in inline flow.
-	// When inline-block elements appear inside a paragraph, collectRuns
-	// handles them as inline element runs. At the top level (here), they
-	// still render as blocks since there is no inline flow context.
-	if style.Display == "inline-block" {
-		return c.convertBlock(n, style)
-	}
-
-	switch n.DataAtom {
-	case atom.H1:
-		return c.convertHeading(n, style, layout.H1)
-	case atom.H2:
-		return c.convertHeading(n, style, layout.H2)
-	case atom.H3:
-		return c.convertHeading(n, style, layout.H3)
-	case atom.H4:
-		return c.convertHeading(n, style, layout.H4)
-	case atom.H5:
-		return c.convertHeading(n, style, layout.H5)
-	case atom.H6:
-		return c.convertHeading(n, style, layout.H6)
-	case atom.P:
-		return c.convertParagraph(n, style)
-	case atom.Br:
-		return c.convertBr(style)
-	case atom.Hr:
-		return c.convertHr(style)
-	case atom.Pre:
-		return c.convertPre(n, style)
-	case atom.Div, atom.Section, atom.Article, atom.Main, atom.Header,
-		atom.Footer, atom.Nav, atom.Aside:
-		return c.convertBlock(n, style)
-	case atom.Blockquote:
-		return c.convertBlockquote(n, style)
-	case atom.Dl:
-		return c.convertDefinitionList(n, style)
-	case atom.Figure:
-		return c.convertFigure(n, style)
-	case atom.Span, atom.Em, atom.Strong, atom.B, atom.I, atom.U, atom.S,
-		atom.Del, atom.Mark, atom.Small, atom.Sub, atom.Sup, atom.Code:
-		// A default-inline element set to display:block that carries a
-		// block-level box (a border-radius with a background or border) must
-		// own a rounded fill, like display:inline-block already does. The
-		// inline path (convertInlineContainer) only produces a bare Paragraph
-		// that drops the radius and paints a square background, so route these
-		// through convertBlock, which builds a Div via applyDivStyles and
-		// clears the redundant child-paragraph background (issue #329). Spans
-		// without such a box stay on the inline path (no regression).
-		if style.Display == "block" && style.hasBorderRadius() &&
-			(style.BackgroundColor != nil || style.hasBorder()) {
-			return c.convertBlock(n, style)
-		}
-		return c.convertInlineContainer(n, style)
-	case atom.Table:
-		return c.convertTable(n, style)
-	case atom.A:
-		return c.convertLink(n, style)
-	case atom.Ul:
-		return c.convertList(n, style, false)
-	case atom.Ol:
-		return c.convertList(n, style, true)
-	case atom.Input:
-		return c.convertInput(n, style)
-	case atom.Select:
-		return c.convertSelect(n, style)
-	case atom.Textarea:
-		return c.convertTextarea(n, style)
-	case atom.Button:
-		return c.convertButton(n, style)
-	case atom.Form:
-		return c.convertBlock(n, style)
-	case atom.Label:
-		return c.convertInlineContainer(n, style)
-	case atom.Fieldset:
-		return c.convertFieldset(n, style)
-	case atom.Html, atom.Head:
-		return c.walkChildren(n, style)
-	case atom.Body:
-		// Body is a normal block element (per CSS spec).
-		// Its padding/border/background are additive with @page margins.
-		return c.convertBlock(n, style)
-	case atom.Title:
-		c.metadata.Title = textContent(n)
-		return nil
-	case atom.Meta:
-		c.extractMeta(n)
-		return nil
-	case atom.Style, atom.Script, atom.Link:
-		return nil // skip non-visual elements
-	default:
-		// Unknown element — treat as block container.
-		return c.convertBlock(n, style)
-	}
 }

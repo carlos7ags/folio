@@ -6,6 +6,8 @@ package svg
 import (
 	"strconv"
 	"strings"
+
+	"github.com/carlos7ags/folio/internal/cssunit"
 )
 
 // Style holds resolved visual properties for an SVG node.
@@ -186,7 +188,9 @@ func applyProperties(s *Style, props map[string]string) {
 		case "font-family":
 			s.FontFamily = val
 		case "font-size":
-			if v, err := strconv.ParseFloat(strings.TrimSuffix(val, "px"), 64); err == nil {
+			// User units — px/pt suffixes are stripped, not converted,
+			// matching the width/height/r attribute policy in attrFloat.
+			if v, unit, ok := cssunit.Parse(val); ok && (unit == "" || unit == "px" || unit == "pt") {
 				s.FontSize = v
 			}
 		case "font-weight":

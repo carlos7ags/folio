@@ -366,11 +366,7 @@ func markPositioningEligible(word Word) bool {
 	if word.Embedded == nil || word.LetterSpacing != 0 {
 		return false
 	}
-	provider, ok := word.Embedded.Face().(font.GPOSProvider)
-	if !ok {
-		return false
-	}
-	gpos := provider.GPOS()
+	gpos := word.Embedded.Face().GPOS()
 	if gpos == nil {
 		return false
 	}
@@ -404,11 +400,7 @@ func cursivePositioningEligible(word Word) bool {
 	if word.Embedded == nil || len(word.GIDs) < 2 || word.LetterSpacing != 0 {
 		return false
 	}
-	provider, ok := word.Embedded.Face().(font.GPOSProvider)
-	if !ok {
-		return false
-	}
-	gpos := provider.GPOS()
+	gpos := word.Embedded.Face().GPOS()
 	if gpos == nil {
 		return false
 	}
@@ -442,8 +434,7 @@ func drawShapedGIDsCursive(stream *content.Stream, word Word) {
 		stream.ShowTextHex(ef.EncodeGIDs(word.GIDs, word.OriginalText))
 		return
 	}
-	provider, _ := face.(font.GPOSProvider)
-	gpos := provider.GPOS()
+	gpos := face.GPOS()
 	scale := word.FontSize / float64(upem)
 
 	// Per-glyph Tj emission. We use one EncodeGIDs call per glyph so
@@ -502,8 +493,7 @@ func drawWordEmbeddedWithMarks(stream *content.Stream, word Word) {
 		stream.ShowTextHex(ef.EncodeString(word.Text))
 		return
 	}
-	provider, _ := face.(font.GPOSProvider)
-	gpos := provider.GPOS()
+	gpos := face.GPOS()
 	fontSize := word.FontSize
 	scale := fontSize / float64(upem)
 

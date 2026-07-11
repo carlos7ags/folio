@@ -5,6 +5,8 @@ package image
 
 import (
 	"bytes"
+	"encoding/binary"
+	"errors"
 	goimage "image"
 	"image/color"
 	"os"
@@ -13,6 +15,50 @@ import (
 
 	"golang.org/x/image/tiff"
 )
+
+// craftTIFFHeader builds a minimal little-endian TIFF with a single IFD
+// declaring ImageWidth and ImageLength as LONG values. No strip data follows,
+// so a full decode would fail; the IFD alone lets DecodeConfig report the
+// dimensions before any raster is allocated.
+func craftTIFFHeader(w, h uint32) []byte {
+	var b bytes.Buffer
+	b.Write([]byte{'I', 'I'})     // little-endian byte order
+	b.Write([]byte{0x2A, 0x00})   // magic 42
+	writeU32LE(&b, 8)             // offset of first IFD
+	writeU16LE(&b, 2)             // entry count
+	writeTIFFEntry(&b, 256, 4, w) // ImageWidth (LONG)
+	writeTIFFEntry(&b, 257, 4, h) // ImageLength (LONG)
+	writeU32LE(&b, 0)             // next IFD offset (none)
+	return b.Bytes()
+}
+
+func writeU16LE(b *bytes.Buffer, v uint16) {
+	buf := make([]byte, 2)
+	binary.LittleEndian.PutUint16(buf, v)
+	b.Write(buf)
+}
+
+func writeU32LE(b *bytes.Buffer, v uint32) {
+	buf := make([]byte, 4)
+	binary.LittleEndian.PutUint32(buf, v)
+	b.Write(buf)
+}
+
+func writeTIFFEntry(b *bytes.Buffer, tag, typ uint16, value uint32) {
+	writeU16LE(b, tag)
+	writeU16LE(b, typ)
+	writeU32LE(b, 1) // count
+	writeU32LE(b, value)
+}
+
+// TestNewTIFFOversizedHeader verifies the pixel-count limit is enforced from
+// the IFD dimensions, before the raster is decoded.
+func TestNewTIFFOversizedHeader(t *testing.T) {
+	_, err := NewTIFF(craftTIFFHeader(16000, 16000))
+	if !errors.Is(err, ErrPixelCountTooLarge) {
+		t.Fatalf("expected ErrPixelCountTooLarge, got %v", err)
+	}
+}
 
 // createTestTIFF generates a small TIFF image in memory.
 func createTestTIFF(t *testing.T, w, h int) []byte {
