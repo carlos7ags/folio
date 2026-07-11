@@ -27,6 +27,8 @@ const (
 	TokenDictOpen                    // <<
 	TokenDictClose                   // >>
 	TokenEOF                         // end of input
+
+	paranoid = true // avoid infinite loops at all cost
 )
 
 // Token is a single PDF lexical token.
@@ -78,6 +80,14 @@ func (t *Tokenizer) Next() Token {
 	}
 
 	oldPos := t.pos
+	if paranoid {
+		defer func() {
+			if oldPos >= t.pos {
+				panic("Tokenizer didn't advance")
+			}
+		}()
+	}
+
 	var did string
 	tok := func() Token {
 		pos := int64(t.pos)

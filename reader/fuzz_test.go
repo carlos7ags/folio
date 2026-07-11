@@ -15,7 +15,7 @@ import (
 	"testing"
 )
 
-const maxPDFSize = 1 << 20
+const maxPDFSize = 10 << 20
 
 func testTokenizer(t testing.TB, name string, data []byte) {
 	tok := NewTokenizer(data)
