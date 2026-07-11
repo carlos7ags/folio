@@ -671,6 +671,16 @@ func (d *Div) PlanLayout(area LayoutArea) LayoutPlan {
 
 	allFit := true
 	overflowStartIdx := -1
+	fittedInFlow := 0 // in-flow children fully placed on this page
+
+	// paginateOverflow is true when this container is an auto-height flowing
+	// box whose overflowing in-flow content should continue on the next page.
+	// A box with a definite/limited height (or aspect-ratio) or one that clips
+	// with overflow:hidden is meant to contain or clip its content, not
+	// fragment it, so the fit guard below stays off for those.
+	paginateOverflow := d.heightUnit == nil && d.aspectRatio == 0 &&
+		d.maxHeightUnit == nil && d.maxHeight == 0 && d.overflow != "hidden"
+
 	for idx, elem := range d.elements {
 		// Float child: place it beside same-side floats (stacking shift),
 		// register its extent, and consume no in-flow height.
@@ -762,6 +772,18 @@ func (d *Div) PlanLayout(area LayoutArea) LayoutPlan {
 
 		switch plan.Status {
 		case LayoutFull:
+			// An unsplittable child that reports LayoutFull but is taller than
+			// the space left must move to the next page rather than overflow
+			// the box and be silently clipped. Guarded on having already
+			// placed a child so a single child taller than a whole page is
+			// still drawn (clipping) instead of looping forever — mirrors the
+			// flex column split guard.
+			if paginateOverflow && plan.Consumed > remaining+0.01 && fittedInFlow > 0 {
+				allFit = false
+				overflowStartIdx = idx
+				overflowElements = append(overflowElements, elem)
+				break
+			}
 			for _, block := range plan.Blocks {
 				block.X += d.padding.Left
 				block.Y += curY
@@ -769,6 +791,7 @@ func (d *Div) PlanLayout(area LayoutArea) LayoutPlan {
 			}
 			curY += plan.Consumed
 			remaining -= plan.Consumed
+			fittedInFlow++
 
 		case LayoutPartial:
 			for _, block := range plan.Blocks {
@@ -778,6 +801,7 @@ func (d *Div) PlanLayout(area LayoutArea) LayoutPlan {
 			}
 			allFit = false
 			overflowStartIdx = idx
+			fittedInFlow++
 			if plan.Overflow != nil {
 				overflowElements = append(overflowElements, plan.Overflow)
 			}

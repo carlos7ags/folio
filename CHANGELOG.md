@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Fixed
+
+- **A container whose fixed-height children overflow the page is now fragmented instead of clipped** — a `Div` laid out an unsplittable child that reported `LayoutFull` without checking it fit the remaining height, so a stack of fixed-height boxes taller than the page placed every child and let the tail spill past the page bottom to be silently dropped. It now breaks between children and carries the remainder to the next page (a lone child taller than a whole page is still drawn, clipping, so pagination cannot loop).
+- **A `flex-direction: row` line taller than the page is now fragmented across pages instead of clipped** — a single (non-wrapping or first) flex line whose content exceeded the remaining page height was laid out whole and everything past the page bottom was silently dropped; `planRow` only broke a line to the next page once a prior line had already fit. It now continues each overflowing column onto the following page, pinned to the width it occupied, while columns that already finished reserve their slot so the continuing columns keep their positions — matching how a browser fragments the line and preserving the content. Fragmentation applies only to auto-height flex containers; one with a definite height (its own or imposed by a constraining parent) still contains/clips its content, and a line that does not fit is deferred whole to the next page rather than left straddling the boundary.
+
 ## [0.10.0] - 2026-07-10
 
 Adds offline signature verification, encrypted-PDF reading, a Factur-X/ZUGFeRD invoice package, and a standalone PDF optimizer, alongside a security-hardening pass across the reader, font, and C ABI layers against malformed input. This release carries breaking changes: `font.Face` now declares its shaping accessors directly instead of through optional provider interfaces, `html` no longer fetches remote or absolute-path assets by default, and the C ABI's `folio_last_error` changes pointer-ownership semantics.
