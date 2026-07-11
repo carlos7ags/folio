@@ -5,6 +5,7 @@ package reader
 
 import (
 	"archive/zip"
+	"context"
 	"errors"
 	"io"
 	"iter"
@@ -12,7 +13,9 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 )
 
 const maxPDFSize = 10 << 20
@@ -124,16 +127,22 @@ func FuzzParsePDF(f *testing.F) {
 	})
 }
 
-func downloadZIP(zipFn, url string) (*zip.ReadCloser, error) {
+func downloadZIP(ctx context.Context, zipFn, url string) (*zip.ReadCloser, error) {
 	zr, err := zip.OpenReader(zipFn)
 	if err == nil && zr != nil {
 		return zr, err
 	}
-	resp, err := http.Get(url)
+	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
 	if err != nil {
 		return nil, err
 	}
-	defer func() { _ = resp.Body.Close() }()
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	if resp != nil && resp.Body != nil {
+		defer func() { _ = resp.Body.Close() }()
+	}
 	fh, err := os.Create(zipFn)
 	if err != nil {
 		return nil, err
@@ -164,16 +173,44 @@ func downloadPDFs(t testing.TB) iter.Seq[file] {
 	_ = os.MkdirAll(cacheDir, 0775)
 
 	return func(yield func(file) bool) {
-		errExit := errors.New("exit")
+		type zrError struct {
+			*zip.ReadCloser
+			Name string
+			Err  error
+		}
+		zrCh := make(chan zrError)
+		var wg sync.WaitGroup
 		for nm, url := range map[string]string{
 			"poppler":     "https://gitlab.freedesktop.org/poppler/test/-/archive/master/test-master.zip?ref_type=heads&path=tests",
 			"klausnitzer": "https://github.com/klausnitzer/pentest-pdf-collection/archive/refs/heads/main.zip",
 			"pdfcpu":      "https://github.com/pdfcpu/pdfcpu/archive/refs/heads/master.zip",
 		} {
-			if err := func() error {
-				zr, err := downloadZIP(filepath.Join(cacheDir, nm+".zip"), url)
+			wg.Go(func() {
+				t.Log("downloading", url, "...")
+				ctx, cancel := context.WithTimeout(t.Context(), time.Minute)
+				zr, err := downloadZIP(ctx, filepath.Join(cacheDir, nm+".zip"), url)
+				cancel()
 				if err != nil {
-					return err
+					if errors.Is(err, context.DeadlineExceeded) {
+						t.Logf("WARNING: downloading %s timed out", nm+".zip")
+						err = nil
+					}
+				}
+				select {
+				case zrCh <- zrError{ReadCloser: zr, Name: nm, Err: err}:
+				case <-t.Context().Done():
+					if zr != nil {
+						_ = zr.Close()
+					}
+				}
+			})
+		}
+		go func() { wg.Wait(); close(zrCh) }()
+		errExit := errors.New("exit")
+		for zr := range zrCh {
+			if err := func() error {
+				if zr.Err != nil || zr.ReadCloser == nil {
+					return zr.Err
 				}
 				defer func() { _ = zr.Close() }()
 				for _, f := range zr.File {
@@ -198,7 +235,7 @@ func downloadPDFs(t testing.TB) iter.Seq[file] {
 						if err != nil {
 							return err
 						}
-						if !yield(file{Data: b, Name: nm + ":" + strings.ReplaceAll(f.Name, "/", "%2F")}) {
+						if !yield(file{Data: b, Name: zr.Name + ":" + strings.ReplaceAll(f.Name, "/", "%2F")}) {
 							return errExit
 						}
 						return nil
