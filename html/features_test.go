@@ -648,6 +648,73 @@ func TestWhiteSpaceNowrapDoesNotSoftWrapAtSpaces(t *testing.T) {
 	}
 }
 
+// firstParagraph returns the first *layout.Paragraph found by a depth-first
+// walk of el (descending into Div children), or nil.
+func firstParagraph(el layout.Element) *layout.Paragraph {
+	switch v := el.(type) {
+	case *layout.Paragraph:
+		return v
+	case *layout.Div:
+		for _, ch := range v.Children() {
+			if p := firstParagraph(ch); p != nil {
+				return p
+			}
+		}
+	}
+	return nil
+}
+
+// TestWhiteSpaceNowrapInlineElementOverWideToken is the regression test for a
+// nowrap set on an *inline* element (not the block) failing to suppress the
+// break of an unbreakable token wider than its container. white-space is an
+// inherited property, so `<div><b style="white-space:nowrap">TOKEN</b></div>`
+// must keep TOKEN on one overflowing line — previously the flag was read only
+// from the block style, so the inline nowrap was lost and the over-wide token
+// was force-broken to a second line.
+func TestWhiteSpaceNowrapInlineElementOverWideToken(t *testing.T) {
+	// A 35-char unbreakable token, bold, in a fixed 220px (=165pt) column;
+	// the token is far wider than the column so a wrapping engine would
+	// break it.
+	const token = "CHK9a98fd4bd13a03b7f1f9b878c7695281"
+	html := `<style>
+		.col { width: 220px; }
+		.check-id { white-space: nowrap; font-weight: bold; font-size: 17px; }
+	</style>
+	<div class="col"><b class="check-id">` + token + `</b></div>`
+
+	elems, err := Convert(html, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(elems) == 0 {
+		t.Fatal("expected elements")
+	}
+	p := firstParagraph(elems[0])
+	if p == nil {
+		t.Fatal("expected a paragraph inside the column div")
+	}
+
+	// Lay out at the column's inner width (165pt). The token overflows it,
+	// but nowrap must keep it on a single line.
+	lines := p.Layout(165)
+	if len(lines) != 1 {
+		t.Fatalf("nowrap inline token should stay on one overflowing line, got %d lines", len(lines))
+	}
+	if len(lines[0].Words) != 1 || lines[0].Words[0].Text != token {
+		t.Errorf("token was broken: got %d words, first = %q; want the whole %q intact", len(lines[0].Words), firstWordText(lines[0]), token)
+	}
+	if lines[0].Width <= 165 {
+		t.Errorf("expected the single line to overflow the 165pt column (width %.1f); test fixture may be too narrow to exercise the bug", lines[0].Width)
+	}
+}
+
+func firstWordText(l layout.Line) string {
+	if len(l.Words) == 0 {
+		return ""
+	}
+	return l.Words[0].Text
+}
+
 // TestWhiteSpaceNowrapAcrossFonts is a fast (no Chrome/poppler needed)
 // regression guard across multiple font families and both TTF/glyf and
 // OTF/CFF outlines, so the nowrap fix isn't accidentally coupled to Poppins
