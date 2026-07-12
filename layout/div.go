@@ -632,7 +632,14 @@ func (d *Div) PlanLayout(area LayoutArea) LayoutPlan {
 		effectiveWidth = minW
 	}
 	innerWidth := effectiveWidth - d.padding.Left - d.padding.Right
-	innerHeight := area.Height - d.padding.Top - d.padding.Bottom
+	// Subtract this box's own outer spacing (CSS margin-top/bottom, tracked as
+	// spaceBefore/spaceAfter) from the room given to children: content is
+	// offset down by spaceBefore and the reported Consumed includes both, so
+	// leaving them in innerHeight lets children fill the whole area and the
+	// spacing then pushes the total past the height this box was given —
+	// overflowing the page's bottom margin when fragmenting. Mirrors the flex
+	// container, which already subtracts them.
+	innerHeight := area.Height - d.padding.Top - d.padding.Bottom - d.spaceBefore - d.spaceAfter
 	if innerHeight < 0 {
 		innerHeight = 0
 	}
@@ -750,6 +757,13 @@ func (d *Div) PlanLayout(area LayoutArea) LayoutPlan {
 					block.Y += curY
 					fittedBlocks = append(fittedBlocks, block)
 				}
+				// Advance past the fitted portion so the container's reported
+				// height (contentBottom = curY) includes it. Omitting this made
+				// the Div report Consumed ≈ 0 while having placed a full page of
+				// fragmented content, so the renderer packed the next block on
+				// top and content spilled past the page's bottom margin.
+				curY += plan.Consumed
+				remaining -= plan.Consumed
 				allFit = false
 				overflowStartIdx = idx
 				if plan.Overflow != nil {
@@ -799,6 +813,13 @@ func (d *Div) PlanLayout(area LayoutArea) LayoutPlan {
 				block.Y += curY
 				fittedBlocks = append(fittedBlocks, block)
 			}
+			// Advance past the fitted portion so the container's reported
+			// height (contentBottom = curY) includes it. Omitting this made
+			// the Div report Consumed ≈ 0 while having placed a full page of
+			// fragmented content, so the renderer packed the next block on top
+			// and content spilled past the page's bottom margin.
+			curY += plan.Consumed
+			remaining -= plan.Consumed
 			allFit = false
 			overflowStartIdx = idx
 			fittedInFlow++
