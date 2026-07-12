@@ -265,7 +265,13 @@ var cssProperties = []cssProperty{
 		Name: "line-height", Category: "Typography",
 		Values: []string{"<number>", "<length>", "<percentage>", "normal"},
 		Apply: func(s *computedStyle, value string) {
+			// Resolve eagerly as a sensible default, and remember the raw
+			// value so computeElementStyle can re-resolve it against the
+			// element's final font-size (a length line-height declared before
+			// font-size would otherwise use a stale font-size — see the field
+			// doc on computedStyle.lineHeightRaw).
 			s.LineHeight = parseLineHeight(value, s.FontSize)
+			s.lineHeightRaw = value
 		},
 	},
 	{
@@ -1464,6 +1470,11 @@ var cssProperties = []cssProperty{
 			}
 			if lh != 0 {
 				s.LineHeight = lh
+				// The shorthand's line-height was parsed against the
+				// shorthand's own font-size (self-consistent), so clear any
+				// pending standalone raw value — this shorthand is the
+				// winning line-height declaration.
+				s.lineHeightRaw = ""
 			}
 			if ff != "" {
 				s.FontFamily = ff

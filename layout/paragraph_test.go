@@ -1109,6 +1109,42 @@ func TestComputeBaselineFallback(t *testing.T) {
 	}
 }
 
+// TestSingleLineCenteredInTallerBox verifies the half-leading centering that
+// backs the CSS "line-height == box height" vertical-centering idiom: for a
+// single line whose line box is taller than the glyph, the extra leading is
+// split evenly above and below so the glyph's vertical center coincides with
+// the line box's center — the glyph must not ride high.
+func TestSingleLineCenteredInTallerBox(t *testing.T) {
+	const fontSize = 8.25 // 11px
+	// line box (20px == 15pt) taller than the glyph's content height.
+	lineH := 15.0
+	p := NewParagraph("1", font.HelveticaBold, fontSize).SetLeading(lineH / fontSize)
+	lines := p.Layout(200)
+	if len(lines) != 1 {
+		t.Fatalf("expected 1 line, got %d", len(lines))
+	}
+	if math.Abs(lines[0].Height-lineH) > 0.01 {
+		t.Fatalf("line height = %.3f, want %.3f", lines[0].Height, lineH)
+	}
+
+	baseline := computeBaseline(lines[0].Words, lines[0].Height)
+	ascent := font.HelveticaBold.Ascent(fontSize)
+	descent := font.HelveticaBold.Descent(fontSize)
+	glyphTop := baseline - ascent
+	glyphBottom := baseline + descent
+	glyphCenter := (glyphTop + glyphBottom) / 2
+	boxCenter := lines[0].Height / 2
+	if math.Abs(glyphCenter-boxCenter) > 0.01 {
+		t.Errorf("glyph center %.3f != box center %.3f — extra leading not split evenly (glyph not centered)", glyphCenter, boxCenter)
+	}
+	// Sanity: the space above the glyph equals the space below.
+	spaceAbove := glyphTop
+	spaceBelow := lines[0].Height - glyphBottom
+	if math.Abs(spaceAbove-spaceBelow) > 0.01 {
+		t.Errorf("half-leading uneven: %.3f above vs %.3f below", spaceAbove, spaceBelow)
+	}
+}
+
 func TestComputeBaselineMixedSizes(t *testing.T) {
 	words := []Word{
 		{Font: font.Helvetica, FontSize: 12},

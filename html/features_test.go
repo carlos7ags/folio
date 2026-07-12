@@ -910,6 +910,70 @@ func TestLineHeightNormalUsesFontMetrics(t *testing.T) {
 	}
 }
 
+// innermostLineBoxHeight returns the height of the deepest paragraph line box
+// in the block tree produced by el (used to inspect an inline-block's inner
+// content line box).
+func innermostLineBoxHeight(el layout.Element) float64 {
+	plan := el.PlanLayout(layout.LayoutArea{Width: 400, Height: 1000})
+	var h float64
+	var walk func(bs []layout.PlacedBlock)
+	walk = func(bs []layout.PlacedBlock) {
+		for _, b := range bs {
+			if b.Tag == "P" && b.Height > 0 {
+				h = b.Height
+			}
+			walk(b.Children)
+		}
+	}
+	walk(plan.Blocks)
+	return h
+}
+
+// TestLineHeightLengthResolvesAgainstFinalFontSize is the regression test for
+// the step-circle vertical-centering bug: a length `line-height` must resolve
+// against the element's own final font-size regardless of declaration order.
+// `line-height: 20px; font-size: 11px` and `font-size: 11px; line-height: 20px`
+// must both yield a 20px (15pt) line box; previously the first order divided
+// 20px by the default 16px font-size, producing a too-short line box in which
+// the glyph rode high instead of centering.
+func TestLineHeightLengthResolvesAgainstFinalFontSize(t *testing.T) {
+	// 20px == 15pt line box; 11px == 8.25pt font. The used line box must be
+	// 15pt whichever order the two properties appear in.
+	const wantLineBox = 15.0
+
+	lhFirst := `<span style="display:inline-block;line-height:20px;font-size:11px">1</span>`
+	fsFirst := `<span style="display:inline-block;font-size:11px;line-height:20px">1</span>`
+
+	for _, tc := range []struct{ name, html string }{
+		{"line-height before font-size (report order)", lhFirst},
+		{"font-size before line-height", fsFirst},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			elems, err := Convert(tc.html, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(elems) == 0 {
+				t.Fatal("expected elements")
+			}
+			got := innermostLineBoxHeight(elems[0])
+			if math.Abs(got-wantLineBox) > 0.1 {
+				t.Errorf("inner line box = %.2f, want %.2f (line-height:20px must resolve to 15pt against the 11px font, not the default)", got, wantLineBox)
+			}
+		})
+	}
+
+	// Control: a number line-height stays font-size-relative and is unaffected
+	// by the fix (1.5 * 8.25pt = 12.375pt), regardless of order.
+	elems, err := Convert(`<span style="display:inline-block;line-height:1.5;font-size:11px">1</span>`, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := innermostLineBoxHeight(elems[0]); math.Abs(got-8.25*1.5) > 0.1 {
+		t.Errorf("number line-height 1.5: inner line box = %.2f, want %.2f", got, 8.25*1.5)
+	}
+}
+
 // --- Lazy percentage resolution via UnitValue ---
 
 func TestPercentageWidthResolvesAtLayoutTime(t *testing.T) {
