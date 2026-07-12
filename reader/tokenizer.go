@@ -73,8 +73,6 @@ func (t *Tokenizer) Data() []byte { return t.data }
 
 // Next returns the next token, skipping whitespace and comments.
 func (t *Tokenizer) Next() Token {
-	t.skipWhitespaceAndComments()
-
 	if t.pos >= t.len {
 		return Token{Type: TokenEOF, Pos: int64(t.pos)}
 	}
@@ -86,6 +84,12 @@ func (t *Tokenizer) Next() Token {
 				panic("Tokenizer didn't advance")
 			}
 		}()
+	}
+
+	t.skipWhitespaceAndComments()
+
+	if t.pos >= t.len {
+		return Token{Type: TokenEOF, Pos: int64(t.pos)}
 	}
 
 	var did string

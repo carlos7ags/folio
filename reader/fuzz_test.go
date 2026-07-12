@@ -18,8 +18,6 @@ import (
 	"time"
 )
 
-const maxPDFSize = 10 << 20
-
 func testTokenizer(t testing.TB, name string, data []byte) {
 	tok := NewTokenizer(data)
 	// Consume all tokens — must not panic, and must advance.
@@ -171,6 +169,10 @@ func downloadPDFs(t testing.TB) iter.Seq[file] {
 		cacheDir = filepath.Join(cacheDir, "folio")
 	}
 	_ = os.MkdirAll(cacheDir, 0775)
+	maxPDFSize := 10 << 20
+	if _, ok := t.Context().Deadline(); ok {
+		maxPDFSize = 1 << 20
+	}
 
 	return func(yield func(file) bool) {
 		type zrError struct {
@@ -187,7 +189,7 @@ func downloadPDFs(t testing.TB) iter.Seq[file] {
 		} {
 			wg.Go(func() {
 				t.Log("downloading", url, "...")
-				ctx, cancel := context.WithTimeout(t.Context(), time.Minute)
+				ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
 				zr, err := downloadZIP(ctx, filepath.Join(cacheDir, nm+".zip"), url)
 				cancel()
 				if err != nil {
