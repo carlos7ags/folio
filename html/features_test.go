@@ -715,6 +715,92 @@ func firstWordText(l layout.Line) string {
 	return l.Words[0].Text
 }
 
+// TestWhiteSpaceNowrapInlineVariants locks in that inline-element nowrap keeps
+// content on a single overflowing line across the markup shapes that reach the
+// paragraph builder differently: pretty-printed whitespace siblings inside a
+// <p> (the collapsible boundary spaces must not veto the nowrap verdict),
+// nested inline elements (white-space inherits through them), an <a href>
+// (whose LinkURI propagation must not clobber nowrap), and a multi-word nowrap
+// run (must not soft-wrap at its internal spaces).
+func TestWhiteSpaceNowrapInlineVariants(t *testing.T) {
+	const token = "CHK9a98fd4bd13a03b7f1f9b878c7695281"
+	head := `<style>
+		.col { width: 220px; }
+		.check-id { white-space: nowrap; font-weight: bold; font-size: 17px; }
+	</style>`
+
+	cases := []struct {
+		name string
+		body string
+	}{
+		{
+			// Pretty-printed: newlines/tabs around the <b> become collapsible
+			// " " runs. In a <p> (unlike a <div>) these reach the run list.
+			name: "pretty-printed whitespace siblings in <p>",
+			body: "<p class=\"col\">\n\t<b class=\"check-id\">" + token + "</b>\n</p>",
+		},
+		{
+			name: "nested inline elements",
+			body: `<div class="col"><span class="check-id"><b>` + token + `</b></span></div>`,
+		},
+		{
+			name: "anchor link with nowrap",
+			body: `<div class="col"><a href="#x" class="check-id">` + token + `</a></div>`,
+		},
+		{
+			name: "multi-word nowrap run stays one line",
+			body: `<div class="col"><b class="check-id">one two three four five six seven eight</b></div>`,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			elems, err := Convert(head+tc.body, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(elems) == 0 {
+				t.Fatal("expected elements")
+			}
+			p := firstParagraph(elems[0])
+			if p == nil {
+				t.Fatal("expected a paragraph")
+			}
+			lines := p.Layout(165)
+			if len(lines) != 1 {
+				t.Fatalf("nowrap content should stay on one line, got %d", len(lines))
+			}
+		})
+	}
+}
+
+// TestWhiteSpaceNowrapMixedContentStillWraps pins the documented limitation:
+// folio's nowrap is a paragraph-level flag, so a paragraph mixing a nowrap
+// inline run with surrounding normal (wrapping) text is NOT treated as nowrap
+// — the whole paragraph keeps wrapping. This guards against a future change to
+// allRunsNoWrap that flips to an "any run nowrap" policy (which would wrongly
+// suppress wrapping of the normal text).
+func TestWhiteSpaceNowrapMixedContentStillWraps(t *testing.T) {
+	html := `<style>
+		.col { width: 220px; }
+		.nw { white-space: nowrap; }
+	</style>
+	<div class="col">Some ordinary wrapping text before <b class="nw">a-nowrap-span</b> and plenty more ordinary wrapping words after it to force a wrap</div>`
+
+	elems, err := Convert(html, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p := firstParagraph(elems[0])
+	if p == nil {
+		t.Fatal("expected a paragraph")
+	}
+	lines := p.Layout(165)
+	if len(lines) < 2 {
+		t.Errorf("mixed nowrap+normal paragraph should still wrap the normal text, got %d line(s)", len(lines))
+	}
+}
+
 // TestWhiteSpaceNowrapAcrossFonts is a fast (no Chrome/poppler needed)
 // regression guard across multiple font families and both TTF/glyf and
 // OTF/CFF outlines, so the nowrap fix isn't accidentally coupled to Poppins

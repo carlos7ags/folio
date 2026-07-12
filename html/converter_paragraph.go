@@ -80,15 +80,18 @@ func splitRunsAtBr(runs []layout.TextRun) [][]layout.TextRun {
 	return groups
 }
 
-// allRunsNoWrap reports whether every text-bearing run in the group carries
-// the NoWrap flag (set when its source style was white-space:nowrap). Inline
-// elements and line-break markers carry no text and are ignored. Returns
-// false for a group with no text runs, so an empty/element-only paragraph is
-// not spuriously marked nowrap.
+// allRunsNoWrap reports whether every non-whitespace text run in the group
+// carries the NoWrap flag (set when its source style was white-space:nowrap).
+// Inline elements, line-break markers, and whitespace-only runs are ignored:
+// whitespace between the block edge and a nowrap inline element (from
+// pretty-printed markup, e.g. "<p>\n  <b>tok</b>\n</p>") collapses to a " "
+// run that a browser trims at the line edge, so it must not veto the verdict.
+// Returns false for a group with no non-whitespace text run, so an empty or
+// element-only paragraph is not spuriously marked nowrap.
 func allRunsNoWrap(runs []layout.TextRun) bool {
 	sawText := false
 	for _, r := range runs {
-		if r.InlineElement != nil || r.IsLineBreak || r.Text == "" {
+		if r.InlineElement != nil || r.IsLineBreak || strings.TrimSpace(r.Text) == "" {
 			continue
 		}
 		sawText = true
