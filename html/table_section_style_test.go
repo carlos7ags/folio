@@ -149,3 +149,121 @@ func TestNonTableFontSizeUnaffectedByTbodyFix(t *testing.T) {
 		t.Errorf("<p> font-size = %.3f, want %.3f (11px)", runs[0].FontSize, want)
 	}
 }
+
+// TestImplicitTbodyFontSizeCascades covers the common real-world shape where
+// the author writes <table><tr>...</tr></table> with no explicit <tbody> —
+// the HTML5 parser synthesizes one, so a `tbody { font-size }` selector must
+// still match it.
+func TestImplicitTbodyFontSizeCascades(t *testing.T) {
+	src := `<html><head><style>
+		body { font-size: 16px; }
+		tbody { font-size: 13px; }
+	</style></head><body>
+		<table><tr><td>ACTIVA</td></tr></table>
+	</body></html>`
+
+	elems, err := Convert(src, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tbl, ok := elems[0].(*layout.Table)
+	if !ok {
+		t.Fatalf("expected *layout.Table, got %T", elems[0])
+	}
+	rows := tbl.Rows()
+	if len(rows) != 1 {
+		t.Fatalf("expected 1 row, got %d", len(rows))
+	}
+	got := cellFontSize(t, rows[0].Cells()[0])
+	want := 13.0 * 0.75
+	if math.Abs(got-want) > 0.01 {
+		t.Errorf("implicit-tbody cell font-size = %.3f, want %.3f (13px)", got, want)
+	}
+}
+
+// TestTbodyDisplayNoneHidesRows is the regression test for a section-level
+// `display: none` being ignored: pre-fix, thead/tbody/tfoot were rendered
+// unconditionally regardless of their own computed style (since that style
+// was never computed at all), so a hidden section's rows still rendered.
+func TestTbodyDisplayNoneHidesRows(t *testing.T) {
+	src := `<html><head><style>
+		tbody.hidden { display: none; }
+	</style></head><body>
+		<table>
+			<tbody><tr><td>Visible</td></tr></tbody>
+			<tbody class="hidden"><tr><td>Hidden</td></tr></tbody>
+		</table>
+	</body></html>`
+
+	elems, err := Convert(src, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tbl, ok := elems[0].(*layout.Table)
+	if !ok {
+		t.Fatalf("expected *layout.Table, got %T", elems[0])
+	}
+	rows := tbl.Rows()
+	if len(rows) != 1 {
+		t.Fatalf("expected only the visible tbody's row, got %d rows", len(rows))
+	}
+}
+
+// TestCaptionOwnStyleCascades is the regression test for <caption> having
+// the same "table's style used directly instead of the element's own"
+// bug as thead/tbody/tfoot, in the same convertTable switch.
+func TestCaptionOwnStyleCascades(t *testing.T) {
+	src := `<html><head><style>
+		table { font-size: 12px; }
+		caption { font-size: 20px; text-align: left; }
+	</style></head><body>
+		<table><caption>Totals</caption><tr><td>Row</td></tr></table>
+	</body></html>`
+
+	elems, err := Convert(src, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The caption paragraph is emitted before the table.
+	var caption *layout.Paragraph
+	for _, e := range elems {
+		if p, ok := e.(*layout.Paragraph); ok {
+			caption = p
+			break
+		}
+	}
+	if caption == nil {
+		t.Fatal("expected a caption paragraph among the elements")
+	}
+	runs := caption.Runs()
+	if len(runs) == 0 {
+		t.Fatal("expected at least one run in the caption")
+	}
+	want := 20.0 * 0.75
+	if math.Abs(runs[0].FontSize-want) > 0.01 {
+		t.Errorf("caption font-size = %.3f, want %.3f (20px)", runs[0].FontSize, want)
+	}
+	if caption.Align() != layout.AlignLeft {
+		t.Errorf("caption align = %v, want AlignLeft (explicit text-align:left override)", caption.Align())
+	}
+}
+
+// TestCaptionDisplayNoneOmitsCaption covers the same display:none guard for
+// <caption> added alongside thead/tbody/tfoot's.
+func TestCaptionDisplayNoneOmitsCaption(t *testing.T) {
+	src := `<html><head><style>
+		caption { display: none; }
+	</style></head><body>
+		<table><caption>Hidden Caption</caption><tr><td>Row</td></tr></table>
+	</body></html>`
+
+	elems, err := Convert(src, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range elems {
+		if _, ok := e.(*layout.Paragraph); ok {
+			t.Fatal("expected no caption paragraph when caption has display:none")
+		}
+	}
+}
