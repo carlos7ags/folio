@@ -11,7 +11,10 @@ package main
 #include <string.h>
 */
 import "C"
-import "unsafe"
+import (
+	"math"
+	"unsafe"
+)
 
 // cBuffer holds C-allocated memory for returning byte data to callers.
 // The data pointer is allocated via C.malloc and must be freed with C.free.
@@ -58,7 +61,27 @@ func folio_buffer_len(buf C.uint64_t) C.int32_t {
 	if !ok {
 		return 0
 	}
+	if b.len > math.MaxInt32 {
+		setLastError("buffer exceeds 2 GiB; use folio_buffer_len64")
+		return C.int32_t(math.MaxInt32)
+	}
 	return C.int32_t(b.len)
+}
+
+// folio_buffer_len64 returns the byte length of a buffer handle as int64.
+// Prefer this over folio_buffer_len, which saturates at INT32_MAX.
+//
+//export folio_buffer_len64
+func folio_buffer_len64(buf C.uint64_t) C.int64_t {
+	v := ht.load(uint64(buf))
+	if v == nil {
+		return 0
+	}
+	b, ok := v.(*cBuffer)
+	if !ok {
+		return 0
+	}
+	return C.int64_t(b.len)
 }
 
 // folio_buffer_free releases the C-allocated memory and removes the buffer handle.

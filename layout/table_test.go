@@ -4,6 +4,7 @@
 package layout
 
 import (
+	"fmt"
 	"math"
 	"testing"
 
@@ -1164,6 +1165,303 @@ func TestTableAutoColumnWidthsContentSized(t *testing.T) {
 	}
 	if plan.Consumed <= 0 {
 		t.Error("expected positive consumed height")
+	}
+}
+
+// TestTableSplitNoSpanCharacterization pins the span-free split arithmetic
+// so the rowspan-group fix below provably leaves it unchanged: no cell in
+// this table has rowspan > 1, so every row is its own group and the group
+// fit check must reduce to the plain per-row check.
+func TestTableSplitNoSpanCharacterization(t *testing.T) {
+	tbl := NewTable()
+	h := tbl.AddHeaderRow()
+	h.AddCell("Header", font.HelveticaBold, 10)
+	for range 20 {
+		tbl.AddRow().AddCell("Row", font.Helvetica, 10)
+	}
+
+	// Height chosen so roughly half the rows fit.
+	plan := tbl.PlanLayout(LayoutArea{Width: 400, Height: 130})
+	if plan.Status != LayoutPartial {
+		t.Fatalf("expected LayoutPartial, got %v", plan.Status)
+	}
+	if len(plan.Blocks) != 1 || plan.Blocks[0].Tag != "Table" {
+		t.Fatalf("expected one wrapping Table block, got %+v", plan.Blocks)
+	}
+	renderedRows := len(plan.Blocks[0].Children)
+
+	overflow, ok := plan.Overflow.(*Table)
+	if !ok {
+		t.Fatalf("expected *Table overflow, got %T", plan.Overflow)
+	}
+	overflowPlan := overflow.PlanLayout(LayoutArea{Width: 400, Height: 10000})
+	if overflowPlan.Status != LayoutFull {
+		t.Fatalf("expected overflow to fit fully, got %v", overflowPlan.Status)
+	}
+	overflowRows := overflowPlan.Blocks[0].Children
+	if len(overflowRows) == 0 || overflowRows[0].Tag != "TR" {
+		t.Fatalf("expected overflow rows, got %+v", overflowRows)
+	}
+
+	// Header is rendered on page one but not counted as a data row; the
+	// overflow re-adds its own header. Total data rows across both pages
+	// must equal the 20 body rows, and the overflow's first row is a
+	// repeated header.
+	pageOneDataRows := renderedRows - 1 // minus the header row
+	overflowDataRows := len(overflowRows) - 1
+	if pageOneDataRows+overflowDataRows != 20 {
+		t.Errorf("data rows: page one %d + overflow %d = %d, want 20",
+			pageOneDataRows, overflowDataRows, pageOneDataRows+overflowDataRows)
+	}
+	if len(overflow.rows) == 0 || !overflow.rows[0].isHeader {
+		t.Error("expected overflow's first row to be the repeated header")
+	}
+}
+
+// TestSpanGroupStarts is a table-driven unit test of the span group
+// computation: identity for span-free grids, a simple span, chained
+// overlapping spans, and a span clipped by the end of the grid.
+func TestSpanGroupStarts(t *testing.T) {
+	plainCell := func() gridCell { return gridCell{cell: &Cell{rowspan: 1}} }
+	spanCell := func(n int) gridCell { return gridCell{cell: &Cell{rowspan: n}} }
+
+	tests := []struct {
+		name string
+		grid []gridRow
+		want []int
+	}{
+		{
+			name: "no spans is identity",
+			grid: []gridRow{
+				{cells: []gridCell{plainCell()}},
+				{cells: []gridCell{plainCell()}},
+				{cells: []gridCell{plainCell()}},
+			},
+			want: []int{0, 1, 2},
+		},
+		{
+			name: "simple 3-row span",
+			grid: []gridRow{
+				{cells: []gridCell{spanCell(3)}},
+				{cells: []gridCell{plainCell()}},
+				{cells: []gridCell{plainCell()}},
+				{cells: []gridCell{plainCell()}},
+			},
+			want: []int{0, 0, 0, 3},
+		},
+		{
+			name: "chained overlapping spans",
+			grid: []gridRow{
+				{cells: []gridCell{plainCell()}},
+				{cells: []gridCell{spanCell(2)}},
+				{cells: []gridCell{spanCell(2)}},
+				{cells: []gridCell{plainCell()}},
+			},
+			// Row 1 spans rows 1-2; row 2's span extends the group to row 3.
+			want: []int{0, 1, 1, 1},
+		},
+		{
+			name: "span clipped by grid end",
+			grid: []gridRow{
+				{cells: []gridCell{plainCell()}},
+				{cells: []gridCell{spanCell(5)}},
+			},
+			want: []int{0, 1},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := spanGroupStarts(tt.grid)
+			if len(got) != len(tt.want) {
+				t.Fatalf("length: got %d, want %d", len(got), len(tt.want))
+			}
+			for i := range got {
+				if got[i] != tt.want[i] {
+					t.Errorf("row %d: got group start %d, want %d", i, got[i], tt.want[i])
+				}
+			}
+		})
+	}
+}
+
+// buildRowspanSplitTable builds a 2-column, 12-row table: 6 plain rows,
+// then a 3-row group (row 7 has a rowspan(3) cell plus a plain cell; rows
+// 8-9 each have one cell that lands under the span), then 3 more plain
+// rows. Every row is 20pt tall (verified by the tests below), so callers
+// can pick a Height in multiples of 20 to force a split at a known row.
+func buildRowspanSplitTable() *Table {
+	tbl := NewTable()
+	tbl.SetColumnWidths([]float64{100, 100})
+	for i := 1; i <= 6; i++ {
+		tbl.AddRow().AddCell(fmt.Sprintf("Row%d", i), font.Helvetica, 10)
+	}
+	r7 := tbl.AddRow()
+	r7.AddCell("Span", font.Helvetica, 10).SetRowspan(3)
+	r7.AddCell("Row7", font.Helvetica, 10)
+	tbl.AddRow().AddCell("Row8", font.Helvetica, 10)
+	tbl.AddRow().AddCell("Row9", font.Helvetica, 10)
+	for i := 10; i <= 12; i++ {
+		tbl.AddRow().AddCell(fmt.Sprintf("Row%d", i), font.Helvetica, 10)
+	}
+	return tbl
+}
+
+// TestTableRowspanSplitPushesGroupToNextPage is the core regression for
+// issue #362: a split that would otherwise land inside a rowspan group
+// must move up to the group's first row instead.
+func TestTableRowspanSplitPushesGroupToNextPage(t *testing.T) {
+	tbl := buildRowspanSplitTable()
+
+	grid := tbl.buildGrid(tbl.resolveColWidths(400))
+	if len(grid) != 12 {
+		t.Fatalf("expected 12 grid rows, got %d", len(grid))
+	}
+	if grid[0].height != 20 {
+		t.Fatalf("row height assumption broken: got %g, want 20 (adjust Height below)", grid[0].height)
+	}
+
+	// 170 = 6 rows (120) + the group leader's own row (20) + 30 spare —
+	// enough for the group leader alone but not the full 3-row group.
+	plan := tbl.PlanLayout(LayoutArea{Width: 400, Height: 170})
+	if plan.Status != LayoutPartial {
+		t.Fatalf("expected LayoutPartial, got %v", plan.Status)
+	}
+	if len(plan.Blocks) != 1 {
+		t.Fatalf("expected one wrapping Table block, got %d", len(plan.Blocks))
+	}
+	if got := len(plan.Blocks[0].Children); got != 6 {
+		t.Errorf("page one TR count: got %d, want 6 (split pushed up to the group leader)", got)
+	}
+
+	overflow, ok := plan.Overflow.(*Table)
+	if !ok {
+		t.Fatalf("expected *Table overflow, got %T", plan.Overflow)
+	}
+	ogrid := overflow.buildGrid(overflow.resolveColWidths(400))
+	if len(ogrid) == 0 || len(ogrid[0].cells) == 0 {
+		t.Fatal("overflow grid has no rows/cells")
+	}
+	span := ogrid[0].cells[0]
+	if span.cell.text != "Span" {
+		t.Fatalf("expected overflow's first cell to be the span cell, got %q", span.cell.text)
+	}
+	if span.spanHeight <= 0 {
+		t.Error("expected span cell to carry a positive spanHeight in the overflow table")
+	}
+
+	// The row after the leader must keep its cell in column 1 (the
+	// occupied column skipped), not shift left into column 0.
+	if len(ogrid) < 2 || len(ogrid[1].cells) == 0 {
+		t.Fatal("overflow grid missing the row under the span")
+	}
+	if got := ogrid[1].cells[0].col; got != 1 {
+		t.Errorf("row under span: cell col got %d, want 1 (no column shift)", got)
+	}
+}
+
+// TestTableRowspanSplitNoContentLoss checks that every body row from the
+// source table appears exactly once across page one and the overflow.
+func TestTableRowspanSplitNoContentLoss(t *testing.T) {
+	tbl := buildRowspanSplitTable()
+
+	plan := tbl.PlanLayout(LayoutArea{Width: 400, Height: 170})
+	if plan.Status != LayoutPartial {
+		t.Fatalf("expected LayoutPartial, got %v", plan.Status)
+	}
+	pageOneRows := len(plan.Blocks[0].Children)
+
+	overflow, ok := plan.Overflow.(*Table)
+	if !ok {
+		t.Fatalf("expected *Table overflow, got %T", plan.Overflow)
+	}
+	if got := len(overflow.rows); got != 12-pageOneRows {
+		t.Errorf("overflow row count: got %d, want %d (12 total - %d on page one)",
+			got, 12-pageOneRows, pageOneRows)
+	}
+	if len(overflow.rows) == 0 || len(overflow.rows[0].cells) == 0 || overflow.rows[0].cells[0].text != "Span" {
+		t.Error("expected the span-defining row to be preserved whole in the overflow table")
+	}
+}
+
+// TestTableRowspanChainedGroupsSplitTogether checks that overlapping spans
+// form one transitive group: a span starting inside another span's
+// coverage extends the group, and a split inside the extended group must
+// move the whole thing to the next page.
+func TestTableRowspanChainedGroupsSplitTogether(t *testing.T) {
+	tbl := NewTable()
+	tbl.SetColumnWidths([]float64{100, 100, 100})
+	// 3 cells per plain row so the table has 3 real columns (column count
+	// is derived from the widest row, not from SetColumnWidths).
+	addPlainRow3 := func(prefix string) {
+		r := tbl.AddRow()
+		r.AddCell(prefix+"A", font.Helvetica, 10)
+		r.AddCell(prefix+"B", font.Helvetica, 10)
+		r.AddCell(prefix+"C", font.Helvetica, 10)
+	}
+	for i := 1; i <= 4; i++ {
+		addPlainRow3(fmt.Sprintf("Row%d", i))
+	}
+	// Row A covers A,B in col 0; row B covers B,C in col 1. The group is
+	// the transitive closure A-C. Every row carries a plain cell so its
+	// natural height is 20, matching the plain rows around it.
+	rowA := tbl.AddRow()
+	rowA.AddCell("A", font.Helvetica, 10).SetRowspan(2)
+	rowA.AddCell("A-col1", font.Helvetica, 10)
+	rowA.AddCell("A-col2", font.Helvetica, 10)
+	rowB := tbl.AddRow()
+	rowB.AddCell("B-col1", font.Helvetica, 10).SetRowspan(2)
+	rowB.AddCell("B-col2", font.Helvetica, 10)
+	rowC := tbl.AddRow()
+	rowC.AddCell("C-col0", font.Helvetica, 10)
+	rowC.AddCell("C-col2", font.Helvetica, 10)
+	for i := 1; i <= 3; i++ {
+		addPlainRow3(fmt.Sprintf("Tail%d", i))
+	}
+
+	grid := tbl.buildGrid(tbl.resolveColWidths(400))
+	if grid[0].height != 20 || grid[4].height != 20 || grid[5].height != 20 || grid[6].height != 20 {
+		t.Fatalf("row height assumption broken: got %v, want 20 for every row", []float64{grid[0].height, grid[4].height, grid[5].height, grid[6].height})
+	}
+
+	// 4 plain rows (80) + row A (20) fits; row B does not (100+20=120>110),
+	// so the split must move up to A, the group's leader.
+	plan := tbl.PlanLayout(LayoutArea{Width: 400, Height: 110})
+	if plan.Status != LayoutPartial {
+		t.Fatalf("expected LayoutPartial, got %v", plan.Status)
+	}
+	if got := len(plan.Blocks[0].Children); got != 4 {
+		t.Errorf("page one TR count: got %d, want 4 (whole A-C group pushed to overflow)", got)
+	}
+	overflow, ok := plan.Overflow.(*Table)
+	if !ok {
+		t.Fatalf("expected *Table overflow, got %T", plan.Overflow)
+	}
+	if got := len(overflow.rows); got != 6 {
+		t.Errorf("overflow row count: got %d, want 6 (A, B, C, and 3 tail rows)", got)
+	}
+}
+
+// TestTableRowspanTallerThanPageFallsBack pins the documented fallback for
+// a span group taller than a full page: PlanLayout must still terminate
+// with progress rather than looping forever trying to push the group to a
+// page it will never fit on.
+func TestTableRowspanTallerThanPageFallsBack(t *testing.T) {
+	tbl := NewTable()
+	tbl.SetColumnWidths([]float64{100, 100})
+	r := tbl.AddRow()
+	r.AddCell("Span", font.Helvetica, 10).SetRowspan(20)
+	r.AddCell("Row1", font.Helvetica, 10)
+	for i := 2; i <= 20; i++ {
+		tbl.AddRow().AddCell(fmt.Sprintf("Row%d", i), font.Helvetica, 10)
+	}
+
+	plan := tbl.PlanLayout(LayoutArea{Width: 400, Height: 50})
+	if plan.Status == LayoutNothing {
+		t.Fatal("expected progress (LayoutFull or LayoutPartial), got LayoutNothing")
+	}
+	if len(plan.Blocks) == 0 || len(plan.Blocks[0].Children) == 0 {
+		t.Fatal("expected at least one row placed despite the oversized group")
 	}
 }
 

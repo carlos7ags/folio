@@ -117,17 +117,21 @@ type Page struct {
 
 	// Optional page geometry boxes (ISO 32000 §14.11.2).
 	// If nil, the box is not written. MediaBox is always derived from size.
-	cropBox      *[4]float64           // visible region (default = MediaBox)
-	bleedBox     *[4]float64           // bleed region for production
-	trimBox      *[4]float64           // intended finished page dimensions
-	artBox       *[4]float64           // meaningful content area
-	fonts        []fontResource        // ordered font resources
-	images       []imageResource       // ordered image resources
-	extGStates   []extGStateResource   // ordered ExtGState resources
-	formXObjects []formXObjectResource // imported pages as Form XObjects
-	annotations  []Annotation          // page annotations (links, etc.)
-	size         PageSize
-	rotate       int // page rotation in degrees (0, 90, 180, 270)
+	cropBox       *[4]float64           // visible region (default = MediaBox)
+	bleedBox      *[4]float64           // bleed region for production
+	trimBox       *[4]float64           // intended finished page dimensions
+	artBox        *[4]float64           // meaningful content area
+	debugMediaBox *debugMediaBoxConfig  // per-page debug MediaBox outline (nil = use document default)
+	fonts         []fontResource        // ordered font resources
+	images        []imageResource       // ordered image resources
+	extGStates    []extGStateResource   // ordered ExtGState resources
+	formXObjects  []formXObjectResource // imported pages as Form XObjects
+	annotations   []Annotation          // page annotations (links, etc.)
+	size          PageSize
+	rotate        int // page rotation in degrees (0, 90, 180, 270)
+
+	// Optional page geometry boxes (ISO 32000 §14.11.2).
+	// If nil, the box is not written. MediaBox is always derived from size.
 
 }
 

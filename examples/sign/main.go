@@ -38,12 +38,53 @@ import (
 )
 
 func main() {
+	signed, err := buildSignedPDF()
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+
+	// --- Step 4: Save ---
+	if err := os.WriteFile("signed.pdf", signed, 0644); err != nil {
+		fmt.Fprintln(os.Stderr, "save:", err)
+		os.Exit(1)
+	}
+
+	// --- Step 5: Verify the signed PDF is readable ---
+	r, err := reader.Parse(signed)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "verify parse:", err)
+		os.Exit(1)
+	}
+	fmt.Printf("\nVerification:\n")
+	fmt.Printf("  Pages: %d\n", r.PageCount())
+	fmt.Printf("  Version: %s\n", r.Version())
+	title, author, _, _, _ := r.Info()
+	fmt.Printf("  Title: %s\n", title)
+	fmt.Printf("  Author: %s\n", author)
+
+	// Check for signature dictionary in the PDF.
+	if strings.Contains(string(signed), "/Type /Sig") {
+		fmt.Println("  Signature: present")
+	}
+	if strings.Contains(string(signed), "/ByteRange") {
+		fmt.Println("  ByteRange: present")
+	}
+
+	fmt.Println("\nCreated signed.pdf — open in Adobe Acrobat to view the signature panel")
+}
+
+// buildSignedPDF generates a self-signed certificate, builds a PDF
+// describing it, and signs the PDF with a PAdES B-B signature.
+// Extracted from main() so the example test (main_test.go) can
+// exercise the same certificate + sign pipeline against an in-memory
+// buffer instead of disk.
+func buildSignedPDF() ([]byte, error) {
 	// --- Step 1: Generate a self-signed certificate ---
 	fmt.Println("Generating RSA-2048 key pair and self-signed certificate...")
 	key, cert, err := generateCert()
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "cert:", err)
-		os.Exit(1)
+		return nil, fmt.Errorf("cert: %w", err)
 	}
 	fmt.Printf("  Subject: %s\n", cert.Subject.CommonName)
 	fmt.Printf("  Valid:   %s to %s\n",
@@ -82,8 +123,7 @@ func main() {
 
 	var buf bytes.Buffer
 	if _, err := doc.WriteTo(&buf); err != nil {
-		fmt.Fprintln(os.Stderr, "write:", err)
-		os.Exit(1)
+		return nil, fmt.Errorf("write: %w", err)
 	}
 	fmt.Printf("  Unsigned PDF: %d bytes\n", buf.Len())
 
@@ -91,8 +131,7 @@ func main() {
 	fmt.Println("\nSigning with PAdES B-B (RSA + SHA-256)...")
 	signer, err := sign.NewLocalSigner(key, []*x509.Certificate{cert})
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "signer:", err)
-		os.Exit(1)
+		return nil, fmt.Errorf("signer: %w", err)
 	}
 
 	signed, err := sign.SignPDF(buf.Bytes(), sign.Options{
@@ -104,40 +143,12 @@ func main() {
 		ContactInfo: "legal@example.com",
 	})
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "sign:", err)
-		os.Exit(1)
+		return nil, fmt.Errorf("sign: %w", err)
 	}
 	fmt.Printf("  Signed PDF: %d bytes (+%d bytes for signature)\n",
 		len(signed), len(signed)-buf.Len())
 
-	// --- Step 4: Save ---
-	if err := os.WriteFile("signed.pdf", signed, 0644); err != nil {
-		fmt.Fprintln(os.Stderr, "save:", err)
-		os.Exit(1)
-	}
-
-	// --- Step 5: Verify the signed PDF is readable ---
-	r, err := reader.Parse(signed)
-	if err != nil {
-		fmt.Fprintln(os.Stderr, "verify parse:", err)
-		os.Exit(1)
-	}
-	fmt.Printf("\nVerification:\n")
-	fmt.Printf("  Pages: %d\n", r.PageCount())
-	fmt.Printf("  Version: %s\n", r.Version())
-	title, author, _, _, _ := r.Info()
-	fmt.Printf("  Title: %s\n", title)
-	fmt.Printf("  Author: %s\n", author)
-
-	// Check for signature dictionary in the PDF.
-	if strings.Contains(string(signed), "/Type /Sig") {
-		fmt.Println("  Signature: present")
-	}
-	if strings.Contains(string(signed), "/ByteRange") {
-		fmt.Println("  ByteRange: present")
-	}
-
-	fmt.Println("\nCreated signed.pdf — open in Adobe Acrobat to view the signature panel")
+	return signed, nil
 }
 
 // generateCert creates a self-signed RSA certificate for demonstration.

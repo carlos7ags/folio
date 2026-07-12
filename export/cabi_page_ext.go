@@ -10,6 +10,7 @@ package main
 */
 import "C"
 import (
+	"fmt"
 	"unsafe"
 
 	"github.com/carlos7ags/folio/document"
@@ -92,9 +93,13 @@ func pageTextMarkup(pageH C.uint64_t, markupType document.MarkupType,
 	color := [3]float64{float64(r), float64(g), float64(b)}
 
 	n := int(quadCount)
+	if n < 0 || n > maxCArrayCount {
+		setLastError(fmt.Sprintf("array count %d out of range [0, %d]", n, maxCArrayCount))
+		return errInvalidArg
+	}
 	var qp [][8]float64
 	if n > 0 && quadPoints != nil {
-		flat := (*[1 << 20]C.double)(quadPoints)[: n*8 : n*8]
+		flat := unsafe.Slice((*C.double)(quadPoints), n*8)
 		qp = make([][8]float64, n)
 		for i := 0; i < n; i++ {
 			for j := 0; j < 8; j++ {

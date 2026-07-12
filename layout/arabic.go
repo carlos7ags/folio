@@ -236,15 +236,11 @@ func ShapeArabicWithFont(s string, face font.Face) string {
 	if face == nil {
 		return shapeArabicWithFont(s, nil, nil, nil)
 	}
-	gp, ok := face.(font.GSUBProvider)
-	if !ok {
+	gsub := face.GSUB()
+	if gsub == nil {
 		return shapeArabicWithFont(s, nil, nil, nil)
 	}
-	gsub := gp.GSUB()
-	var gidReverse map[uint16]rune
-	if gsub != nil {
-		gidReverse = gp.GIDToUnicode()
-	}
+	gidReverse := face.GIDToUnicode()
 	return shapeArabicWithFont(s, gsub, face, gidReverse)
 }
 

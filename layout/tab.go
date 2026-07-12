@@ -231,11 +231,9 @@ func (tl *TabbedLine) measureSegment(text string, measurer font.TextMeasurer) []
 }
 
 // measurer returns the text measurer for this tabbed line's font.
+// Fallback tl.font preserves the historical typed-nil return when unset.
 func (tl *TabbedLine) measurer() font.TextMeasurer {
-	if tl.embedded != nil {
-		return tl.embedded
-	}
-	return tl.font
+	return resolveMeasurer(tl.embedded, tl.font, tl.font)
 }
 
 // MinWidth implements Measurable. Returns the rightmost tab stop position

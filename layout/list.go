@@ -26,7 +26,9 @@ const (
 type List struct {
 	font           *font.Standard
 	embedded       *font.EmbeddedFont
-	markerColor    *Color // optional override color for markers
+	markerFont     *font.Standard     // optional override standard font for markers (nil = use list font)
+	markerEmbedded *font.EmbeddedFont // optional override embedded font for markers (nil = use list font)
+	markerColor    *Color             // optional override color for markers
 	items          []listItem
 	style          ListStyle
 	direction      Direction // text direction for list items
@@ -35,6 +37,7 @@ type List struct {
 	leading        float64
 	markerFontSize float64 // optional override font size for markers (0 = use list fontSize)
 	//
+
 	// start is the ordinal offset for marker numbering. The marker for the
 	// item at slice index i is numbered (i + 1 + start). It defaults to 0 so
 	// numbering begins at 1. SetStart adjusts it for <ol start="N">, and
@@ -173,6 +176,16 @@ func (l *List) SetMarkerColor(c Color) *List {
 // SetMarkerFontSize sets an override font size for list markers.
 func (l *List) SetMarkerFontSize(size float64) *List {
 	l.markerFontSize = size
+	return l
+}
+
+// SetMarkerFont sets an override font for list markers, independent of the
+// list's body font (used for CSS `::marker { font-style: italic }`).
+// Exactly one of std/emb should be non-nil, mirroring how the list itself
+// carries either a standard or an embedded font.
+func (l *List) SetMarkerFont(std *font.Standard, emb *font.EmbeddedFont) *List {
+	l.markerFont = std
+	l.markerEmbedded = emb
 	return l
 }
 
@@ -515,11 +528,15 @@ func (l *List) markerParagraph(index int) *Paragraph {
 	if l.markerFontSize > 0 {
 		markerSize = l.markerFontSize
 	}
+	stdFont, embFont := l.font, l.embedded
+	if l.markerFont != nil || l.markerEmbedded != nil {
+		stdFont, embFont = l.markerFont, l.markerEmbedded
+	}
 	var markerPara *Paragraph
-	if l.embedded != nil {
-		markerPara = NewParagraphEmbedded(marker, l.embedded, markerSize)
+	if embFont != nil {
+		markerPara = NewParagraphEmbedded(marker, embFont, markerSize)
 	} else {
-		markerPara = NewParagraph(marker, l.font, markerSize)
+		markerPara = NewParagraph(marker, stdFont, markerSize)
 	}
 	if l.markerColor != nil {
 		markerPara.runs[0].Color = *l.markerColor
@@ -571,11 +588,9 @@ func (l *List) itemText(item listItem) string {
 }
 
 // measurer returns the text measurer for this list's font.
+// Fallback l.font preserves the historical typed-nil return when unset.
 func (l *List) measurer() font.TextMeasurer {
-	if l.embedded != nil {
-		return l.embedded
-	}
-	return l.font
+	return resolveMeasurer(l.embedded, l.font, l.font)
 }
 
 // PlanLayout implements Element. Lists split between items.
@@ -866,6 +881,8 @@ func (l *List) cloneWithItems(items []listItem) *List {
 		direction:      l.direction,
 		markerColor:    l.markerColor,
 		markerFontSize: l.markerFontSize,
+		markerFont:     l.markerFont,
+		markerEmbedded: l.markerEmbedded,
 		markerInside:   l.markerInside,
 	}
 }

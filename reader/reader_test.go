@@ -448,8 +448,9 @@ func TestParseTooSmall(t *testing.T) {
 	}
 }
 
-func TestParseEncryptedPDF(t *testing.T) {
-	// Minimal PDF with /Encrypt in trailer — should fail with clear message.
+func TestParseEncryptedPDFUnsupportedRevision(t *testing.T) {
+	// /Encrypt dict without a recognized /R — a clean typed error, not a
+	// blanket refusal and not a panic.
 	pdf := []byte(`%PDF-1.4
 1 0 obj
 << /Type /Catalog /Pages 2 0 R >>
@@ -469,10 +470,10 @@ startxref
 %%EOF`)
 	_, err := Parse(pdf)
 	if err == nil {
-		t.Fatal("expected error for encrypted PDF")
+		t.Fatal("expected error for unsupported encryption revision")
 	}
-	if !strings.Contains(err.Error(), "encrypted") {
-		t.Errorf("expected 'encrypted' in error, got: %v", err)
+	if !errors.Is(err, ErrUnsupportedEncryption) {
+		t.Errorf("expected ErrUnsupportedEncryption, got: %v", err)
 	}
 }
 
@@ -805,6 +806,50 @@ func TestMemoryLimitsTinyTotalAlloc(t *testing.T) {
 	// trigger during parse depending on whether streams are accessed.
 	// We just verify no panic occurs.
 	_ = err
+}
+
+func TestMemoryLimitsTinyXrefSize(t *testing.T) {
+	// Build a PDF whose xref is a compressed /Type /XRef stream, using the
+	// same recipe as TestParseFolioXRefStreamWriter (xref_stream_writer_test.go).
+	w := document.NewWriter("1.7")
+	catalog := core.NewPdfDictionary()
+	catalog.Set("Type", core.NewPdfName("Catalog"))
+	pages := core.NewPdfDictionary()
+	pages.Set("Type", core.NewPdfName("Pages"))
+	pages.Set("Kids", core.NewPdfArray())
+	pages.Set("Count", core.NewPdfInteger(0))
+	catalogRef := w.AddObject(catalog)
+	pagesRef := w.AddObject(pages)
+	catalog.Set("Pages", pagesRef)
+	w.SetRoot(catalogRef)
+
+	var buf bytes.Buffer
+	if _, err := w.WriteToWithOptions(&buf, document.WriteOptions{UseXRefStream: true}); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+
+	// Strict mode so the tolerant repairXref fallback cannot mask the error.
+	_, err := ParseWithOptions(buf.Bytes(), ReadOptions{
+		Strictness:   StrictnessStrict,
+		MemoryLimits: MemoryLimits{MaxXrefSize: 4}, // 4 bytes: any real xref stream exceeds this
+	})
+	if err == nil {
+		t.Fatal("expected error: 4-byte MaxXrefSize must reject the xref stream")
+	}
+	if !errors.Is(err, ErrMemoryLimitExceeded) {
+		t.Fatalf("expected ErrMemoryLimitExceeded, got: %v", err)
+	}
+
+	// Control: the same PDF parses fine with default and disabled limits.
+	if _, err := ParseWithOptions(buf.Bytes(), ReadOptions{Strictness: StrictnessStrict}); err != nil {
+		t.Fatalf("default MaxXrefSize should accept this PDF: %v", err)
+	}
+	if _, err := ParseWithOptions(buf.Bytes(), ReadOptions{
+		Strictness:   StrictnessStrict,
+		MemoryLimits: MemoryLimits{MaxXrefSize: -1},
+	}); err != nil {
+		t.Fatalf("disabled MaxXrefSize should accept this PDF: %v", err)
+	}
 }
 
 func TestMemoryLimitsMaxObjectCount(t *testing.T) {

@@ -4,6 +4,7 @@
 package html
 
 import (
+	"sort"
 	"strings"
 
 	"golang.org/x/net/html"
@@ -33,6 +34,7 @@ type pageRule struct {
 
 // styleSheet holds parsed CSS rules from <style> blocks.
 type styleSheet struct {
+	index     *ruleIndex // lazily built selector index, see buildIndex
 	rules     []cssRule
 	fontFaces []fontFaceRule
 	pageRules []pageRule // @page declarations
@@ -63,6 +65,101 @@ type selectorPart struct {
 	attrSelectors []attrSelector
 }
 
+// selectorRef locates one selector inside styleSheet.rules.
+type selectorRef struct {
+	ruleIdx int
+	selIdx  int
+}
+
+// ruleIndex buckets selectors by their rightmost simple selector so
+// matching a node probes only candidate rules instead of scanning all of
+// them. A bucket key is a necessary (not sufficient) condition for a
+// match: selectors whose last part has an id go in byID, else a class in
+// byClass (lowercased), else a concrete tag in byTag, else universal
+// (covers "*", pseudo-class-only, and attribute-only selectors).
+//
+// If a future selector feature relaxes matching of id/class/tag on the
+// last part (e.g. an attribute-flag case-insensitive id), buildIndex and
+// candidateRefs must be updated to match — see partMatches in
+// css_selectors.go for the ground truth these buckets approximate.
+type ruleIndex struct {
+	byID      map[string][]selectorRef
+	byClass   map[string][]selectorRef
+	byTag     map[string][]selectorRef
+	universal []selectorRef
+	ruleCount int // len(ss.rules) when built; rebuilt if rules were appended
+}
+
+// buildIndex populates ss.index from ss.rules. Not safe for concurrent use;
+// styleSheet matching is single-goroutine per conversion, same as the rest
+// of the converter.
+func (ss *styleSheet) buildIndex() {
+	idx := &ruleIndex{
+		byID:      map[string][]selectorRef{},
+		byClass:   map[string][]selectorRef{},
+		byTag:     map[string][]selectorRef{},
+		ruleCount: len(ss.rules),
+	}
+	for ri, rule := range ss.rules {
+		for si, sel := range rule.selectors {
+			ref := selectorRef{ruleIdx: ri, selIdx: si}
+			if len(sel.parts) == 0 {
+				idx.universal = append(idx.universal, ref)
+				continue
+			}
+			last := sel.parts[len(sel.parts)-1]
+			switch {
+			case last.id != "":
+				idx.byID[last.id] = append(idx.byID[last.id], ref)
+			case last.class != "":
+				key := strings.ToLower(last.class)
+				idx.byClass[key] = append(idx.byClass[key], ref)
+			case last.tag != "" && last.tag != "*":
+				idx.byTag[last.tag] = append(idx.byTag[last.tag], ref)
+			default:
+				idx.universal = append(idx.universal, ref)
+			}
+		}
+	}
+	ss.index = idx
+}
+
+// candidateRefs returns the selector refs whose bucket keys are consistent
+// with n, sorted by (ruleIdx, selIdx) with duplicates removed. Bucket keys
+// are necessary conditions for a match, so every selector that could match
+// n is included — filtering candidates with selectorMatches is equivalent
+// to scanning all rules.
+func (ss *styleSheet) candidateRefs(n *html.Node) []selectorRef {
+	if ss.index == nil || ss.index.ruleCount != len(ss.rules) {
+		ss.buildIndex()
+	}
+	idx := ss.index
+	var refs []selectorRef
+	if id := nodeAttr(n, "id"); id != "" {
+		refs = append(refs, idx.byID[id]...)
+	}
+	for _, cls := range nodeClasses(n) {
+		refs = append(refs, idx.byClass[strings.ToLower(cls)]...)
+	}
+	refs = append(refs, idx.byTag[strings.ToLower(n.Data)]...)
+	refs = append(refs, idx.universal...)
+	sort.Slice(refs, func(i, j int) bool {
+		if refs[i].ruleIdx != refs[j].ruleIdx {
+			return refs[i].ruleIdx < refs[j].ruleIdx
+		}
+		return refs[i].selIdx < refs[j].selIdx
+	})
+	// Dedupe: duplicate node classes (class="a a") probe a bucket twice.
+	out := refs[:0]
+	for i, r := range refs {
+		if i > 0 && r == refs[i-1] {
+			continue
+		}
+		out = append(out, r)
+	}
+	return out
+}
+
 // attrSelector represents a CSS attribute selector like [attr], [attr=value], etc.
 type attrSelector struct {
 	name  string // attribute name
@@ -84,7 +181,7 @@ type cssDecl struct {
 // (10MB HTTP cap matching the historical CSS fetch limit). onLoadError, if
 // non-nil, is invoked for stylesheet loads that fail (used to surface the
 // failure to Options.Logger without aborting the conversion).
-func parseStyleBlocks(doc *html.Node, opts Options, onLoadError func(href string, err error)) *styleSheet {
+func parseStyleBlocks(doc *html.Node, opts Options, budget *assetBudget, onLoadError func(href string, err error)) *styleSheet {
 	ss := &styleSheet{}
 
 	// First pass: collect <link rel="stylesheet"> elements and load them.
@@ -102,7 +199,7 @@ func parseStyleBlocks(doc *html.Node, opts Options, onLoadError func(href string
 				}
 			}
 			if rel == "stylesheet" && href != "" {
-				data, err := resolveLocalAsset(opts, opts.URLPolicy, "", href, 10<<20)
+				data, err := resolveLocalAsset(opts, opts.URLPolicy, budget, "", href, 10<<20)
 				if err == nil {
 					ss.parseCSS(string(data), href)
 				} else if onLoadError != nil {
@@ -758,22 +855,32 @@ func (ss *styleSheet) matchingDeclarations(n *html.Node) []cssDecl {
 	}
 	var matches []match
 
-	for _, rule := range ss.rules {
-		for _, sel := range rule.selectors {
-			// Skip selectors with pseudo-elements — those are for ::before/::after.
-			if len(sel.parts) > 0 && sel.parts[len(sel.parts)-1].pseudoElement != "" {
-				continue
-			}
-			if selectorMatches(sel, n) {
-				for _, d := range rule.declarations {
-					spec := sel.specificity
-					if d.important {
-						spec += 1000
-					}
-					matches = append(matches, match{specificity: spec, decl: d})
+	// candidateRefs are sorted by (ruleIdx, selIdx), i.e. document order,
+	// and include every selector that could possibly match n (bucket keys
+	// are necessary conditions). So the first matching candidate of a rule
+	// is the same selector a full linear scan would match first, and
+	// skipRule reproduces the original scan's "break on first match".
+	refs := ss.candidateRefs(n)
+	skipRule := -1
+	for _, ref := range refs {
+		if ref.ruleIdx == skipRule {
+			continue
+		}
+		rule := &ss.rules[ref.ruleIdx]
+		sel := rule.selectors[ref.selIdx]
+		// Skip selectors with pseudo-elements — those are for ::before/::after.
+		if len(sel.parts) > 0 && sel.parts[len(sel.parts)-1].pseudoElement != "" {
+			continue
+		}
+		if selectorMatches(sel, n) {
+			for _, d := range rule.declarations {
+				spec := sel.specificity
+				if d.important {
+					spec += 1000
 				}
-				break
+				matches = append(matches, match{specificity: spec, decl: d})
 			}
+			skipRule = ref.ruleIdx
 		}
 	}
 
@@ -809,26 +916,31 @@ func (ss *styleSheet) matchingPseudoElementDeclarations(n *html.Node, pseudo str
 	}
 	var matches []match
 
-	for _, rule := range ss.rules {
-		for _, sel := range rule.selectors {
-			if len(sel.parts) == 0 {
-				continue
-			}
-			last := sel.parts[len(sel.parts)-1]
-			if last.pseudoElement != pseudo {
-				continue
-			}
-			// Match the selector against the node (ignoring the pseudoElement field in partMatches).
-			if selectorMatches(sel, n) {
-				for _, d := range rule.declarations {
-					spec := sel.specificity
-					if d.important {
-						spec += 1000
-					}
-					matches = append(matches, match{specificity: spec, decl: d})
+	refs := ss.candidateRefs(n)
+	skipRule := -1
+	for _, ref := range refs {
+		if ref.ruleIdx == skipRule {
+			continue
+		}
+		rule := &ss.rules[ref.ruleIdx]
+		sel := rule.selectors[ref.selIdx]
+		if len(sel.parts) == 0 {
+			continue
+		}
+		last := sel.parts[len(sel.parts)-1]
+		if last.pseudoElement != pseudo {
+			continue
+		}
+		// Match the selector against the node (ignoring the pseudoElement field in partMatches).
+		if selectorMatches(sel, n) {
+			for _, d := range rule.declarations {
+				spec := sel.specificity
+				if d.important {
+					spec += 1000
 				}
-				break
+				matches = append(matches, match{specificity: spec, decl: d})
 			}
+			skipRule = ref.ruleIdx
 		}
 	}
 

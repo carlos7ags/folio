@@ -22,6 +22,11 @@ const woffHeaderSize = 44
 // woffTableDirEntrySize is the size of each WOFF table directory entry.
 const woffTableDirEntrySize = 20
 
+// maxWOFFDecompressedSize caps the total declared uncompressed size of all
+// WOFF tables. Even large CJK fonts decompress to well under this; a file
+// declaring more is treated as corrupt to bound worst-case memory.
+const maxWOFFDecompressedSize = 256 << 20 // 256 MB
+
 // woffHeader represents the parsed WOFF1 file header.
 // Only the fields actually consumed by the decoder are kept;
 // length, reserved, and totalSfntSize are defined by the WOFF1 spec
@@ -78,6 +83,14 @@ func decodeWOFF(data []byte) ([]byte, error) {
 		}
 	}
 
+	var totalOrig uint64
+	for i := range entries {
+		totalOrig += uint64(entries[i].origLength)
+		if totalOrig > maxWOFFDecompressedSize {
+			return nil, fmt.Errorf("font: woff: declared table sizes exceed %d bytes: %w", maxWOFFDecompressedSize, ErrCorruptTable)
+		}
+	}
+
 	// Decompress each table.
 	tables := make([][]byte, len(entries))
 	for i, e := range entries {
@@ -92,7 +105,10 @@ func decodeWOFF(data []byte) ([]byte, error) {
 			if err != nil {
 				return nil, fmt.Errorf("font: woff: zlib init for table %d: %v: %w", i, err, ErrCorruptTable)
 			}
-			decompressed, err := io.ReadAll(r)
+			// Bound decompression to the declared size (+1 to detect a
+			// stream that expands past origLength). A decompression bomb
+			// stops here instead of materializing an unbounded buffer.
+			decompressed, err := io.ReadAll(io.LimitReader(r, int64(e.origLength)+1))
 			_ = r.Close()
 			if err != nil {
 				return nil, fmt.Errorf("font: woff: zlib decompress table %d: %v: %w", i, err, ErrCorruptTable)

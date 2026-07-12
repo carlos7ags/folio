@@ -6,13 +6,13 @@ package font
 // Face represents a parsed font file and provides metric, encoding, and
 // glyph-indexing operations used when embedding the font in a PDF.
 //
-// Concurrency: Face implementations are not safe for concurrent use by
-// multiple goroutines. Individual methods lazily populate internal caches
-// (table data, GSUB tables, GID-to-Unicode maps), and these caches are
-// not synchronized. A single Face may be reused across many pages in a
-// document so long as page rendering is sequential, which is how folio's
-// layout pipeline uses them. If you need a Face from multiple goroutines,
-// give each goroutine its own instance via ParseFont or LoadFont.
+// Concurrency: Faces returned by ParseTTF/LoadTTF synchronize their
+// internal lazy caches (table data, GSUB tables, GID-to-Unicode maps),
+// so their methods are safe for concurrent use by multiple goroutines
+// and a single Face may be shared across concurrently-rendered
+// documents. EmbeddedFont, which wraps a Face, tracks per-document
+// glyph usage and remains not safe for concurrent use — do not share
+// one EmbeddedFont across concurrently-rendered documents.
 //
 // Face is the abstraction over a parsed font file. It provides the
 // data needed to embed a font in a PDF: glyph metrics, character
@@ -75,33 +75,19 @@ type Face interface {
 
 	// NumGlyphs returns the total number of glyphs in the font.
 	NumGlyphs() int
-}
 
-// GSUBProvider is an optional interface that a Face may implement to
-// expose parsed OpenType GSUB substitution tables for Arabic positional
-// shaping features (init, medi, fina, isol). Callers should type-assert
-// to check availability rather than requiring all Face implementations
-// to support GSUB. This avoids breaking external Face implementers
-// during v0.x.
-//
-// TODO: at v1.0, merge GSUB() back into Face. The type-assertion
-// indirection adds no value once the API is stable.
-type GSUBProvider interface {
+	// GSUB returns the font's parsed OpenType GSUB substitution tables,
+	// or nil when the font has none. Used for Arabic positional shaping
+	// and Indic conjunct formation.
 	GSUB() *GSUBSubstitutions
-	// GIDToUnicode returns a reverse mapping from glyph ID to Unicode
-	// codepoint, built from the font's cmap table. Used to convert
-	// GSUB-substituted GIDs back to codepoints for the text pipeline.
-	// The result is cached after the first call.
-	GIDToUnicode() map[uint16]rune
-}
 
-// GPOSProvider is an optional interface that a Face may implement to
-// expose parsed OpenType GPOS positioning tables. GPOS() returns nil
-// when the font has no recognized positioning data. See GSUBProvider
-// for the rationale behind the optional-interface pattern during v0.x.
-//
-// TODO: at v1.0, merge GPOS() back into Face.
-type GPOSProvider interface {
+	// GIDToUnicode returns a reverse glyph-ID-to-Unicode mapping built
+	// from the cmap table, or nil when unavailable. The result is cached
+	// after the first call.
+	GIDToUnicode() map[uint16]rune
+
+	// GPOS returns the font's parsed OpenType GPOS positioning tables,
+	// or nil when the font has no recognized positioning data.
 	GPOS() *GPOSAdjustments
 }
 

@@ -27,7 +27,10 @@ func folio_reader_merge(readers *C.uint64_t, count C.int32_t) C.uint64_t {
 		setLastError("merge requires at least one reader")
 		return 0
 	}
-	cHandles := (*[1 << 20]C.uint64_t)(unsafe.Pointer(readers))[:n:n]
+	if !checkCArray(unsafe.Pointer(readers), n) {
+		return 0
+	}
+	cHandles := unsafe.Slice(readers, n)
 	goReaders := make([]*reader.PdfReader, n)
 	for i := 0; i < n; i++ {
 		r, errCode := loadReader(C.uint64_t(cHandles[i]))
@@ -54,7 +57,10 @@ func folio_merge_files(paths **C.char, count C.int32_t) C.uint64_t {
 		setLastError("merge requires at least one path")
 		return 0
 	}
-	cPaths := (*[1 << 20]*C.char)(unsafe.Pointer(paths))[:n:n]
+	if !checkCArray(unsafe.Pointer(paths), n) {
+		return 0
+	}
+	cPaths := unsafe.Slice(paths, n)
 	goPaths := make([]string, n)
 	for i := 0; i < n; i++ {
 		goPaths[i] = C.GoString(cPaths[i])
@@ -201,7 +207,10 @@ func folio_merge_reorder_pages(mergedH C.uint64_t, order *C.int32_t, count C.int
 		return errCode
 	}
 	n := int(count)
-	cOrder := (*[1 << 20]C.int32_t)(unsafe.Pointer(order))[:n:n]
+	if !checkCArray(unsafe.Pointer(order), n) {
+		return errInvalidArg
+	}
+	cOrder := unsafe.Slice(order, n)
 	goOrder := make([]int, n)
 	for i := 0; i < n; i++ {
 		goOrder[i] = int(cOrder[i])

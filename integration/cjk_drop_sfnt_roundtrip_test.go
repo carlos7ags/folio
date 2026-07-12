@@ -55,7 +55,7 @@ func TestCJKDropSfntRoundTripsThroughPDFExtraction(t *testing.T) {
 body { font-family: 'CJK'; font-size: 14px; }
 </style></head><body><p>%s。</p></body></html>`, stHeiti, want)
 
-	result, err := html.ConvertFull(htmlStr, &html.Options{StrictAssets: true})
+	result, err := html.ConvertFull(htmlStr, &html.Options{AllowAbsolutePaths: true, StrictAssets: true})
 	if err != nil {
 		t.Fatalf("ConvertFull: %v", err)
 	}
@@ -128,7 +128,7 @@ func TestCJKRoundTripWithSyntheticFixture(t *testing.T) {
 body { font-family: 'CJK'; font-size: 14px; }
 </style></head><body><p>%s。</p></body></html>`, fixturePath, want)
 
-	result, err := html.ConvertFull(htmlStr, &html.Options{StrictAssets: true})
+	result, err := html.ConvertFull(htmlStr, &html.Options{AllowAbsolutePaths: true, StrictAssets: true})
 	if err != nil {
 		t.Fatalf("ConvertFull: %v", err)
 	}

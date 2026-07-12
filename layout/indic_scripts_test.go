@@ -40,6 +40,7 @@ func (m *mockIndicFace) RawData() []byte               { return nil }
 func (m *mockIndicFace) NumGlyphs() int                { return 65535 }
 func (m *mockIndicFace) GSUB() *font.GSUBSubstitutions { return m.substitutions }
 func (m *mockIndicFace) GIDToUnicode() map[uint16]rune { return nil }
+func (m *mockIndicFace) GPOS() *font.GPOSAdjustments   { return nil }
 
 func gid(r rune) uint16 { return uint16(r) + 1000 }
 

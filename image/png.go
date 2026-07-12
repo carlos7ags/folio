@@ -16,6 +16,14 @@ import (
 // extracted into a separate soft mask. Dimensions are validated against
 // [MaxDimension] and [MaxPixels] before the pixel buffer is allocated.
 func NewPNG(data []byte) (*Image, error) {
+	cfg, err := png.DecodeConfig(bytes.NewReader(data))
+	if err != nil {
+		return nil, fmt.Errorf("image: png: %w", err)
+	}
+	if err := checkDimensions(cfg.Width, cfg.Height); err != nil {
+		return nil, fmt.Errorf("image: png: %w", err)
+	}
+
 	img, err := png.Decode(bytes.NewReader(data))
 	if err != nil {
 		return nil, fmt.Errorf("image: png: %w", err)

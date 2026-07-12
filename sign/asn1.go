@@ -89,6 +89,22 @@ func (a Algorithm) DigestOID() asn1.ObjectIdentifier {
 	}
 }
 
+// hashFuncForOID maps a CMS digest-algorithm OID back to a crypto.Hash,
+// the inverse of Algorithm.DigestOID. It reports false for OIDs folio does
+// not sign with.
+func hashFuncForOID(oid asn1.ObjectIdentifier) (crypto.Hash, bool) {
+	switch {
+	case oid.Equal(oidSHA256):
+		return crypto.SHA256, true
+	case oid.Equal(oidSHA384):
+		return crypto.SHA384, true
+	case oid.Equal(oidSHA512):
+		return crypto.SHA512, true
+	default:
+		return 0, false
+	}
+}
+
 // SignatureOID returns the ASN.1 OID for the signature algorithm.
 func (a Algorithm) SignatureOID() asn1.ObjectIdentifier {
 	switch a {

@@ -28,6 +28,11 @@ func folio_tabbed_line_new(fontH C.uint64_t, fontSize C.double,
 		return 0
 	}
 	n := int(count)
+	if !checkCArray(unsafe.Pointer(positions), n) ||
+		!checkCArray(unsafe.Pointer(aligns), n) ||
+		!checkCArray(unsafe.Pointer(leaders), n) {
+		return 0
+	}
 	stops := parseTabs(positions, aligns, leaders, n)
 	tl := layout.NewTabbedLine(f, float64(fontSize), stops...)
 	return C.uint64_t(ht.store(tl))
@@ -41,6 +46,11 @@ func folio_tabbed_line_new_embedded(fontH C.uint64_t, fontSize C.double,
 		return 0
 	}
 	n := int(count)
+	if !checkCArray(unsafe.Pointer(positions), n) ||
+		!checkCArray(unsafe.Pointer(aligns), n) ||
+		!checkCArray(unsafe.Pointer(leaders), n) {
+		return 0
+	}
 	stops := parseTabs(positions, aligns, leaders, n)
 	tl := layout.NewTabbedLineEmbedded(ef, float64(fontSize), stops...)
 	return C.uint64_t(ht.store(tl))
@@ -56,9 +66,13 @@ func folio_tabbed_line_set_segments(tlH C.uint64_t, segments **C.char, count C.i
 		return errCode
 	}
 	n := int(count)
+	if n < 0 || n > maxCArrayCount {
+		setLastError(fmt.Sprintf("array count %d out of range [0, %d]", n, maxCArrayCount))
+		return errInvalidArg
+	}
 	goSegs := make([]string, n)
 	if n > 0 && segments != nil {
-		cArray := (*[1 << 20]*C.char)(unsafe.Pointer(segments))[:n:n]
+		cArray := unsafe.Slice(segments, n)
 		for i := 0; i < n; i++ {
 			goSegs[i] = C.GoString(cArray[i])
 		}
@@ -94,9 +108,9 @@ func folio_tabbed_line_free(tlH C.uint64_t) {
 
 func parseTabs(positions *C.double, aligns *C.int32_t, leaders *C.int32_t, n int) []layout.TabStop {
 	stops := make([]layout.TabStop, n)
-	cPos := (*[1 << 20]C.double)(unsafe.Pointer(positions))[:n:n]
-	cAlign := (*[1 << 20]C.int32_t)(unsafe.Pointer(aligns))[:n:n]
-	cLeader := (*[1 << 20]C.int32_t)(unsafe.Pointer(leaders))[:n:n]
+	cPos := unsafe.Slice(positions, n)
+	cAlign := unsafe.Slice(aligns, n)
+	cLeader := unsafe.Slice(leaders, n)
 	for i := 0; i < n; i++ {
 		stops[i] = layout.TabStop{
 			Position: float64(cPos[i]),

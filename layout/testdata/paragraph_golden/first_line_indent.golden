@@ -1,0 +1,13 @@
+line 0: width=51.7800 height=14.4000 spaceW=3.3360 isLast=false align=0 spaceBefore=0.0000
+  word 0: "The" w=20.6760 spaceAfter=3.3360 fontSize=12.0000 break=false embedded=false
+  word 1: "quick" w=27.7680 spaceAfter=3.3360 fontSize=12.0000 break=false embedded=false
+line 1: width=86.4600 height=14.4000 spaceW=3.3360 isLast=false align=0 spaceBefore=0.0000
+  word 0: "brown" w=32.4960 spaceAfter=3.3360 fontSize=12.0000 break=false embedded=false
+  word 1: "fox" w=15.2880 spaceAfter=3.3360 fontSize=12.0000 break=false embedded=false
+  word 2: "jumps" w=32.0040 spaceAfter=3.3360 fontSize=12.0000 break=false embedded=false
+line 2: width=90.9000 height=14.4000 spaceW=3.3360 isLast=true align=0 spaceBefore=0.0000
+  word 0: "over" w=22.8600 spaceAfter=3.3360 fontSize=12.0000 break=false embedded=false
+  word 1: "the" w=16.6800 spaceAfter=3.3360 fontSize=12.0000 break=false embedded=false
+  word 2: "lazy" w=21.3360 spaceAfter=3.3360 fontSize=12.0000 break=false embedded=false
+  word 3: "dog" w=20.0160 spaceAfter=3.3360 fontSize=12.0000 break=false embedded=false
+minWidth=32.4960 maxWidth=239.1480 measureHeight(W)=43.2000 lines(W)=3

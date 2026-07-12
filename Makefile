@@ -18,6 +18,8 @@ fmt-check:
 fuzz:
 	go test ./reader/... -fuzz=FuzzTokenizer -fuzztime=30s || true
 	go test ./reader/... -fuzz='^FuzzParse$$' -fuzztime=30s || true
+	go test ./svg/... -fuzz=FuzzPathData -fuzztime=30s || true
+	go test ./svg/... -fuzz=FuzzSVGParse -fuzztime=30s || true
 
 check: fmt-check vet test audit
 

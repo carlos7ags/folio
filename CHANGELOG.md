@@ -7,6 +7,90 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+## [0.10.0] - 2026-07-10
+
+Adds offline signature verification, encrypted-PDF reading, a Factur-X/ZUGFeRD invoice package, and a standalone PDF optimizer, alongside a security-hardening pass across the reader, font, and C ABI layers against malformed input. This release carries breaking changes: `font.Face` now declares its shaping accessors directly instead of through optional provider interfaces, `html` no longer fetches remote or absolute-path assets by default, and the C ABI's `folio_last_error` changes pointer-ownership semantics.
+
+### Added
+
+- **`sign.Verify(pdfBytes []byte, opts sign.VerifyOptions) (*sign.Report, error)`** — offline verification for PDFs signed with `sign.SignPDF`. For each signature it locates the signature dictionary, recomputes the `/ByteRange` digest and checks it against the CMS `messageDigest` signed attribute, verifies the CMS signature (RSA PKCS#1 v1.5 or ECDSA) over the signed attributes, checks that `/ByteRange` covers the whole file except the `/Contents` hex string, and — when `VerifyOptions.Roots` is supplied — builds a certificate chain. `sign.Report.Signatures` reports each check independently (`DigestValid`, `SignatureValid`, `ByteRangeCoversFile`, `ChainStatus`) so partial validity is never conflated with full validity. Revocation fetching, timestamp-token and `/DSS` content validation, and PAdES level classification are out of scope; presence of a timestamp token or `/DSS` is reported but not validated.
+- **`document.Page.SetDebugMediaBox` / `document.Document.SetDebugMediaBox`** — strokes a rectangle around a page's true MediaBox for visual layout debugging (#376). Drawn last, on top of all other page content including the watermark. A page-level call overrides the document-wide default for that page.
+- **`reader` can now open PDFs encrypted with the Standard security handler** — `reader.ReadOptions.Password` authenticates against the document's user or owner password (ISO 32000 §7.6.3-7.6.4); `reader.Parse` implicitly tries the empty password, the common case for files "protected" only to restrict permissions. Supports RC4-128 (R3, read-only legacy), AES-128 (R4/AESV2), and AES-256 (R6/AESV3); strings and stream payloads are decrypted transparently at object-resolve time, so every existing reader API (text extraction, merge, redact, page import) works unchanged against the decrypted content. `reader.PdfReader.Access()` reports whether the user or owner password matched. A wrong password returns `reader.ErrInvalidPassword`; unsupported security-handler configurations (public-key handlers, RC4-40, non-standard crypt filters) return `reader.ErrUnsupportedEncryption` instead of the previous blanket refusal. Decrypted documents are plaintext in memory and are written back out unencrypted unless the caller explicitly re-encrypts via `document.SetEncryption`.
+- **`zugferd` package** — generates Factur-X/ZUGFeRD hybrid e-invoices: a typed `Invoice` renders EN 16931 UN/CEFACT Cross-Industry Invoice (CII) XML and `Invoice.Attach` embeds it into a `document.Document` as a PDF/A-3B associated file with the matching Factur-X XMP schema, keeping the attachment filename, `AFRelationship`, and XMP conformance level in sync. Covers the MINIMUM and BASIC Factur-X 1.0 profiles, with hand-written field-presence and totals-arithmetic validation (`Invoice.Validate`) and a fixed-point `Amount` type so money never touches a float. `examples/zugferd` is ported onto it. See `docs/design-zugferd.md` for profile coverage and known limitations.
+- **`optimize` package** — `optimize.Bytes(data []byte) ([]byte, optimize.Stats, error)` parses an existing PDF and re-serializes it through the writer's lossless passes (cross-reference streams, object streams, orphan sweep, stream recompression, object deduplication). The rewrite carries pages and their resources only — outlines, AcroForm fields, attachments, and other document-level structure are dropped — and falls back to the original bytes whenever the rewrite would not shrink the file, so output is never larger than input. Encrypted input returns `optimize.ErrEncrypted`.
+- **`html.Options.AllowRemoteFetch`** — opt-in for fetching `http(s)` assets referenced by the document. Default false.
+- **`html.Options.AllowAbsolutePaths`** — opt-in for reading absolute filesystem paths named in document content when `BaseFS` is nil. Default false; reads are size-capped like the HTTP path.
+- **`html.DenyInternalHosts`** — a `URLPolicy` that blocks non-http(s) schemes and targets resolving to loopback, private (RFC1918 / ULA), link-local, unspecified, or multicast addresses (plus carrier-grade NAT, and IPv4-compatible / NAT64 IPv6 forms that embed such addresses). Applied by default when `AllowRemoteFetch` is true and `URLPolicy` is nil, and re-checked on every redirect hop.
+- **`html.Options.MaxTotalAssetBytes`** — caps the aggregate bytes read across every asset loaded during one conversion (images, fonts, stylesheets — remote, `BaseFS`-relative, and absolute alike). 0 selects a generous 512 MiB default; loads that cross the cap fail with `html.ErrAssetBudgetExceeded`.
+- **`html.ErrRemoteFetchDisabled`** — returned when a document references an `http(s)` asset but `AllowRemoteFetch` is false. Reported normally (logged, and surfaced under `StrictAssets`).
+- **`html.ErrAbsolutePathDenied`** — returned when a document references an absolute filesystem path but `AllowAbsolutePaths` is false. Reported normally.
+- **`html.ErrAssetBudgetExceeded`** — returned when a conversion's aggregate asset read size crosses `Options.MaxTotalAssetBytes`. Reported normally.
+- **C ABI: `folio_buffer_len64(buf)`** — 64-bit counterpart to `folio_buffer_len`, which now saturates at `INT32_MAX` (and records an error via `folio_last_error`) for buffers over 2 GiB instead of silently truncating. Prefer the 64-bit accessor for large buffers.
+- **C ABI: `folio_string_free(s)`** — releases a string returned by `folio_last_error`, which now hands back a caller-owned copy (see Changed (breaking)). Passing NULL is a no-op.
+
+### Changed (breaking)
+
+- **`font.Face` now includes `GSUB()`, `GPOS()`, and `GIDToUnicode()`** — the optional `font.GSUBProvider` and `font.GPOSProvider` interfaces are removed, and every `Face` implementation must provide the three methods directly. A `Face` with no shaping data for a given table returns nil rather than omitting the method; `GIDToUnicode` returns nil when the font has no cmap-derived reverse map. This drops the type-assertion indirection that callers previously used to probe for shaping support (`face.(font.GSUBProvider)`, `face.(font.GPOSProvider)`) now that the seam is no longer needed pre-1.0 (#404).
+- **`html` no longer fetches remote or absolute-path assets by default** — a document's `http(s)` references (`<img>`, `background-image: url()`, linked stylesheets, `@font-face url()`) are only fetched when `Options.AllowRemoteFetch` is set, and absolute filesystem paths in document content are only read when `Options.AllowAbsolutePaths` is set (both default false). When remote fetch is enabled with no `Options.URLPolicy`, the built-in `html.DenyInternalHosts` policy blocks loopback, RFC1918, link-local, and non-http(s) targets and is re-checked on every redirect hop; absolute-path reads are size-capped like HTTP reads. Set `URLPolicy` to a function returning nil to allow every host. `Options.FallbackFontPath` and the built-in system-font search are unaffected (#391).
+- **C ABI: `folio_last_error` now returns a caller-owned copy** — previously the returned `char*` pointed at library-internal storage, valid only until the next C ABI call; callers treated it as borrowed and never freed it. It now returns a fresh copy that must be released with the new `folio_string_free`. A caller that keeps the old borrow-and-never-free assumption leaks one short string per call to `folio_last_error` instead of crashing or corrupting memory, until it adopts `folio_string_free` (#392).
+
+### Changed
+
+- **CSS named colors now resolve to full-precision sRGB values in both `html` and `svg` output** — the two packages each carried an independent 148-entry named-color table stored as rounded decimal literals (3 decimals in `html`, 4 in `svg`), so the same keyword could render to different bytes depending on which package handled it. Both now share one table in `internal/csscolor` that computes each component as `x/255` at full `float64` precision, which changes the emitted bytes for named colors slightly versus the old decimal literals in both packages. `svg` color parsing also now accepts the full CSS color grammar (4/8-digit hex, CSS Color 4 space-separated `rgb()`, and `hsl()`/`hsla()`) that `html` already supported — previously-valid `svg` inputs are unaffected. As part of sharing the parser, malformed `svg` color literals (invalid hex digits, non-numeric `rgb()`/alpha components) are now treated leniently — the bad component defaults to 0 rather than rejecting the whole color, matching how `html` already handled them.
+- **`internal/cssunit`** — `html` and `svg` previously hand-rolled length/unit parsing ("12px", "10pt", "50%") at five independent call sites, each with its own unit list and quirks. Both now share one tokenizer, `internal/cssunit.Parse`; each site keeps its own conversion policy (`html` resolves to PDF points, `svg` treats every unit as an SVG user unit 1:1). Two `svg` parsing corrections fell out of the consolidation — see Fixed.
+
+### Fixed
+
+- **`border-collapse: collapse` now resolves competing borders on shared cell edges per CSS 2.1 §17.6.2** (width, then style priority, then source order; `border-style: hidden` always wins regardless of width) — previously the collapse code only suppressed duplicate borders by cell position, so a narrower or undeclared border on one side of a shared edge could silently win over a wider, explicitly declared border on the other (#378).
+- **`li::marker { content: counter(list-item) }` now numbers list items** — `<li>` implicitly increments the CSS `list-item` counter and `<ul>`/`<ol>` implicitly reset it, per CSS Lists Module 3, so `::marker` content driven by `counter(list-item)` (or `counters(list-item, sep)` for nested lists) resolves correctly instead of always reading `0`. `::marker { font-style: italic }` is also now honored.
+- **`@page` margin boxes (`@top-*`/`@bottom-*`) now honor `font-style`, `font-weight`, and `font-family`** — previously only `font-size` and `color` were applied to generated margin-box content; `font-style: italic` and similar declarations were silently dropped (#378).
+- **Table `rowspan` groups stay intact across a page break** — a rowspan cell and every row it covers are now kept together as one atomic unit when a table splits across pages; a group taller than a full page falls back to drawing past the page bottom, same as an oversized plain row (#362).
+- **`svg` dimension parsing no longer accepts multi-suffix garbage** — attribute values like `width="10empx"` were parsed by stripping every known unit suffix in sequence, so leftover garbage silently fell through to a clean number instead of failing. `svg` length parsing now consumes exactly one unit suffix; anything left over is rejected.
+- **`svg` `font-size` style now accepts `pt`-suffixed values** — `font-size: 12pt` previously failed to parse (only `px` was recognized) and silently left the inherited font size in place; it is now read as 12 user units, consistent with how the `width`/`height`/`r` attributes already treat `pt`.
+- **Array-form `bfrange` destinations now parse in `ToUnicode` CMaps** — a `beginbfrange`/`endbfrange` block whose destination is an array of individual code points (rather than a single starting hex value) was silently dropped, so text extraction lost the mapped characters for fonts using that CMap form (#387).
+- **Margin boxes draw in a fixed positional order** — the renderer previously iterated margin boxes via Go map iteration, which is intentionally randomized, so content-stream bytes and embedded font-resource ordering varied between otherwise-identical runs. Margin boxes now draw in a fixed top-left/top-center/top-right/bottom-left/bottom-center/bottom-right order, making output byte-reproducible under `document.WriteOptions.Deterministic`.
+- **PNG predictor honors `/Colors` and `/BitsPerComponent`** — the reader's PNG-predictor decoder assumed one 8-bit component per sample regardless of the stream's actual `/DecodeParms`, corrupting decoded row data for multi-component (RGB) or non-8-bit predicted streams. It now computes bytes-per-pixel and row stride from the declared `/Colors` and `/BitsPerComponent`, with hostile values sanitized to safe defaults.
+- **A tokenizer zero-progress case could hang the reader** — a stray `)`, `{`, or `}` byte produced an empty keyword token, so a caller looping on `Next` until `AtEnd` never advanced. Fixed alongside the encrypted-PDF reading work.
+- **Multi-column floats, `float: right`, `clear`, and float containment** — floats previously worked only as a single-float width reduction at the top of the page flow. A float now resolves its width against the full containing block rather than the space left by sibling floats (so percentage-width float columns no longer collapse and `float: right` lands at the right edge), multiple same-side floats stack instead of overlapping, an in-flow block that cannot fit beside the floats drops below them, and a new `Div`-level float context handles placement, `clear` among children, and growing the container to enclose its floats (the flow-root model) (#367).
+- **Anonymous table-row generation for bare `display: table-cell` children** — a `display: table` element whose direct children were `display: table-cell` boxes with no `display: table-row` wrapper treated each bare cell as its own single-cell row and stacked them vertically instead of forming one horizontal row, per CSS table box fixup. Consecutive bare cells are now wrapped in an anonymous row (#367).
+
+### Security
+
+- **Reject negative or oversized `/W` widths in xref streams** — a crafted `/W` array with a negative or very large field width could drive the entry-size computation negative and panic on the resulting allocation; out-of-range widths (outside `[0, 8]`) now fail with an error before any allocation.
+- **Bound cmap range expansion against hostile overlapping ranges** — format 4 and format 12 `cmap` subtables now cap the total number of code points expanded across all segments/groups at `1<<22` (about 4x the legitimate maximum of the full Unicode range), rejecting fonts whose overlapping ranges would otherwise expand into an unbounded map and burn CPU.
+- **Bound WOFF table decompression before `ReadAll`** — WOFF decoding now caps the declared total uncompressed size of all tables at 256 MB and limits each table's `zlib` decompression to its declared size plus one byte, so a decompression bomb fails fast instead of materializing an unbounded buffer.
+- **Validate image dimensions from the header before decoding** — PNG, GIF, TIFF, and WebP decoding now reads and checks the image dimensions from the format header (against `MaxDimension`/`MaxPixels`) before allocating the pixel buffer, closing a memory-exhaustion path where a crafted header claimed a small file but an enormous canvas.
+- **C ABI: `unsafe.Slice` with a count cap at the array boundary** — `(pointer, count)` array arguments crossing the C ABI are now validated (count in `[0, 1<<20]`, non-nil pointer for a non-zero count) before being turned into a Go slice via `unsafe.Slice`, rejecting a hostile or mistaken count instead of risking an out-of-bounds read or crash.
+- **Xref-stream decompression now honors the caller's `MaxXrefSize`** — `ReadOptions.MemoryLimits.MaxXrefSize` was previously ignored for the xref-stream decompression step, which always used the hardcoded 32 MB default regardless of a caller-configured limit.
+- **`sfntFace` lazy caches are synchronized** — the GSUB, GID-to-Unicode, and kern-pair caches on the TrueType/OpenType `Face` implementation are now each guarded by a `sync.Once`, so a single `Face` shared across goroutines (a common pattern for an embedded font reused by concurrent renders) no longer races on first use.
+
+### Performance
+
+- **Zero-allocation `MeasureString`** — eliminated the per-call grapheme-cluster allocation in the hot text-measurement path.
+- **Eliminated quadratic prefix re-measurement in word chunking** — paragraph word-chunking no longer re-measures the same prefix from scratch for each candidate break point.
+- **CSS rules bucketed by rightmost simple selector** — style resolution indexes rules by the rightmost selector component instead of scanning every rule for every element, cutting match time on stylesheets with many rules.
+- **Font-descriptor metrics parsed once at face construction** — instead of being re-derived on repeated access.
+
+### Tests
+
+- CMS round-trip and tamper-detection tests for `sign.Verify`.
+- `svg` malformed-input tests and fuzz targets.
+- A golden characterization corpus for style resolution and paragraph geometry.
+- A text-layout benchmark baseline (`font`, `layout`).
+- First Go-side tests for the C ABI handle table, plus an error-path stage in the C test harness (#403).
+- CI coverage for the remaining runnable examples that previously shipped untested (#231).
+
+### Internal
+
+- Mechanical split of `layout/paragraph.go` and the `html` converter into per-seam files, no behavior change (#405).
+- Consolidated measurer resolution across `paragraph.go`/`tab.go`/`table.go` into a single `resolveMeasurer` helper.
+- Replaced `len([]rune(s))` rune-counting with `utf8.RuneCountInString` where the runes themselves weren't needed.
+
+### Dependencies
+
+- `golang.org/x/image` 0.41.0 → 0.43.0
+- `golang.org/x/net` 0.55.0 → 0.56.0
+
 ## [0.9.1] - 2026-06-10
 
 A rendering-correctness release across `border-radius` (#329), CSS paged media

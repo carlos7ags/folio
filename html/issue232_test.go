@@ -193,7 +193,7 @@ func TestStrictAssetsRemoteFontHTTPFailureEscalates(t *testing.T) {
 	src := `<html><head><style>
 		@font-face { font-family: 'X'; src: url('` + srv.URL + `/font.ttf'); }
 	</style></head><body><p>hi</p></body></html>`
-	_, err := Convert(src, &Options{StrictAssets: true})
+	_, err := Convert(src, &Options{AllowRemoteFetch: true, URLPolicy: allowAllURLs, StrictAssets: true})
 	if err == nil {
 		t.Fatal("expected HTTP 500 to escalate")
 	}
@@ -225,8 +225,9 @@ func TestStrictAssetsURLPolicyDenialNotEscalated(t *testing.T) {
 	</style></head><body><p>hi</p></body></html>`
 
 	_, err := Convert(src, &Options{
-		StrictAssets: true,
-		URLPolicy:    denyAll,
+		AllowRemoteFetch: true,
+		StrictAssets:     true,
+		URLPolicy:        denyAll,
 	})
 	if err != nil {
 		t.Fatalf("URLPolicy denial must not escalate under StrictAssets: %v", err)

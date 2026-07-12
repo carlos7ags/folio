@@ -39,10 +39,14 @@ func TestRowspanExampleProducesValidPDF(t *testing.T) {
 	}
 }
 
-func TestRowspanExampleSinglePage(t *testing.T) {
+// TestRowspanExampleMultiPage checks the document now spans multiple
+// pages: the roster section is long enough to force a page break, and
+// (per TestRowspanExampleGroupCrossesPageBreak) that break lands right
+// before a rowspan group.
+func TestRowspanExampleMultiPage(t *testing.T) {
 	r := examplePDFReader(t)
-	if got := r.PageCount(); got != 1 {
-		t.Errorf("PageCount = %d, want 1", got)
+	if got := r.PageCount(); got < 2 {
+		t.Errorf("PageCount = %d, want >= 2", got)
 	}
 }
 
@@ -69,5 +73,56 @@ func TestRowspanExampleContent(t *testing.T) {
 		if !strings.Contains(text, want) {
 			t.Errorf("page text missing %q; extracted:\n%s", want, text)
 		}
+	}
+}
+
+// TestRowspanExampleGroupCrossesPageBreak is the issue #362 regression:
+// the roster's rowspanning "Platform Team" cell and the three rows under
+// it must land together on the page after the split, not be torn between
+// the page where the split occurs and the next one.
+func TestRowspanExampleGroupCrossesPageBreak(t *testing.T) {
+	r := examplePDFReader(t)
+	n := r.PageCount()
+	if n < 2 {
+		t.Fatalf("expected >= 2 pages, got %d", n)
+	}
+
+	pageText := func(i int) string {
+		page, err := r.Page(i)
+		if err != nil {
+			t.Fatalf("Page(%d): %v", i, err)
+		}
+		text, err := page.ExtractText()
+		if err != nil {
+			t.Fatalf("Page(%d).ExtractText: %v", i, err)
+		}
+		return text
+	}
+
+	// Find the page where the group's members appear; the group cell
+	// text and all of its rows must be on that same page.
+	groupMembers := []string{"Alice", "Bilal", "Chen", "Divya"}
+	groupPage := -1
+	for i := 0; i < n; i++ {
+		text := pageText(i)
+		if strings.Contains(text, "Alice") {
+			groupPage = i
+			break
+		}
+	}
+	if groupPage == -1 {
+		t.Fatal("could not find the page containing the rowspan group")
+	}
+	text := pageText(groupPage)
+	if !strings.Contains(text, "Platform Team") {
+		t.Errorf("page %d has the group's first member but not the spanning cell text", groupPage)
+	}
+	for _, member := range groupMembers {
+		if !strings.Contains(text, member) {
+			t.Errorf("page %d missing group member %q — the group was split across pages", groupPage, member)
+		}
+	}
+	if groupPage == 0 {
+		t.Error("expected the rowspan group on a later page than the first (it should have been pushed past the natural split)")
 	}
 }

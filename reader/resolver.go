@@ -14,9 +14,10 @@ import (
 // resolver fetches and caches PDF objects by their object number.
 type resolver struct {
 	xref       *xrefTable
-	cache      map[int]core.PdfObject
 	mem        *memoryTracker // memory safety limits
-	resolving  map[int]bool   // tracks objects currently being resolved (cycle detection)
+	cache      map[int]core.PdfObject
+	resolving  map[int]bool    // tracks objects currently being resolved (cycle detection)
+	decryptor  *core.Decryptor // nil for unencrypted documents
 	data       []byte
 	order      []int      // insertion order for LRU eviction
 	maxCache   int        // max cached objects (0 = unlimited)
@@ -41,6 +42,14 @@ func newResolver(data []byte, xref *xrefTable, mem *memoryTracker, strictness St
 // When exceeded, the oldest entries are evicted. 0 = unlimited.
 func (r *resolver) SetMaxCache(n int) {
 	r.maxCache = n
+}
+
+// SetDecryptor attaches a decryptor so subsequent Resolve calls decrypt
+// strings and stream payloads. Objects already cached before this call
+// (the /Encrypt dictionary itself) are left as-is — their strings are
+// never encrypted, so that is the correct plaintext value.
+func (r *resolver) SetDecryptor(d *core.Decryptor) {
+	r.decryptor = d
 }
 
 // Release removes a cached object, freeing memory.
@@ -112,7 +121,7 @@ func (r *resolver) Resolve(objNum int) (core.PdfObject, error) {
 	tok.SetPos(int(entry.offset))
 	parser := NewParser(tok)
 
-	parsedObjNum, _, obj, err := parser.ParseIndirectObject()
+	parsedObjNum, genNum, obj, err := parser.ParseIndirectObject()
 	if err != nil {
 		return nil, fmt.Errorf("reader: resolve object %d: %w", objNum, err)
 	}
@@ -122,9 +131,17 @@ func (r *resolver) Resolve(objNum int) (core.PdfObject, error) {
 
 	// If it's a stream, read the actual stream data from the file.
 	if stream, ok := obj.(*core.PdfStream); ok {
-		obj, err = r.resolveStream(stream, entry.offset)
+		obj, err = r.resolveStream(stream, entry.offset, objNum, genNum)
 		if err != nil {
 			return nil, err
+		}
+	} else if r.decryptor != nil {
+		// Non-stream objects: decrypt strings in place (Algorithm 1).
+		// Object-stream members never reach this path — they come back
+		// through resolveCompressed, which does not call DecryptObject,
+		// because the containing /ObjStm was already decrypted whole.
+		if err := r.decryptor.DecryptObject(obj, objNum, genNum); err != nil {
+			return nil, fmt.Errorf("reader: decrypt object %d: %w", objNum, err)
 		}
 	}
 
@@ -234,7 +251,17 @@ func (r *resolver) ResolveDeep(obj core.PdfObject) (core.PdfObject, error) {
 }
 
 // resolveStream reads and optionally decompresses stream data.
-func (r *resolver) resolveStream(stream *core.PdfStream, objOffset int64) (*core.PdfStream, error) {
+func (r *resolver) resolveStream(stream *core.PdfStream, objOffset int64, objNum, genNum int) (*core.PdfStream, error) {
+	// Decrypt strings in the stream dictionary itself (Algorithm 1).
+	// The raw payload is decrypted separately below, before
+	// decompression — on-disk order is compress-then-encrypt, so
+	// reading it back is decrypt-then-decompress.
+	if r.decryptor != nil {
+		if err := r.decryptor.DecryptObject(stream.Dict, objNum, genNum); err != nil {
+			return nil, fmt.Errorf("reader: decrypt stream dict (obj %d): %w", objNum, err)
+		}
+	}
+
 	// Resolve /Length if it's an indirect reference.
 	lengthObj := stream.Dict.Get("Length")
 	streamLen := 0
@@ -317,6 +344,14 @@ func (r *resolver) resolveStream(stream *core.PdfStream, objOffset int64) (*core
 			rawData := make([]byte, streamLen)
 			copy(rawData, tok.data[tok.pos:tok.pos+streamLen])
 
+			if streamNeedsDecryption(stream.Dict, r.decryptor) {
+				decrypted, err := r.decryptor.DecryptBytes(objNum, genNum, rawData)
+				if err != nil {
+					return nil, fmt.Errorf("reader: decrypt stream (obj %d): %w", objNum, err)
+				}
+				rawData = decrypted
+			}
+
 			// Decompress if needed.
 			data, err := decompressStreamLimited(rawData, stream.Dict, r.mem)
 			if err != nil {
@@ -354,6 +389,21 @@ func (r *resolver) resolveStream(stream *core.PdfStream, objOffset int64) (*core
 	}
 
 	return stream, nil
+}
+
+// streamNeedsDecryption reports whether a stream's raw payload should
+// be decrypted. Per ISO 32000-1 §7.6.1, when /EncryptMetadata is false
+// a /Type /Metadata stream is stored in the clear even though the rest
+// of the document is encrypted.
+func streamNeedsDecryption(dict *core.PdfDictionary, d *core.Decryptor) bool {
+	if d == nil {
+		return false
+	}
+	if d.EncryptMetadata {
+		return true
+	}
+	name, ok := dict.Get("Type").(*core.PdfName)
+	return !ok || name.Value != "Metadata"
 }
 
 // scanForEndstream searches for the "endstream" keyword starting from
@@ -439,6 +489,8 @@ func decompressStreamWithLimit(data []byte, dict *core.PdfDictionary, maxBytes i
 func applyPredictor(data []byte, parms *core.PdfDictionary) ([]byte, error) {
 	predictor := 1
 	columns := 1
+	colors := 1
+	bpc := 8
 
 	if p := parms.Get("Predictor"); p != nil {
 		if num, ok := p.(*core.PdfNumber); ok {
@@ -450,14 +502,41 @@ func applyPredictor(data []byte, parms *core.PdfDictionary) ([]byte, error) {
 			columns = num.IntValue()
 		}
 	}
+	if c := parms.Get("Colors"); c != nil {
+		if num, ok := c.(*core.PdfNumber); ok {
+			colors = num.IntValue()
+		}
+	}
+	if b := parms.Get("BitsPerComponent"); b != nil {
+		if num, ok := b.(*core.PdfNumber); ok {
+			bpc = num.IntValue()
+		}
+	}
 
 	if predictor == 1 {
 		return data, nil // no prediction
 	}
 
+	// Sanitize hostile /Colors and /BitsPerComponent values.
+	if colors < 1 {
+		colors = 1
+	}
+	switch bpc {
+	case 1, 2, 4, 8, 16:
+	default:
+		bpc = 8
+	}
+
 	if predictor >= 10 && predictor <= 15 {
-		// PNG prediction: each row has a filter byte followed by `columns` data bytes.
-		return decodePNGPredictor(data, columns)
+		// PNG prediction: /Columns is samples per row, each sample is
+		// `colors` components of `bpc` bits. Guard against overflow from
+		// a hostile /Columns before computing the row stride.
+		if columns < 0 || colors > 64 || columns > (1<<28) {
+			return data, nil
+		}
+		bpp := (colors*bpc + 7) / 8
+		rowBytes := (columns*colors*bpc + 7) / 8
+		return decodePNGPredictor(data, rowBytes, bpp)
 	}
 
 	// TIFF predictor (2) or unknown — return as-is.
@@ -465,16 +544,23 @@ func applyPredictor(data []byte, parms *core.PdfDictionary) ([]byte, error) {
 }
 
 // decodePNGPredictor reverses PNG row filtering.
-// Each row is (1 + columns) bytes: filter_byte + data_bytes.
-func decodePNGPredictor(data []byte, columns int) ([]byte, error) {
-	rowSize := columns + 1 // filter byte + data
+// Each row is (1 + rowBytes) bytes: filter_byte + data_bytes. The left
+// neighbor for filtering is bpp bytes back (bytes per pixel/sample).
+func decodePNGPredictor(data []byte, rowBytes, bpp int) ([]byte, error) {
+	rowSize := rowBytes + 1 // filter byte + data
 	if rowSize <= 1 || len(data) == 0 {
 		return data, nil
 	}
-	// Bound columns: if a single row exceeds the data, the predictor
+	// Bound rowBytes: if a single row exceeds the data, the predictor
 	// cannot apply. This prevents allocation DoS from malicious /Columns.
 	if rowSize > len(data) {
 		return data, nil
+	}
+	if bpp < 1 {
+		bpp = 1
+	}
+	if bpp > rowBytes {
+		bpp = rowBytes
 	}
 
 	nRows := len(data) / rowSize
@@ -483,7 +569,7 @@ func decodePNGPredictor(data []byte, columns int) ([]byte, error) {
 	}
 
 	var result []byte
-	prevRow := make([]byte, columns)
+	prevRow := make([]byte, rowBytes)
 
 	for row := range nRows {
 		offset := row * rowSize
@@ -491,39 +577,37 @@ func decodePNGPredictor(data []byte, columns int) ([]byte, error) {
 			break
 		}
 		filterType := data[offset]
-		rowData := make([]byte, columns)
+		rowData := make([]byte, rowBytes)
 		copy(rowData, data[offset+1:min(offset+rowSize, len(data))])
 
 		switch filterType {
 		case 0: // None
 			// rowData is already correct.
 		case 1: // Sub
-			for i := 1; i < columns; i++ {
-				rowData[i] += rowData[i-1]
+			for i := bpp; i < rowBytes; i++ {
+				rowData[i] += rowData[i-bpp]
 			}
 		case 2: // Up
-			for i := range columns {
+			for i := range rowBytes {
 				rowData[i] += prevRow[i]
 			}
 		case 3: // Average
-			for i := range columns {
+			for i := range rowBytes {
 				left := byte(0)
-				if i > 0 {
-					left = rowData[i-1]
+				if i >= bpp {
+					left = rowData[i-bpp]
 				}
 				rowData[i] += byte((int(left) + int(prevRow[i])) / 2)
 			}
 		case 4: // Paeth
-			for i := range columns {
+			for i := range rowBytes {
 				left := byte(0)
-				if i > 0 {
-					left = rowData[i-1]
+				upLeft := byte(0)
+				if i >= bpp {
+					left = rowData[i-bpp]
+					upLeft = prevRow[i-bpp]
 				}
 				up := prevRow[i]
-				upLeft := byte(0)
-				if i > 0 {
-					upLeft = prevRow[i-1]
-				}
 				rowData[i] += paethPredictor(left, up, upLeft)
 			}
 		}

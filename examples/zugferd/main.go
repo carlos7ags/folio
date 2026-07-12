@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 // ZUGFeRD demonstrates creating a PDF/A-3B compliant invoice with an
-// embedded Factur-X/ZUGFeRD XML file attachment.
+// embedded Factur-X/ZUGFeRD XML file attachment via the zugferd package.
 //
 // PDF/A-3B is the only PDF/A level that permits file attachments
 // (ISO 19005-3 §6.4). This makes it the standard for hybrid e-invoice
@@ -11,8 +11,8 @@
 //
 // The example generates a minimal invoice PDF with:
 //   - PDF/A-3B compliance with sRGB output intent
-//   - An embedded XML attachment with AFRelationship "Alternative"
-//   - XMP metadata declaring the Factur-X schema
+//   - An embedded Factur-X CII XML attachment, built and attached by
+//     [github.com/carlos7ags/folio/zugferd.Invoice.Attach]
 //   - Invoice content rendered via the HTML converter (auto-embeds fonts)
 //
 // Usage:
@@ -24,13 +24,33 @@ import (
 	"fmt"
 	"os"
 	"runtime"
+	"time"
 
 	"github.com/carlos7ags/folio/document"
 	"github.com/carlos7ags/folio/html"
 	"github.com/carlos7ags/folio/layout"
+	"github.com/carlos7ags/folio/zugferd"
 )
 
 func main() {
+	doc, err := buildDocument()
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+
+	if err := doc.Save("zugferd-invoice.pdf"); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+	fmt.Println("Created zugferd-invoice.pdf")
+}
+
+// buildDocument assembles the PDF/A-3B Factur-X invoice and returns
+// the ready-to-write Document. Extracted from main() so the example
+// test (main_test.go) can exercise the same font-discovery, HTML, and
+// attachment pipeline against an in-memory buffer instead of disk.
+func buildDocument() (*document.Document, error) {
 	doc := document.NewDocument(document.PageSizeA4)
 	doc.SetMargins(layout.Margins{Top: 40, Right: 40, Bottom: 40, Left: 40})
 	doc.Info.Title = "Invoice 2024-001"
@@ -39,8 +59,7 @@ func main() {
 	// --- Discover a system font for embedding (PDF/A requires it) ---
 	fontPath := findSystemFont()
 	if fontPath == "" {
-		fmt.Fprintln(os.Stderr, "no suitable system font found for PDF/A embedding")
-		os.Exit(1)
+		return nil, fmt.Errorf("no suitable system font found for PDF/A embedding")
 	}
 
 	// --- Invoice content via HTML (auto-embeds fonts for PDF/A) ---
@@ -90,95 +109,44 @@ hr { margin: 8px 0; border: none; border-top: 1px solid #ccc; }
 
 </body></html>`
 
-	elems, err := html.Convert(invoiceHTML, nil)
+	elems, err := html.Convert(invoiceHTML, &html.Options{AllowAbsolutePaths: true})
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "html:", err)
-		os.Exit(1)
+		return nil, fmt.Errorf("html: %w", err)
 	}
 	for _, e := range elems {
 		doc.Add(e)
 	}
 
-	// --- PDF/A-3B with Factur-X XMP schema ---
-	doc.SetPdfA(document.PdfAConfig{
-		Level: document.PdfA3B,
-		XMPSchemas: []document.XMPSchema{{
-			Schema:       "Factur-X PDFA Extension Schema",
-			NamespaceURI: "urn:factur-x:pdfa:CrossIndustryDocument:invoice:1p0#",
-			Prefix:       "fx",
-			Properties: []document.XMPSchemaProperty{
-				{Name: "DocumentFileName", ValueType: "Text", Category: "external", Description: "Name of the embedded XML invoice file"},
-				{Name: "DocumentType", ValueType: "Text", Category: "external", Description: "Type of the hybrid document"},
-				{Name: "Version", ValueType: "Text", Category: "external", Description: "Version of the Factur-X standard"},
-				{Name: "ConformanceLevel", ValueType: "Text", Category: "external", Description: "Factur-X conformance level"},
-			},
-		}},
-		XMPProperties: []document.XMPPropertyBlock{{
-			Namespace: "urn:factur-x:pdfa:CrossIndustryDocument:invoice:1p0#",
-			Prefix:    "fx",
-			Properties: []document.XMPProperty{
-				{Name: "DocumentFileName", Value: "factur-x.xml"},
-				{Name: "DocumentType", Value: "INVOICE"},
-				{Name: "Version", Value: "1.0"},
-				{Name: "ConformanceLevel", Value: "BASIC"},
-			},
-		}},
-	})
-
-	// --- Attach Factur-X XML ---
-	// Minimal CrossIndustryInvoice matching the PDF content.
-	xmlData := []byte(`<?xml version="1.0" encoding="UTF-8"?>
-<rsm:CrossIndustryInvoice
-  xmlns:rsm="urn:un:unece:uncefact:data:standard:CrossIndustryInvoice:100"
-  xmlns:ram="urn:un:unece:uncefact:data:standard:ReusableAggregateBusinessInformationEntity:100"
-  xmlns:udt="urn:un:unece:uncefact:data:standard:UnqualifiedDataType:100">
-  <rsm:ExchangedDocumentContext>
-    <ram:GuidelineSpecifiedDocumentContextParameter>
-      <ram:ID>urn:factur-x.eu:1p0:basic</ram:ID>
-    </ram:GuidelineSpecifiedDocumentContextParameter>
-  </rsm:ExchangedDocumentContext>
-  <rsm:ExchangedDocument>
-    <ram:ID>2024-001</ram:ID>
-    <ram:TypeCode>380</ram:TypeCode>
-    <ram:IssueDateTime>
-      <udt:DateTimeString format="102">20240115</udt:DateTimeString>
-    </ram:IssueDateTime>
-  </rsm:ExchangedDocument>
-  <rsm:SupplyChainTradeTransaction>
-    <ram:ApplicableHeaderTradeAgreement>
-      <ram:SellerTradeParty>
-        <ram:Name>ACME Corp</ram:Name>
-      </ram:SellerTradeParty>
-      <ram:BuyerTradeParty>
-        <ram:Name>Example GmbH</ram:Name>
-      </ram:BuyerTradeParty>
-    </ram:ApplicableHeaderTradeAgreement>
-    <ram:ApplicableHeaderTradeSettlement>
-      <ram:InvoiceCurrencyCode>EUR</ram:InvoiceCurrencyCode>
-      <ram:SpecifiedTradeSettlementHeaderMonetarySummation>
-        <ram:TaxBasisTotalAmount>337.50</ram:TaxBasisTotalAmount>
-        <ram:TaxTotalAmount currencyID="EUR">64.13</ram:TaxTotalAmount>
-        <ram:GrandTotalAmount>401.63</ram:GrandTotalAmount>
-        <ram:DuePayableAmount>401.63</ram:DuePayableAmount>
-      </ram:SpecifiedTradeSettlementHeaderMonetarySummation>
-    </ram:ApplicableHeaderTradeSettlement>
-  </rsm:SupplyChainTradeTransaction>
-</rsm:CrossIndustryInvoice>`)
-
-	doc.AttachFile(document.FileAttachment{
-		FileName:       "factur-x.xml",
-		MIMEType:       "application/xml",
-		Description:    "Factur-X XML Invoice Data (BASIC profile)",
-		AFRelationship: "Alternative",
-		Data:           xmlData,
-	})
-
-	// --- Write ---
-	if err := doc.Save("zugferd-invoice.pdf"); err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		os.Exit(1)
+	// --- Factur-X: PDF/A-3B, XMP schema, and embedded CII XML ---
+	// Attach derives all three from the invoice and wires them onto doc
+	// in one call, matching the rendered content above.
+	invoice := &zugferd.Invoice{
+		Number:    "2024-001",
+		IssueDate: time.Date(2024, 1, 15, 0, 0, 0, 0, time.UTC),
+		Currency:  "EUR",
+		Seller:    zugferd.Party{Name: "ACME Corp", VATID: "DE123456789"},
+		Buyer:     zugferd.Party{Name: "Example GmbH", VATID: "DE987654321"},
+		Lines: []zugferd.LineItem{
+			{Description: "Widget A - Standard", Quantity: "10", UnitPrice: zugferd.NewAmount(5, 0), LineTotal: zugferd.NewAmount(50, 0), TaxRatePercent: "19.00"},
+			{Description: "Widget B - Premium", Quantity: "3", UnitPrice: zugferd.NewAmount(12, 50), LineTotal: zugferd.NewAmount(37, 50), TaxRatePercent: "19.00"},
+			{Description: "Consulting Service", Quantity: "1", UnitPrice: zugferd.NewAmount(250, 0), LineTotal: zugferd.NewAmount(250, 0), TaxRatePercent: "19.00"},
+		},
+		TaxTotals: []zugferd.TaxBreakdown{
+			{RatePercent: "19.00", TaxableAmount: zugferd.NewAmount(337, 50), TaxAmount: zugferd.NewAmount(64, 13)},
+		},
+		Totals: zugferd.MonetarySummation{
+			LineTotal:     zugferd.NewAmount(337, 50),
+			TaxBasisTotal: zugferd.NewAmount(337, 50),
+			TaxTotal:      zugferd.NewAmount(64, 13),
+			GrandTotal:    zugferd.NewAmount(401, 63),
+		},
+		PaymentTerms: "30 days net",
 	}
-	fmt.Println("Created zugferd-invoice.pdf")
+	if err := invoice.Attach(doc, zugferd.ProfileBasic); err != nil {
+		return nil, fmt.Errorf("zugferd: %w", err)
+	}
+
+	return doc, nil
 }
 
 // findSystemFont returns the path to a TrueType font available on the

@@ -82,6 +82,7 @@ type Document struct {
 	headerElem       ElementDecorator
 	footerElem       ElementDecorator
 	watermark        *WatermarkConfig
+	debugMediaBox    *debugMediaBoxConfig
 	encryption       *EncryptionConfig
 	pdfA             *PdfAConfig // if non-nil, produce PDF/A conformant output
 	viewerPrefs      *ViewerPreferences
@@ -510,6 +511,12 @@ func (d *Document) buildAllPages(ctx context.Context) (all []*Page, structTags [
 		for _, p := range all {
 			d.applyWatermark(p)
 		}
+	}
+
+	// Apply debug MediaBox outline last so it renders on top of everything,
+	// including the watermark.
+	for _, p := range all {
+		d.applyDebugMediaBox(p)
 	}
 
 	return all, structTags, nil

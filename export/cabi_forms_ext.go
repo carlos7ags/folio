@@ -48,9 +48,13 @@ func folio_form_add_listbox(formH C.uint64_t, name *C.char, x1, y1, x2, y2 C.dou
 	}
 	rect := [4]float64{float64(x1), float64(y1), float64(x2), float64(y2)}
 	n := int(optCount)
+	if n < 0 || n > maxCArrayCount {
+		setLastError(fmt.Sprintf("array count %d out of range [0, %d]", n, maxCArrayCount))
+		return errInvalidArg
+	}
 	goOpts := make([]string, n)
 	if n > 0 && options != nil {
-		cArray := (*[1 << 20]*C.char)(unsafe.Pointer(options))[:n:n]
+		cArray := unsafe.Slice(options, n)
 		for i := 0; i < n; i++ {
 			goOpts[i] = C.GoString(cArray[i])
 		}
@@ -71,9 +75,14 @@ func folio_form_add_radio_group(formH C.uint64_t, name *C.char,
 		setLastError("radio group requires at least one option")
 		return errInvalidArg
 	}
-	cValues := (*[1 << 20]*C.char)(unsafe.Pointer(values))[:n:n]
-	cRects := (*[1 << 20]C.double)(unsafe.Pointer(rects))[: n*4 : n*4]
-	cPages := (*[1 << 20]C.int32_t)(unsafe.Pointer(pageIndices))[:n:n]
+	if !checkCArray(unsafe.Pointer(values), n) ||
+		!checkCArray(unsafe.Pointer(rects), n*4) ||
+		!checkCArray(unsafe.Pointer(pageIndices), n) {
+		return errInvalidArg
+	}
+	cValues := unsafe.Slice(values, n)
+	cRects := unsafe.Slice(rects, n*4)
+	cPages := unsafe.Slice(pageIndices, n)
 
 	opts := make([]forms.RadioOption, n)
 	for i := 0; i < n; i++ {
