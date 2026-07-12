@@ -239,7 +239,7 @@ func (tl *TabbedLine) measurer() font.TextMeasurer {
 // lineHeight resolves the tabbed line's line height, honoring
 // line-height:normal (LeadingNormal) via the line's own font metrics.
 func (tl *TabbedLine) lineHeight() float64 {
-	return resolveLineHeight(tl.leading, tl.fontSize, TextRun{Font: tl.font, Embedded: tl.embedded, FontSize: tl.fontSize})
+	return resolveLineHeight(tl.leading, tl.fontSize, []TextRun{{Font: tl.font, Embedded: tl.embedded, FontSize: tl.fontSize}})
 }
 
 // MinWidth implements Measurable. Returns the rightmost tab stop position

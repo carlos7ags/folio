@@ -61,12 +61,27 @@ func computeBaseline(words []Word, lineH float64) float64 {
 // an unusually large line-gap. font.Standard (the base-14 PDF fonts) has no
 // embedded vertical metrics to consult, so it falls back to the same 1.2
 // approximation used before this existed.
-func resolveLineHeight(leading, maxFontSize float64, dominant TextRun) float64 {
+func resolveLineHeight(leading, maxFontSize float64, runs []TextRun) float64 {
 	if leading != LeadingNormal {
 		return maxFontSize * leading
 	}
-	if dominant.Embedded != nil {
-		return dominant.Embedded.NormalLineHeight(maxFontSize)
+	// CSS resolves `normal` per inline box and takes the tallest one, not
+	// "whichever run happens to carry the largest font-size" — a run.Font
+	// (base-14, no embedded vertical metrics) can't contribute here, but a
+	// smaller-font Embedded run can still need more leading than a larger
+	// plain-font run, and a naive "the run that set maxFontSize" pick is
+	// order-dependent when multiple runs tie on font size.
+	var maxHeight float64
+	for _, run := range runs {
+		if run.Embedded == nil {
+			continue
+		}
+		if h := run.Embedded.NormalLineHeight(run.FontSize); h > maxHeight {
+			maxHeight = h
+		}
+	}
+	if maxHeight > 0 {
+		return maxHeight
 	}
 	return maxFontSize * 1.2
 }
@@ -292,10 +307,9 @@ func (p *Paragraph) MeasureHeight(maxWidth float64) float64 {
 // are appended to the last word of the previous run. This produces
 // "here." as one word instead of "here" + "." as two, matching standard
 // typographic behavior at style boundaries.
-func (p *Paragraph) measureWords(maxWidth float64) ([]Word, float64, TextRun) {
+func (p *Paragraph) measureWords(maxWidth float64) ([]Word, float64) {
 	var measured []Word
 	var maxFontSize float64
-	var dominantRun TextRun
 
 	nextLineBreakFromBr := false
 	for i, run := range p.runs {
@@ -400,7 +414,6 @@ func (p *Paragraph) measureWords(maxWidth float64) ([]Word, float64, TextRun) {
 		}
 		if run.FontSize > maxFontSize {
 			maxFontSize = run.FontSize
-			dominantRun = run
 		}
 	}
 
@@ -413,12 +426,16 @@ func (p *Paragraph) measureWords(maxWidth float64) ([]Word, float64, TextRun) {
 	// silently degrade to default break behavior whenever re-measurement
 	// was performed by this code path. white-space:nowrap leaves an
 	// overlong word intact so it overflows instead of wrapping.
-	if p.wordBreak == "break-all" {
+	if p.noWrap {
+		// nowrap forbids taking any break opportunity, including the ones
+		// break-all would otherwise add — matches browser behavior where
+		// white-space:nowrap overrides word-break within the same element.
+	} else if p.wordBreak == "break-all" {
 		measured = breakAllWords(measured, maxWidth)
-	} else if !p.noWrap {
+	} else {
 		measured = breakLongWords(measured, maxWidth)
 	}
-	return measured, maxFontSize, dominantRun
+	return measured, maxFontSize
 }
 
 // wordMeasurer returns a TextMeasurer for the given word's font.

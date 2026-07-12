@@ -163,11 +163,11 @@ func TestParagraphLineHeight(t *testing.T) {
 	}
 }
 
-// TestParagraphLeadingNormalUsesFontMetrics is the regression test for
-// FOLIO-GAP-01: line-height:normal must be derived from the embedded font's
-// own vertical metrics (ascent+descent+line-gap), not a flat fontSize*1.2 —
-// Poppins declares an unusually large line-gap, so its normal leading is
-// well above the 1.2 default other fonts fall back to.
+// TestParagraphLeadingNormalUsesFontMetrics is the regression test asserting
+// that line-height:normal is derived from the embedded font's own vertical
+// metrics (ascent+descent+line-gap), not a flat fontSize*1.2 — Poppins
+// declares an unusually large line-gap, so its normal leading is well above
+// the 1.2 default other fonts fall back to.
 func TestParagraphLeadingNormalUsesFontMetrics(t *testing.T) {
 	path, err := filepath.Abs("../font/testdata/Poppins-Bold.ttf")
 	if err != nil {
@@ -197,6 +197,57 @@ func TestParagraphLeadingNormalUsesFontMetrics(t *testing.T) {
 	plan := p.PlanLayout(LayoutArea{Width: 500, Height: 1000})
 	if len(plan.Blocks) == 0 {
 		t.Fatal("expected at least one block")
+	}
+}
+
+// TestParagraphLeadingNormalMixedFontsTakesMaxRegardlessOfOrder asserts that
+// when a paragraph mixes a plain font.Standard run with an embedded-font
+// run, line-height:normal resolves to the tallest of the two runs' own
+// normal leading — not "whichever run happens to carry the largest
+// font-size" (which is order-dependent when runs tie on size, and can
+// under-size the line box when a smaller-font embedded run needs more
+// leading than a larger plain-font run).
+func TestParagraphLeadingNormalMixedFontsTakesMaxRegardlessOfOrder(t *testing.T) {
+	path, err := filepath.Abs("../font/testdata/Poppins-Bold.ttf")
+	if err != nil {
+		t.Fatal(err)
+	}
+	face, err := font.LoadFont(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ef := font.NewEmbeddedFont(face)
+
+	const fontSize = 12
+	wantHeight := ef.NormalLineHeight(fontSize)
+	if wantHeight <= fontSize*1.2 {
+		t.Fatalf("test fixture assumption broken: Poppins's normal leading (%v) should exceed the flat 1.2 default (%v)", wantHeight, fontSize*1.2)
+	}
+
+	standardRun := TextRun{Text: "Std ", Font: font.Helvetica, FontSize: fontSize}
+	embeddedRun := TextRun{Text: "Emb", Embedded: ef, FontSize: fontSize}
+
+	for _, tc := range []struct {
+		name string
+		runs []TextRun
+	}{
+		{"standard first", []TextRun{standardRun, embeddedRun}},
+		{"embedded first", []TextRun{embeddedRun, standardRun}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			p := NewStyledParagraph(tc.runs...).SetLeading(LeadingNormal)
+			lines := p.Layout(500)
+			if len(lines) == 0 {
+				t.Fatal("expected at least one line")
+			}
+			if math.Abs(lines[0].Height-wantHeight) > 0.001 {
+				t.Errorf("Layout: expected height %.3f regardless of run order, got %.3f", wantHeight, lines[0].Height)
+			}
+			plan := p.PlanLayout(LayoutArea{Width: 500, Height: 1000})
+			if len(plan.Blocks) == 0 {
+				t.Fatal("expected at least one block")
+			}
+		})
 	}
 }
 
@@ -1313,8 +1364,8 @@ func TestParagraphWidowsOrphans(t *testing.T) {
 	}
 }
 
-// TestParagraphNoWrapOverflowsInsteadOfBreaking is the regression test for
-// FOLIO-GAP-02: an unbreakable word wider than maxWidth must stay on one
+// TestParagraphNoWrapOverflowsInsteadOfBreaking is the regression test
+// asserting that an unbreakable word wider than maxWidth stays on one
 // (overflowing) line under white-space:nowrap instead of being character-
 // broken across lines, matching browser behavior. Layout and PlanLayout are
 // two independent word-wrap implementations (the latter used for

@@ -95,14 +95,14 @@ func flattenLineWords(lines []Line) []Word {
 // within the available area. If the paragraph doesn't fit entirely, it
 // returns LayoutPartial with the remaining words as the Overflow element.
 func (p *Paragraph) PlanLayout(area LayoutArea) LayoutPlan {
-	measured, maxFontSize, dominantRun := p.measureWords(area.Width)
+	measured, maxFontSize := p.measureWords(area.Width)
 
 	if len(measured) == 0 {
 		consumed := p.spaceBefore + p.spaceAfter
 		return LayoutPlan{Status: LayoutFull, Consumed: consumed}
 	}
 
-	lineHeight := resolveLineHeight(p.leading, maxFontSize, dominantRun)
+	lineHeight := resolveLineHeight(p.leading, maxFontSize, p.runs)
 	wordLines := p.wrapWords(measured, area.Width)
 
 	// Bidi reordering: resolve the paragraph's base direction and
@@ -444,6 +444,7 @@ func (p *Paragraph) cloneWithWords(words []Word) *Paragraph {
 	return &Paragraph{
 		runs:             runs,
 		leading:          p.leading,
+		noWrap:           p.noWrap,
 		align:            p.align,
 		alignSet:         p.alignSet,
 		direction:        p.direction,

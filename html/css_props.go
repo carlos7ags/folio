@@ -10,18 +10,6 @@ import (
 	"github.com/carlos7ags/folio/layout"
 )
 
-// cssProperty is a declarative descriptor for a single CSS property
-// the parser knows about. The parser dispatches via cssPropByName when
-// applying a declaration; the same registry is the source of truth for
-// docs/CSS_SUPPORT.md (generated, see internal/gen-css-docs).
-//
-// All fields except Name and Apply are documentation-only — they have
-// no effect on parsing.
-//
-// Carve-out: the `content` property is NOT a candidate for this
-// registry. It is intercepted in pseudo-element generation
-// (parsePseudoContent) where the html.Node is in scope; it never
-// flows through applyProperty. Do not add a `content` entry here.
 // approxLineHeight resolves s.LineHeight to a point value for callers (like
 // baseline-shift percentage resolution) that need a plain number and don't
 // have a font face in scope to resolve [layout.LeadingNormal] properly —
@@ -34,6 +22,18 @@ func approxLineHeight(s *computedStyle) float64 {
 	return s.FontSize * s.LineHeight
 }
 
+// cssProperty is a declarative descriptor for a single CSS property
+// the parser knows about. The parser dispatches via cssPropByName when
+// applying a declaration; the same registry is the source of truth for
+// docs/CSS_SUPPORT.md (generated, see internal/gen-css-docs).
+//
+// All fields except Name and Apply are documentation-only — they have
+// no effect on parsing.
+//
+// Carve-out: the `content` property is NOT a candidate for this
+// registry. It is intercepted in pseudo-element generation
+// (parsePseudoContent) where the html.Node is in scope; it never
+// flows through applyProperty. Do not add a `content` entry here.
 type cssProperty struct {
 	Name     string                               // canonical CSS name, e.g. "letter-spacing"
 	Aliases  []string                             // alternative names handled identically (e.g. "-webkit-hyphens", "grid-gap")

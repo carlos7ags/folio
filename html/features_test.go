@@ -609,10 +609,10 @@ func TestWordBreakBreakAll(t *testing.T) {
 
 // --- white-space: nowrap ---
 
-// TestWhiteSpaceNowrapDoesNotBreakLongWord is the regression test for
-// FOLIO-GAP-02: an unbreakable word under white-space:nowrap must render
-// as a single overflowing line, not be character-broken across multiple
-// lines the way a normal (wrapping) long word would be.
+// TestWhiteSpaceNowrapDoesNotBreakLongWord is the regression test asserting
+// that an unbreakable word under white-space:nowrap renders as a single
+// overflowing line, not character-broken across multiple lines the way a
+// normal (wrapping) long word would be.
 func TestWhiteSpaceNowrapDoesNotBreakLongWord(t *testing.T) {
 	html := `<style>p { white-space: nowrap; }</style>
 	<p>Superlongwordthatwouldnormallyneverbreak</p>`
@@ -629,11 +629,33 @@ func TestWhiteSpaceNowrapDoesNotBreakLongWord(t *testing.T) {
 	}
 }
 
+// TestWhiteSpaceNowrapDoesNotSoftWrapAtSpaces asserts nowrap also suppresses
+// ordinary space-boundary wrapping, not just character-breaking of a single
+// unbreakable token — a multi-word nowrap run must stay on one line.
+func TestWhiteSpaceNowrapDoesNotSoftWrapAtSpaces(t *testing.T) {
+	html := `<style>p { white-space: nowrap; }</style>
+	<p>hello world this is nowrap text</p>`
+	elems, err := Convert(html, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(elems) == 0 {
+		t.Fatal("expected elements")
+	}
+	plan := elems[0].PlanLayout(layout.LayoutArea{Width: 50, Height: 1000})
+	if len(plan.Blocks) != 1 {
+		t.Errorf("white-space:nowrap should keep the whole run on one overflowing line, got %d blocks", len(plan.Blocks))
+	}
+}
+
 // TestWhiteSpaceNowrapAcrossFonts is a fast (no Chrome/poppler needed)
-// regression guard for FOLIO-GAP-02 across multiple font families and both
-// TTF/glyf and OTF/CFF outlines, so the nowrap fix isn't accidentally
-// coupled to Poppins specifically. The authoritative cross-check against a
-// real browser lives in the folio-repro parity harness.
+// regression guard across multiple font families and both TTF/glyf and
+// OTF/CFF outlines, so the nowrap fix isn't accidentally coupled to Poppins
+// specifically. No box-model properties are set on the element (no width,
+// no background) so it stays a bare Paragraph rather than being wrapped in
+// a Div — a Div's PlanLayout reports 1 top-level block regardless of how
+// many lines its inner paragraph wrapped into, which would make this
+// assertion pass even without the fix.
 func TestWhiteSpaceNowrapAcrossFonts(t *testing.T) {
 	files := []string{
 		"NimbusSans-Bold.otf",
@@ -656,9 +678,9 @@ func TestWhiteSpaceNowrapAcrossFonts(t *testing.T) {
 				src: url(data:font/truetype;base64,` + b64 + `) format('truetype');
 				font-weight: bold;
 			}
-			div { font-family: 'TestFont'; font-weight: bold; font-size: 16px; width: 320px; white-space: nowrap; }
+			p { font-family: 'TestFont'; font-weight: bold; font-size: 16px; white-space: nowrap; }
 		</style></head><body>
-			<div>ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789</div>
+			<p>ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789</p>
 		</body></html>`
 
 			elems, err := Convert(src, nil)
@@ -678,11 +700,11 @@ func TestWhiteSpaceNowrapAcrossFonts(t *testing.T) {
 
 // --- line-height: normal ---
 
-// TestLineHeightNormalUsesFontMetrics is the regression test for
-// FOLIO-GAP-01: `line-height: normal` on an element using an embedded
-// @font-face must resolve from that font's own vertical metrics, not a
-// flat fontSize*1.2. Poppins declares an unusually large line-gap, so its
-// resolved leading is well above the old flat default.
+// TestLineHeightNormalUsesFontMetrics asserts that `line-height: normal` on
+// an element using an embedded @font-face resolves from that font's own
+// vertical metrics, not a flat fontSize*1.2. Poppins declares an unusually
+// large line-gap, so its resolved leading is well above the old flat
+// default.
 func TestLineHeightNormalUsesFontMetrics(t *testing.T) {
 	ttfData, err := os.ReadFile("../font/testdata/Poppins-Bold.ttf")
 	if err != nil {

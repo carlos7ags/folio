@@ -225,7 +225,7 @@ func TestPunctuationNotMergedAcrossFontBoundary(t *testing.T) {
 		NewRun("click here", font.HelveticaBold, 12),
 		NewRun(". Then continue.", font.Helvetica, 12),
 	)
-	words, _, _ := p.measureWords(400)
+	words, _ := p.measureWords(400)
 	// "here" should be bold, "." should be regular (separate word).
 	for _, w := range words {
 		if w.Text == "here." {
@@ -256,8 +256,8 @@ func TestPunctuationMergeMatchesSingleRun(t *testing.T) {
 		NewRun("click here", font.Helvetica, 12),
 		NewRun(". Then continue.", font.Helvetica, 12),
 	)
-	singleWords, _, _ := single.measureWords(400)
-	multiWords, _, _ := multi.measureWords(400)
+	singleWords, _ := single.measureWords(400)
+	multiWords, _ := multi.measureWords(400)
 	if len(singleWords) != len(multiWords) {
 		t.Fatalf("word count differs: single=%d multi=%d", len(singleWords), len(multiWords))
 	}
@@ -276,7 +276,7 @@ func TestPunctuationCommaKeepsOwnFontAcrossBoundary(t *testing.T) {
 		NewRun("this", font.HelveticaBold, 12),
 		NewRun(", that.", font.Helvetica, 12),
 	)
-	words, _, _ := p.measureWords(400)
+	words, _ := p.measureWords(400)
 	// "this" should be bold, comma should NOT be merged into it.
 	for _, w := range words {
 		if w.Text == "this," {
@@ -311,7 +311,7 @@ func TestPunctuationLeadingSpaceNotMerged(t *testing.T) {
 		NewRun("word", font.Helvetica, 12),
 		NewRun(" . separate", font.Helvetica, 12),
 	)
-	words, _, _ := p.measureWords(400)
+	words, _ := p.measureWords(400)
 	// The "." should be a standalone word because the run starts with a space.
 	foundStandaloneDot := false
 	for _, w := range words {
@@ -335,7 +335,7 @@ func TestPunctuationMultipleChars(t *testing.T) {
 		NewRun("end", font.Helvetica, 12),
 		NewRun(").", font.Helvetica, 12),
 	)
-	words, _, _ := p.measureWords(400)
+	words, _ := p.measureWords(400)
 	foundMerged := false
 	for _, w := range words {
 		if w.Text == "end)." {
@@ -357,7 +357,7 @@ func TestPunctuationFirstRunNotMerged(t *testing.T) {
 	p := NewStyledParagraph(
 		NewRun("...start", font.Helvetica, 12),
 	)
-	words, _, _ := p.measureWords(400)
+	words, _ := p.measureWords(400)
 	if len(words) != 1 || words[0].Text != "...start" {
 		texts := make([]string, len(words))
 		for i, w := range words {

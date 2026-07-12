@@ -317,7 +317,6 @@ func (p *Paragraph) Layout(maxWidth float64) []Line {
 	// the styling of the run it came from.
 	var measured []Word
 	var maxFontSize float64
-	var dominantRun TextRun
 
 	nextLineBreakFromBr := false // tracks <br> line breaks across runs
 	for i, run := range p.runs {
@@ -400,7 +399,6 @@ func (p *Paragraph) Layout(maxWidth float64) []Line {
 		}
 		if run.FontSize > maxFontSize {
 			maxFontSize = run.FontSize
-			dominantRun = run
 		}
 	}
 
@@ -428,13 +426,17 @@ func (p *Paragraph) Layout(maxWidth float64) []Line {
 	// at character boundaries to fill lines maximally. white-space:nowrap
 	// leaves an overlong word intact so it overflows instead of wrapping,
 	// matching browser behavior.
-	if p.wordBreak == "break-all" {
+	if p.noWrap {
+		// nowrap forbids taking any break opportunity, including the ones
+		// break-all would otherwise add — matches browser behavior where
+		// white-space:nowrap overrides word-break within the same element.
+	} else if p.wordBreak == "break-all" {
 		measured = breakAllWords(measured, maxWidth)
-	} else if !p.noWrap {
+	} else {
 		measured = breakLongWords(measured, maxWidth)
 	}
 
-	lineHeight := resolveLineHeight(p.leading, maxFontSize, dominantRun)
+	lineHeight := resolveLineHeight(p.leading, maxFontSize, p.runs)
 
 	// Greedy word-wrap.
 	// Space between words uses the preceding word's SpaceAfter.
@@ -460,7 +462,7 @@ func (p *Paragraph) Layout(maxWidth float64) []Line {
 		}
 		spaceW := measured[i-1].SpaceAfter
 		candidate := lineWidth + spaceW + measured[i].Width
-		if candidate > effectiveMax && lineStart < i {
+		if !p.noWrap && candidate > effectiveMax && lineStart < i {
 			// Try hyphenation: if enabled, attempt to break the next word
 			// and fit part of it on this line with a hyphen.
 			if p.hyphens == "auto" {

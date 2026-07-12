@@ -47,7 +47,7 @@ func (p *Paragraph) wrapWords(words []Word, maxWidth float64) [][]Word {
 		}
 		spaceW := words[i-1].SpaceAfter
 		candidate := lw + spaceW + words[i].Width
-		if candidate > effectiveWidth && lineStart < i {
+		if !p.noWrap && candidate > effectiveWidth && lineStart < i {
 			lines = append(lines, slices.Clone(words[lineStart:i]))
 			lineStart = i
 			lw = words[i].Width

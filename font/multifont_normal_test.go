@@ -9,7 +9,7 @@ import (
 )
 
 // TestNormalLineHeightAcrossFonts is a fast (no Chrome/poppler needed)
-// regression guard for FOLIO-GAP-01 across multiple font families and both
+// regression guard for CSS line-height:normal resolution across multiple font families and both
 // TTF/glyf (Roboto, Open Sans, Noto Sans, Inter*) and OTF/CFF
 // (NimbusSans, Inter) outlines, so a fix that only happens to work for
 // Poppins's particular metrics doesn't regress another font. The

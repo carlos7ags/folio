@@ -161,7 +161,7 @@ func (l *List) SetLeading(leading float64) *List {
 // not any specific item), for call sites that need a line-height fallback
 // without an item's own measured run at hand.
 func (l *List) lineHeight() float64 {
-	return resolveLineHeight(l.leading, l.fontSize, TextRun{Font: l.font, Embedded: l.embedded, FontSize: l.fontSize})
+	return resolveLineHeight(l.leading, l.fontSize, []TextRun{{Font: l.font, Embedded: l.embedded, FontSize: l.fontSize}})
 }
 
 // SetDirection sets the text direction for list items. When RTL, markers
@@ -490,7 +490,7 @@ func (l *List) effectiveIndent() float64 {
 // single-line extent), used to size the outside gutter so a long marker does
 // not overlap the item text. Zero when the marker is empty/suppressed.
 func (l *List) markerWidth(index int) float64 {
-	words, _, _ := l.markerParagraph(index).measureWords(1e9)
+	words, _ := l.markerParagraph(index).measureWords(1e9)
 	return wordsWidth(words)
 }
 
@@ -685,7 +685,7 @@ func (l *List) planAt(area LayoutArea, baseIndent float64) LayoutPlan {
 		markerW := 0.0
 		if !item.suppressMarker {
 			markerPara := l.markerParagraph(i)
-			markerWords, _, _ = markerPara.measureWords(l.indent)
+			markerWords, _ = markerPara.measureWords(l.indent)
 			// markerW is the drawn marker's content width (sum of the same
 			// words), so inside text starts exactly where the marker ends.
 			markerW = wordsWidth(markerWords)
@@ -705,8 +705,8 @@ func (l *List) planAt(area LayoutArea, baseIndent float64) LayoutPlan {
 		if inside && markerW > 0 {
 			textPara.SetFirstLineIndent(markerW)
 		}
-		textWords, maxFS, dominantRun := textPara.measureWords(itemWidth)
-		lineHeight := resolveLineHeight(l.leading, maxFS, dominantRun)
+		textWords, maxFS := textPara.measureWords(itemWidth)
+		lineHeight := resolveLineHeight(l.leading, maxFS, textPara.runs)
 		wordLines := textPara.wrapWords(textWords, itemWidth)
 
 		// Build PlacedBlocks for each text line. fitCount tracks how many of
@@ -910,7 +910,7 @@ func (l *List) planElementItem(item listItem, index int, area LayoutArea, totalI
 	var markerWords []Word
 	if !item.suppressMarker {
 		markerPara := l.markerParagraph(index)
-		markerWords, _, _ = markerPara.measureWords(l.indent)
+		markerWords, _ = markerPara.measureWords(l.indent)
 	}
 
 	// Marker baseline: align to the first text line of the element.
