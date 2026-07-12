@@ -77,11 +77,14 @@ func (c *converter) convertTable(n *html.Node, style computedStyle) []layout.Ele
 		case atom.Col:
 			colWidths = append(colWidths, c.parseColWidth(child, style)...)
 		case atom.Thead:
-			c.convertTableRows(child, tbl, style, borderWidth, true)
+			sectionStyle := c.computeElementStyle(child, style)
+			c.convertTableRows(child, tbl, sectionStyle, borderWidth, true)
 		case atom.Tbody:
-			c.convertTableRows(child, tbl, style, borderWidth, false)
+			sectionStyle := c.computeElementStyle(child, style)
+			c.convertTableRows(child, tbl, sectionStyle, borderWidth, false)
 		case atom.Tfoot:
-			c.convertTableFooterRows(child, tbl, style, borderWidth)
+			sectionStyle := c.computeElementStyle(child, style)
+			c.convertTableFooterRows(child, tbl, sectionStyle, borderWidth)
 		case atom.Tr:
 			c.convertTableRow(child, tbl, style, borderWidth, false)
 		}
