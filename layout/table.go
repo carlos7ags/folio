@@ -1064,7 +1064,7 @@ func (t *Table) PlanLayout(area LayoutArea) LayoutPlan {
 		// checked. For a span-free row the group is just the row itself,
 		// so this reduces to the plain per-row check.
 		if groupStarts[i] == i {
-			needsFooter := footerRowCount > 0 && i > headerRowCount
+			needsFooter := footerRowCount > 0 && i >= headerRowCount
 			reserveH := 0.0
 			if needsFooter {
 				reserveH = footerHeight
@@ -1073,7 +1073,15 @@ func (t *Table) PlanLayout(area LayoutArea) LayoutPlan {
 			for k := i + 1; k < len(grid) && groupStarts[k] == i; k++ {
 				groupH += sv + grid[k].height
 			}
-			if curY+groupH+reserveH > area.Height && area.Height > 0 && i > headerRowCount {
+			// Fit-check body rows including the FIRST one (i == headerRowCount):
+			// header rows are always placed here, but the first body row must
+			// still fit alongside them or the header is left stranded at the
+			// page bottom with its row spilling into the bottom margin. When the
+			// first body row doesn't fit, splitIdx lands on it and the header-
+			// stranding guard after the loop defers the whole table to the next
+			// page. Header rows themselves (i < headerRowCount) never trigger a
+			// split.
+			if curY+groupH+reserveH > area.Height && area.Height > 0 && i >= headerRowCount {
 				splitIdx = i
 				break
 			}
@@ -1129,6 +1137,19 @@ func (t *Table) PlanLayout(area LayoutArea) LayoutPlan {
 			Tag:      "Table",
 			Children: rowBlocks,
 		}}
+	}
+
+	// Orphan guard: if the split landed on the first body row, not even one
+	// body row fit alongside the header in the available height. Placing the
+	// header alone would strand it at the page bottom (and the overflow table
+	// re-adds the header, duplicating it), so defer the WHOLE table — header
+	// included — to the next page by reporting LayoutNothing. The renderer
+	// relocates it to a fresh page where the full page height is available;
+	// and when already at the top of a page (a header+row taller than a whole
+	// page), the renderer force-places it, so pagination cannot loop. Guarded
+	// on there being body rows so a header/footer-only table still lays out.
+	if splitIdx <= headerRowCount && headerRowCount < bodyEnd {
+		return LayoutPlan{Status: LayoutNothing}
 	}
 
 	if splitIdx >= bodyEnd {

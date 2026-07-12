@@ -838,6 +838,20 @@ func (d *Div) PlanLayout(area LayoutArea) LayoutPlan {
 		}
 	}
 
+	// Zero-progress guard: if a child deferred (didn't fit even its first
+	// unit) and nothing at all was placed in-flow, report LayoutNothing
+	// rather than a partial with no content. A zero-progress partial makes
+	// the renderer append nothing, start a new page, and re-plan the same
+	// overflow — looping forever for content taller than a whole page (e.g.
+	// a Div wrapping a table whose first row group exceeds the page).
+	// LayoutNothing instead lets the renderer relocate to a fresh page and,
+	// at page top, force-place it (Height ≈ ∞). Mirrors the flex column's
+	// fittedCount == 0 handling. Scoped to the auto-height fragmenting path
+	// (paginateOverflow); a definite/clipping box keeps its contain semantics.
+	if paginateOverflow && !hasFloat && !allFit && fittedInFlow == 0 {
+		return LayoutPlan{Status: LayoutNothing}
+	}
+
 	// Add remaining un-laid-out siblings to overflow.
 	if overflowStartIdx >= 0 && overflowStartIdx+1 < len(d.elements) {
 		overflowElements = append(overflowElements, d.elements[overflowStartIdx+1:]...)
