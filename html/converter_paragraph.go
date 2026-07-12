@@ -124,6 +124,9 @@ func (c *converter) buildParagraphFromRuns(runs []layout.TextRun, style computed
 	if style.WordBreak == "break-all" || style.WordBreak == "break-word" || style.WordBreak == "keep-all" {
 		p.SetWordBreak(style.WordBreak)
 	}
+	if style.WhiteSpace == "nowrap" {
+		p.SetNoWrap(true)
+	}
 	if style.Orphans > 0 {
 		p.SetOrphans(style.Orphans)
 	}

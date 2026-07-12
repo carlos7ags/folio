@@ -4,7 +4,9 @@
 package html
 
 import (
+	"encoding/base64"
 	"math"
+	"os"
 	"strings"
 	"testing"
 
@@ -602,6 +604,130 @@ func TestWordBreakBreakAll(t *testing.T) {
 	plan := elems[0].PlanLayout(layout.LayoutArea{Width: 50, Height: 1000})
 	if plan.Consumed <= 0 {
 		t.Error("word-break:break-all should render text")
+	}
+}
+
+// --- white-space: nowrap ---
+
+// TestWhiteSpaceNowrapDoesNotBreakLongWord is the regression test for
+// FOLIO-GAP-02: an unbreakable word under white-space:nowrap must render
+// as a single overflowing line, not be character-broken across multiple
+// lines the way a normal (wrapping) long word would be.
+func TestWhiteSpaceNowrapDoesNotBreakLongWord(t *testing.T) {
+	html := `<style>p { white-space: nowrap; }</style>
+	<p>Superlongwordthatwouldnormallyneverbreak</p>`
+	elems, err := Convert(html, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(elems) == 0 {
+		t.Fatal("expected elements")
+	}
+	plan := elems[0].PlanLayout(layout.LayoutArea{Width: 50, Height: 1000})
+	if len(plan.Blocks) != 1 {
+		t.Errorf("white-space:nowrap should keep the word on one overflowing line, got %d blocks", len(plan.Blocks))
+	}
+}
+
+// TestWhiteSpaceNowrapAcrossFonts is a fast (no Chrome/poppler needed)
+// regression guard for FOLIO-GAP-02 across multiple font families and both
+// TTF/glyf and OTF/CFF outlines, so the nowrap fix isn't accidentally
+// coupled to Poppins specifically. The authoritative cross-check against a
+// real browser lives in the folio-repro parity harness.
+func TestWhiteSpaceNowrapAcrossFonts(t *testing.T) {
+	files := []string{
+		"NimbusSans-Bold.otf",
+		"Inter-Bold.otf",
+		"NotoSans-Bold.ttf",
+		"OpenSans-Bold.ttf",
+		"Roboto-Bold.ttf",
+	}
+	for _, name := range files {
+		t.Run(name, func(t *testing.T) {
+			ttfData, err := os.ReadFile("../font/testdata/" + name)
+			if err != nil {
+				t.Fatal(err)
+			}
+			b64 := base64.StdEncoding.EncodeToString(ttfData)
+
+			src := `<html><head><style>
+			@font-face {
+				font-family: 'TestFont';
+				src: url(data:font/truetype;base64,` + b64 + `) format('truetype');
+				font-weight: bold;
+			}
+			div { font-family: 'TestFont'; font-weight: bold; font-size: 16px; width: 320px; white-space: nowrap; }
+		</style></head><body>
+			<div>ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789</div>
+		</body></html>`
+
+			elems, err := Convert(src, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(elems) == 0 {
+				t.Fatal("expected elements")
+			}
+			plan := elems[0].PlanLayout(layout.LayoutArea{Width: 320, Height: 1000})
+			if len(plan.Blocks) != 1 {
+				t.Errorf("white-space:nowrap should keep the token on one overflowing line, got %d blocks", len(plan.Blocks))
+			}
+		})
+	}
+}
+
+// --- line-height: normal ---
+
+// TestLineHeightNormalUsesFontMetrics is the regression test for
+// FOLIO-GAP-01: `line-height: normal` on an element using an embedded
+// @font-face must resolve from that font's own vertical metrics, not a
+// flat fontSize*1.2. Poppins declares an unusually large line-gap, so its
+// resolved leading is well above the old flat default.
+func TestLineHeightNormalUsesFontMetrics(t *testing.T) {
+	ttfData, err := os.ReadFile("../font/testdata/Poppins-Bold.ttf")
+	if err != nil {
+		t.Fatal(err)
+	}
+	b64 := base64.StdEncoding.EncodeToString(ttfData)
+
+	src := `<html><head><style>
+		@font-face {
+			font-family: 'Poppins';
+			src: url(data:font/truetype;base64,` + b64 + `) format('truetype');
+		}
+		p { font-family: 'Poppins'; font-size: 11pt; line-height: normal; }
+	</style></head><body>
+		<p>Hello Poppins</p>
+	</body></html>`
+
+	elems, err := Convert(src, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(elems) == 0 {
+		t.Fatal("expected elements")
+	}
+	p, ok := elems[0].(*layout.Paragraph)
+	if !ok {
+		t.Fatalf("expected *Paragraph, got %T", elems[0])
+	}
+	lines := p.Layout(500)
+	if len(lines) == 0 || len(lines[0].Words) == 0 {
+		t.Fatal("no words")
+	}
+	ef := lines[0].Words[0].Embedded
+	if ef == nil {
+		t.Fatal("expected embedded font (Poppins @font-face was not loaded)")
+	}
+
+	const fontSize = 11.0
+	want := ef.NormalLineHeight(fontSize)
+	flatDefault := fontSize * 1.2
+	if want <= flatDefault {
+		t.Fatalf("test fixture assumption broken: Poppins's normal leading (%v) should exceed the flat default (%v)", want, flatDefault)
+	}
+	if math.Abs(lines[0].Height-want) > 0.001 {
+		t.Errorf("expected font-metric-derived height %.3f, got %.3f (flat 1.2 default would be %.3f)", want, lines[0].Height, flatDefault)
 	}
 }
 

@@ -20,7 +20,7 @@ import (
 func TestMeasureWordsBreakAll(t *testing.T) {
 	p := NewParagraph("abcd efgh", font.Helvetica, 12).SetWordBreak("break-all")
 
-	words, _ := p.measureWords(400)
+	words, _, _ := p.measureWords(400)
 	if len(words) == 0 {
 		t.Fatal("expected at least one measured word")
 	}
@@ -41,7 +41,7 @@ func TestMeasureWordsBreakAll(t *testing.T) {
 func TestMeasureWordsDefaultBreakingUnchanged(t *testing.T) {
 	p := NewParagraph("abcd efgh", font.Helvetica, 12)
 
-	words, _ := p.measureWords(400)
+	words, _, _ := p.measureWords(400)
 	multiRune := 0
 	for _, w := range words {
 		if utf8.RuneCountInString(w.Text) > 1 {
@@ -61,7 +61,7 @@ func TestMeasureWordsBreakAllPrecedence(t *testing.T) {
 	// keep-all is its own mode; combining is undefined per spec, but
 	// break-all is what the user explicitly asked for here.
 	p := NewParagraph("abcd", font.Helvetica, 12).SetWordBreak("break-all")
-	words, _ := p.measureWords(400)
+	words, _, _ := p.measureWords(400)
 	for i, w := range words {
 		if utf8.RuneCountInString(w.Text) != 1 {
 			t.Errorf("word %d: %q not split under break-all", i, w.Text)

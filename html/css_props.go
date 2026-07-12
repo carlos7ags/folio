@@ -22,6 +22,18 @@ import (
 // registry. It is intercepted in pseudo-element generation
 // (parsePseudoContent) where the html.Node is in scope; it never
 // flows through applyProperty. Do not add a `content` entry here.
+// approxLineHeight resolves s.LineHeight to a point value for callers (like
+// baseline-shift percentage resolution) that need a plain number and don't
+// have a font face in scope to resolve [layout.LeadingNormal] properly —
+// falls back to the same 1.2 approximation used before normal line-height
+// became font-metric-derived.
+func approxLineHeight(s *computedStyle) float64 {
+	if s.LineHeight == layout.LeadingNormal {
+		return s.FontSize * 1.2
+	}
+	return s.FontSize * s.LineHeight
+}
+
 type cssProperty struct {
 	Name     string                               // canonical CSS name, e.g. "letter-spacing"
 	Aliases  []string                             // alternative names handled identically (e.g. "-webkit-hyphens", "grid-gap")
@@ -1404,8 +1416,7 @@ var cssProperties = []cssProperty{
 				s.VerticalAlign = v
 				s.BaselineShiftSet = false
 			} else if l := parseCSSLengthWithUnit(v); l != nil {
-				lineH := s.FontSize * s.LineHeight
-				s.BaselineShiftValue = l.toPoints(lineH, s.FontSize)
+				s.BaselineShiftValue = l.toPoints(approxLineHeight(s), s.FontSize)
 				s.BaselineShiftSet = true
 			}
 		},
@@ -1428,8 +1439,7 @@ var cssProperties = []cssProperty{
 				s.BaselineShiftSet = false
 			default:
 				if l := parseCSSLengthWithUnit(v); l != nil {
-					lineH := s.FontSize * s.LineHeight
-					s.BaselineShiftValue = l.toPoints(lineH, s.FontSize)
+					s.BaselineShiftValue = l.toPoints(approxLineHeight(s), s.FontSize)
 					s.BaselineShiftSet = true
 				}
 			}
@@ -1452,7 +1462,7 @@ var cssProperties = []cssProperty{
 			if sz > 0 {
 				s.FontSize = sz
 			}
-			if lh > 0 {
+			if lh != 0 {
 				s.LineHeight = lh
 			}
 			if ff != "" {

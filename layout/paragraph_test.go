@@ -5,6 +5,8 @@ package layout
 
 import (
 	"math"
+	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/carlos7ags/folio/font"
@@ -158,6 +160,43 @@ func TestParagraphLineHeight(t *testing.T) {
 	expected := 14.4 // 12 * 1.2 (default leading)
 	if math.Abs(lines[0].Height-expected) > 0.001 {
 		t.Errorf("expected height %.1f, got %.3f", expected, lines[0].Height)
+	}
+}
+
+// TestParagraphLeadingNormalUsesFontMetrics is the regression test for
+// FOLIO-GAP-01: line-height:normal must be derived from the embedded font's
+// own vertical metrics (ascent+descent+line-gap), not a flat fontSize*1.2 —
+// Poppins declares an unusually large line-gap, so its normal leading is
+// well above the 1.2 default other fonts fall back to.
+func TestParagraphLeadingNormalUsesFontMetrics(t *testing.T) {
+	path, err := filepath.Abs("../font/testdata/Poppins-Bold.ttf")
+	if err != nil {
+		t.Fatal(err)
+	}
+	face, err := font.LoadFont(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ef := font.NewEmbeddedFont(face)
+
+	const fontSize = 11
+	want := ef.NormalLineHeight(fontSize)
+	if want <= fontSize*1.2 {
+		t.Fatalf("test fixture assumption broken: Poppins's normal leading (%v) should exceed the flat 1.2 default (%v)", want, fontSize*1.2)
+	}
+
+	p := NewParagraphEmbedded("Hello", ef, fontSize).SetLeading(LeadingNormal)
+	lines := p.Layout(500)
+	if len(lines) == 0 {
+		t.Fatal("expected at least one line")
+	}
+	if math.Abs(lines[0].Height-want) > 0.001 {
+		t.Errorf("Layout: expected height %.3f (font-metric-derived), got %.3f", want, lines[0].Height)
+	}
+
+	plan := p.PlanLayout(LayoutArea{Width: 500, Height: 1000})
+	if len(plan.Blocks) == 0 {
+		t.Fatal("expected at least one block")
 	}
 }
 
@@ -1272,4 +1311,41 @@ func TestParagraphWidowsOrphans(t *testing.T) {
 	if len(pages) < 2 {
 		t.Fatalf("expected ≥2 pages, got %d", len(pages))
 	}
+}
+
+// TestParagraphNoWrapOverflowsInsteadOfBreaking is the regression test for
+// FOLIO-GAP-02: an unbreakable word wider than maxWidth must stay on one
+// (overflowing) line under white-space:nowrap instead of being character-
+// broken across lines, matching browser behavior. Layout and PlanLayout are
+// two independent word-wrap implementations (the latter used for
+// fragmentable/boxed content) so both are covered here.
+func TestParagraphNoWrapOverflowsInsteadOfBreaking(t *testing.T) {
+	word := strings.Repeat("A", 60) // wider than maxWidth at any reasonable font size
+
+	t.Run("Layout", func(t *testing.T) {
+		p := NewParagraph(word, font.Helvetica, 12).SetNoWrap(true)
+		lines := p.Layout(50)
+		if len(lines) != 1 {
+			t.Fatalf("expected 1 overflowing line, got %d", len(lines))
+		}
+		if lines[0].Words[0].Text != word {
+			t.Errorf("word was split: got %q", lines[0].Words[0].Text)
+		}
+	})
+
+	t.Run("PlanLayout", func(t *testing.T) {
+		p := NewParagraph(word, font.Helvetica, 12).SetNoWrap(true)
+		plan := p.PlanLayout(LayoutArea{Width: 50, Height: 1000})
+		if len(plan.Blocks) != 1 {
+			t.Fatalf("expected 1 overflowing block, got %d", len(plan.Blocks))
+		}
+	})
+
+	t.Run("without nowrap still breaks", func(t *testing.T) {
+		p := NewParagraph(word, font.Helvetica, 12)
+		lines := p.Layout(50)
+		if len(lines) < 2 {
+			t.Fatalf("expected the word to be character-broken across multiple lines, got %d", len(lines))
+		}
+	})
 }

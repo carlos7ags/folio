@@ -157,6 +157,13 @@ func (l *List) SetLeading(leading float64) *List {
 	return l
 }
 
+// lineHeight resolves the list's own line height (fontSize/embedded font,
+// not any specific item), for call sites that need a line-height fallback
+// without an item's own measured run at hand.
+func (l *List) lineHeight() float64 {
+	return resolveLineHeight(l.leading, l.fontSize, TextRun{Font: l.font, Embedded: l.embedded, FontSize: l.fontSize})
+}
+
 // SetDirection sets the text direction for list items. When RTL, markers
 // are positioned on the right side and item text is indented from the
 // right margin. Item paragraphs inherit this direction for bidi reordering.
@@ -373,7 +380,7 @@ func (l *List) layoutElementItem(item listItem, index int, maxWidth, totalIndent
 	if ok {
 		markerOffsetY = firstY + computeBaseline(markerWords, firstH)
 	} else {
-		markerOffsetY = computeBaseline(markerWords, l.fontSize*l.leading)
+		markerOffsetY = computeBaseline(markerWords, l.lineHeight())
 	}
 
 	line := Line{
@@ -483,7 +490,7 @@ func (l *List) effectiveIndent() float64 {
 // single-line extent), used to size the outside gutter so a long marker does
 // not overlap the item text. Zero when the marker is empty/suppressed.
 func (l *List) markerWidth(index int) float64 {
-	words, _ := l.markerParagraph(index).measureWords(1e9)
+	words, _, _ := l.markerParagraph(index).measureWords(1e9)
 	return wordsWidth(words)
 }
 
@@ -678,7 +685,7 @@ func (l *List) planAt(area LayoutArea, baseIndent float64) LayoutPlan {
 		markerW := 0.0
 		if !item.suppressMarker {
 			markerPara := l.markerParagraph(i)
-			markerWords, _ = markerPara.measureWords(l.indent)
+			markerWords, _, _ = markerPara.measureWords(l.indent)
 			// markerW is the drawn marker's content width (sum of the same
 			// words), so inside text starts exactly where the marker ends.
 			markerW = wordsWidth(markerWords)
@@ -698,8 +705,8 @@ func (l *List) planAt(area LayoutArea, baseIndent float64) LayoutPlan {
 		if inside && markerW > 0 {
 			textPara.SetFirstLineIndent(markerW)
 		}
-		textWords, maxFS := textPara.measureWords(itemWidth)
-		lineHeight := maxFS * l.leading
+		textWords, maxFS, dominantRun := textPara.measureWords(itemWidth)
+		lineHeight := resolveLineHeight(l.leading, maxFS, dominantRun)
 		wordLines := textPara.wrapWords(textWords, itemWidth)
 
 		// Build PlacedBlocks for each text line. fitCount tracks how many of
@@ -903,7 +910,7 @@ func (l *List) planElementItem(item listItem, index int, area LayoutArea, totalI
 	var markerWords []Word
 	if !item.suppressMarker {
 		markerPara := l.markerParagraph(index)
-		markerWords, _ = markerPara.measureWords(l.indent)
+		markerWords, _, _ = markerPara.measureWords(l.indent)
 	}
 
 	// Marker baseline: align to the first text line of the element.
@@ -912,7 +919,7 @@ func (l *List) planElementItem(item listItem, index int, area LayoutArea, totalI
 	if ok {
 		markerBaseline = firstY + computeBaseline(markerWords, firstH)
 	} else {
-		markerBaseline = computeBaseline(markerWords, l.fontSize*l.leading)
+		markerBaseline = computeBaseline(markerWords, l.lineHeight())
 	}
 
 	// Shift the element's blocks into the content column at curY.

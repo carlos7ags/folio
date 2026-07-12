@@ -10,12 +10,21 @@ import (
 	"github.com/carlos7ags/folio/font"
 )
 
+// LeadingNormal is the sentinel [Paragraph.SetLeading] value for CSS
+// `line-height: normal`. Unlike a literal multiplier, it defers resolution
+// to layout time, where it's derived from the actual font's vertical
+// metrics (see [resolveLineHeight]) instead of a flat fontSize*1.2 — fonts
+// that declare a larger line-gap get proportionally more leading, matching
+// how browsers resolve `normal`.
+const LeadingNormal = -1
+
 // Paragraph is a block of text that word-wraps within the available width.
 // It is composed of one or more TextRuns, each with its own font, size,
 // and color. All runs flow together as a single word-wrapped unit.
 type Paragraph struct {
 	runs             []TextRun
 	leading          float64 // line height multiplier (e.g. 1.2 means 120% of fontSize)
+	noWrap           bool              // true for CSS white-space:nowrap — a word wider than maxWidth overflows instead of being character-broken
 	align            Align
 	alignSet         bool              // true if SetAlign was called explicitly
 	direction        Direction         // base text direction for bidi layout
@@ -249,6 +258,14 @@ func (p *Paragraph) SetWordBreak(wb string) *Paragraph {
 	return p
 }
 
+// SetNoWrap sets CSS white-space:nowrap behavior. When true, a word wider
+// than the available width overflows rather than being character-broken —
+// matching how browsers treat an unbreakable nowrap run. Default is false.
+func (p *Paragraph) SetNoWrap(noWrap bool) *Paragraph {
+	p.noWrap = noWrap
+	return p
+}
+
 // SetHyphens sets the hyphenation mode. "auto" enables automatic hyphenation
 // at syllable boundaries. "none" disables all hyphenation. "manual" (default)
 // only breaks at soft hyphens (&shy;).
@@ -300,6 +317,7 @@ func (p *Paragraph) Layout(maxWidth float64) []Line {
 	// the styling of the run it came from.
 	var measured []Word
 	var maxFontSize float64
+	var dominantRun TextRun
 
 	nextLineBreakFromBr := false // tracks <br> line breaks across runs
 	for i, run := range p.runs {
@@ -382,6 +400,7 @@ func (p *Paragraph) Layout(maxWidth float64) []Line {
 		}
 		if run.FontSize > maxFontSize {
 			maxFontSize = run.FontSize
+			dominantRun = run
 		}
 	}
 
@@ -406,14 +425,16 @@ func (p *Paragraph) Layout(maxWidth float64) []Line {
 	}
 
 	// Break words that don't fit. With word-break:break-all, break ALL words
-	// at character boundaries to fill lines maximally.
+	// at character boundaries to fill lines maximally. white-space:nowrap
+	// leaves an overlong word intact so it overflows instead of wrapping,
+	// matching browser behavior.
 	if p.wordBreak == "break-all" {
 		measured = breakAllWords(measured, maxWidth)
-	} else {
+	} else if !p.noWrap {
 		measured = breakLongWords(measured, maxWidth)
 	}
 
-	lineHeight := maxFontSize * p.leading
+	lineHeight := resolveLineHeight(p.leading, maxFontSize, dominantRun)
 
 	// Greedy word-wrap.
 	// Space between words uses the preceding word's SpaceAfter.

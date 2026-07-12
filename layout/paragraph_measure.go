@@ -53,6 +53,24 @@ func computeBaseline(words []Word, lineH float64) float64 {
 	return baseline
 }
 
+// resolveLineHeight computes a paragraph's (uniform, whole-paragraph) line
+// box height. When leading is [LeadingNormal], the height is derived from
+// the vertical metrics of dominant (the run that set maxFontSize) instead
+// of a flat multiplier — matching how browsers resolve CSS
+// `line-height: normal` per the active font, including fonts that declare
+// an unusually large line-gap. font.Standard (the base-14 PDF fonts) has no
+// embedded vertical metrics to consult, so it falls back to the same 1.2
+// approximation used before this existed.
+func resolveLineHeight(leading, maxFontSize float64, dominant TextRun) float64 {
+	if leading != LeadingNormal {
+		return maxFontSize * leading
+	}
+	if dominant.Embedded != nil {
+		return dominant.Embedded.NormalLineHeight(maxFontSize)
+	}
+	return maxFontSize * 1.2
+}
+
 // runsAdjacent returns true when run at index i directly abuts the previous
 // run with no whitespace between them. This happens with inline elements like
 // <sub>/<sup> where "C<sub>8</sub>" produces runs ["C", "8"] with no space.
@@ -274,9 +292,10 @@ func (p *Paragraph) MeasureHeight(maxWidth float64) float64 {
 // are appended to the last word of the previous run. This produces
 // "here." as one word instead of "here" + "." as two, matching standard
 // typographic behavior at style boundaries.
-func (p *Paragraph) measureWords(maxWidth float64) ([]Word, float64) {
+func (p *Paragraph) measureWords(maxWidth float64) ([]Word, float64, TextRun) {
 	var measured []Word
 	var maxFontSize float64
+	var dominantRun TextRun
 
 	nextLineBreakFromBr := false
 	for i, run := range p.runs {
@@ -381,6 +400,7 @@ func (p *Paragraph) measureWords(maxWidth float64) ([]Word, float64) {
 		}
 		if run.FontSize > maxFontSize {
 			maxFontSize = run.FontSize
+			dominantRun = run
 		}
 	}
 
@@ -391,13 +411,14 @@ func (p *Paragraph) measureWords(maxWidth float64) ([]Word, float64) {
 	// requires every word be split at character boundaries, not just the
 	// over-long ones. Calling only breakLongWords here let break-all
 	// silently degrade to default break behavior whenever re-measurement
-	// was performed by this code path.
+	// was performed by this code path. white-space:nowrap leaves an
+	// overlong word intact so it overflows instead of wrapping.
 	if p.wordBreak == "break-all" {
 		measured = breakAllWords(measured, maxWidth)
-	} else {
+	} else if !p.noWrap {
 		measured = breakLongWords(measured, maxWidth)
 	}
-	return measured, maxFontSize
+	return measured, maxFontSize, dominantRun
 }
 
 // wordMeasurer returns a TextMeasurer for the given word's font.

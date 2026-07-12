@@ -467,7 +467,7 @@ func defaultStyle() computedStyle {
 		Color:          layout.ColorBlack,
 		TextAlign:      layout.AlignLeft,
 		TextDecoration: layout.DecorationNone,
-		LineHeight:     1.2,
+		LineHeight:     layout.LeadingNormal,
 		Display:        "block",
 		FlexDirection:  "row",
 		JustifyContent: "flex-start",
