@@ -5,19 +5,19 @@ package layout
 
 // ColumnRule defines a visual separator drawn between columns.
 type ColumnRule struct {
-	Width float64 // line width in points (default 0 = no rule)
-	Color Color   // line color (default black)
 	Style string  // "solid" (default), "dashed", "dotted"
+	Color Color   // line color (default black)
+	Width float64 // line width in points (default 0 = no rule)
 }
 
 // Columns is a block-level element that arranges child elements
 // side by side in equal-width (or custom-width) columns.
 type Columns struct {
+	elements [][]Element // elements[colIndex] = list of elements in that column
+	widths   []float64   // optional explicit column widths (fractions 0–1)
+	rule     ColumnRule  // vertical rule drawn between columns
 	cols     int         // number of columns
 	gap      float64     // gap between columns (points)
-	widths   []float64   // optional explicit column widths (fractions 0–1)
-	elements [][]Element // elements[colIndex] = list of elements in that column
-	rule     ColumnRule  // vertical rule drawn between columns
 
 	// balanced enables height-based distribution. When true,
 	// PlanLayout measures all elements in column 0 and then
@@ -33,9 +33,9 @@ type columnsLayoutRef struct {
 
 // columnLine holds the data for one column's line at a given row.
 type columnLine struct {
+	line    *Line   // the actual line content (nil if this column is exhausted)
 	xOffset float64 // x-offset from left margin
 	width   float64 // column width
-	line    *Line   // the actual line content (nil if this column is exhausted)
 }
 
 // NewColumns creates a multi-column layout with the given number of columns.

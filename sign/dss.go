@@ -32,12 +32,13 @@ import (
 //	  >>
 //	>>
 type DSS struct {
+
+	// VRI maps signature Contents SHA-1 hex keys to per-signature validation data.
+	VRI   map[string]*VRIEntry
 	Certs [][]byte // DER-encoded certificates
 	OCSPs [][]byte // DER-encoded OCSP responses
 	CRLs  [][]byte // DER-encoded CRLs
 
-	// VRI maps signature Contents SHA-1 hex keys to per-signature validation data.
-	VRI map[string]*VRIEntry
 }
 
 // VRIEntry holds validation data for a single signature.

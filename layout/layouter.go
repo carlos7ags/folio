@@ -34,10 +34,10 @@ const (
 // LayoutPlan is pure data — no methods, no mutation, no side effects.
 // This enables caching, concurrent layout, and easy testing.
 type LayoutPlan struct {
-	Status   LayoutStatus  // how much fit
-	Consumed float64       // total height consumed by fitted content
-	Blocks   []PlacedBlock // positioned content ready to draw
 	Overflow Element       // the part that didn't fit (nil if LayoutFull)
+	Blocks   []PlacedBlock // positioned content ready to draw
+	Consumed float64       // total height consumed by fitted content
+	Status   LayoutStatus  // how much fit
 }
 
 // PlacedBlock is a positioned piece of content within a LayoutPlan.
@@ -46,11 +46,6 @@ type LayoutPlan struct {
 // PlacedBlocks form a tree: container elements (Div, Table) have
 // children. Leaf elements (text lines, images) have no children.
 type PlacedBlock struct {
-	X      float64 // x position relative to the layout area's left edge
-	Y      float64 // y offset from the top of the layout area (increases downward)
-	Width  float64
-	Height float64
-
 	// Draw emits PDF content stream operators for this block.
 	// Called during the rendering pass with the absolute PDF
 	// coordinates (x = left edge, topY = top edge in PDF coords).
@@ -60,6 +55,15 @@ type PlacedBlock struct {
 	// PostDraw is called after all children are drawn. Used to restore
 	// graphics state (e.g. after clipping or opacity changes).
 	PostDraw func(ctx DrawContext, x, topY float64)
+
+	// floatInfo carries float positioning data (nil if not a float).
+	floatInfo *floatBlockInfo
+
+	// StringSets holds CSS string-set values captured from this block.
+	// Each entry maps a string name to its content value (e.g. "chapter" → "Chapter 3").
+	// Used by running headers: string-set on an element captures text that
+	// string() in margin boxes can reference.
+	StringSets map[string]string
 
 	// Tag is the PDF structure tag for accessibility (e.g. "P", "H1", "Figure").
 	// Empty string means no tag (untagged content or structural wrapper).
@@ -72,6 +76,20 @@ type PlacedBlock struct {
 	// Also used as the bookmark label for non-heading bookmark targets.
 	HeadingText string
 
+	// Children are nested content blocks (e.g. lines within a paragraph,
+	// cells within a table row). The renderer draws them in order.
+	Children []PlacedBlock
+
+	// Links carries link annotations for this block. Each entry
+	// describes a clickable region. A single line of text may contain
+	// multiple links with different URIs.
+	Links []LinkArea
+
+	X      float64 // x position relative to the layout area's left edge
+	Y      float64 // y offset from the top of the layout area (increases downward)
+	Width  float64
+	Height float64
+
 	// BookmarkLevel encodes the CSS bookmark-level override for this
 	// block. 0 = use the level derived from Tag (H1-H6); -1 = explicit
 	// "none" (skip from outline); 1-6 = explicit level. Non-heading
@@ -82,24 +100,6 @@ type PlacedBlock struct {
 	// the outline subtree below this entry is collapsed by default in
 	// PDF viewers (ISO 32000 §12.3.3 — emitted as a negative /Count).
 	BookmarkClosed bool
-
-	// Children are nested content blocks (e.g. lines within a paragraph,
-	// cells within a table row). The renderer draws them in order.
-	Children []PlacedBlock
-
-	// Links carries link annotations for this block. Each entry
-	// describes a clickable region. A single line of text may contain
-	// multiple links with different URIs.
-	Links []LinkArea
-
-	// StringSets holds CSS string-set values captured from this block.
-	// Each entry maps a string name to its content value (e.g. "chapter" → "Chapter 3").
-	// Used by running headers: string-set on an element captures text that
-	// string() in margin boxes can reference.
-	StringSets map[string]string
-
-	// floatInfo carries float positioning data (nil if not a float).
-	floatInfo *floatBlockInfo
 }
 
 // DrawContext provides the rendering target for PlacedBlock.Draw closures.

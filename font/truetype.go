@@ -22,36 +22,48 @@ import (
 // previous `golang.org/x/image/font/sfnt`-backed implementation; the
 // dependency itself is gone from the metric path (issue #260).
 type sfntFace struct {
-	pf      *parsedFont
-	rawData []byte
+	pf *parsedFont
+
+	// Cached GSUB substitution tables. gsubOnce guards the single parse,
+	// covering both "parsed and empty" (gsubResult nil) and populated.
+	gsubResult *GSUBSubstitutions
+
+	// Cached GID→Unicode reverse map (nil = not yet built).
+	gidToUnicodeMap map[uint16]rune
+
+	// Cached kern pairs: (leftGID, rightGID) → FUnit value. Populated on
+	// the first Kern() call. A nil map after parsing means the font has
+	// no kern table or no supported subtables; kernOnce guards re-parsing.
+	kernPairs map[[2]uint16]int16
+
+	// Cached GPOS adjustments. gposOnce guards the single parse, covering
+	// both "parsed and empty" (gposResult nil) and populated.
+	gposResult *GPOSAdjustments
+	rawData    []byte
 
 	// Descriptor metrics decoded once at construction (immutable after
 	// ParseTTF): italicAngle and fixedPitch from the raw post table,
 	// stemV and serif from the raw OS/2 table.
 	italicAngle float64
 	stemV       int
-	fixedPitch  bool
-	serif       bool
 
-	// Cached GSUB substitution tables. gsubOnce guards the single parse,
-	// covering both "parsed and empty" (gsubResult nil) and populated.
-	gsubResult *GSUBSubstitutions
-	gsubOnce   sync.Once
+	gsubOnce sync.Once
 
-	// Cached GID→Unicode reverse map (nil = not yet built).
-	gidToUnicodeMap  map[uint16]rune
 	gidToUnicodeOnce sync.Once
 
-	// Cached kern pairs: (leftGID, rightGID) → FUnit value. Populated on
-	// the first Kern() call. A nil map after parsing means the font has
-	// no kern table or no supported subtables; kernOnce guards re-parsing.
-	kernPairs map[[2]uint16]int16
-	kernOnce  sync.Once
+	kernOnce sync.Once
 
-	// Cached GPOS adjustments. gposOnce guards the single parse, covering
-	// both "parsed and empty" (gposResult nil) and populated.
-	gposResult *GPOSAdjustments
 	gposOnce   sync.Once
+	fixedPitch bool
+	serif      bool
+
+	gsubParsed bool
+
+	gidToUnicodeBuilt bool
+
+	kernPairsParsed bool
+
+	gposParsed bool
 }
 
 // ParseTTF parses a TrueType (.ttf) or OpenType (.otf) font from raw bytes.

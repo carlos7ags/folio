@@ -30,18 +30,18 @@ type Stop struct {
 // LinearGradientInfo is the parsed form of a <linearGradient> element.
 // The X1/Y1/X2/Y2 endpoints are interpreted according to Units.
 type LinearGradientInfo struct {
-	X1, Y1, X2, Y2 float64
 	// Units is "objectBoundingBox" (default) or "userSpaceOnUse".
-	Units string
-	Stops []Stop
+	Units          string
+	Stops          []Stop
+	X1, Y1, X2, Y2 float64
 }
 
 // RadialGradientInfo is the parsed form of a <radialGradient> element.
 type RadialGradientInfo struct {
-	CX, CY, R float64
 	// Units is "objectBoundingBox" (default) or "userSpaceOnUse".
-	Units string
-	Stops []Stop
+	Units     string
+	Stops     []Stop
+	CX, CY, R float64
 }
 
 // LinearGradient returns the parsed linear gradient definition rooted at n,

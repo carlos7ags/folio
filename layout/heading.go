@@ -36,12 +36,12 @@ var headingSizes = [7]float64{
 // It renders as a bold paragraph with spacing proportional to its level.
 type Heading struct {
 	para           *Paragraph
-	level          HeadingLevel
-	bookmarkLevel  int               // CSS bookmark-level override (0 = use level, -1 = none/skip)
-	bookmarkLabel  string            // CSS bookmark-label override (empty = use text)
-	bookmarkClosed bool              // CSS bookmark-state: closed (collapsed in viewer)
 	stringSets     map[string]string // CSS string-set values to capture
-	continuation   bool              // true for the overflow half of a split heading
+	bookmarkLabel  string            // CSS bookmark-label override (empty = use text)
+	level          HeadingLevel
+	bookmarkLevel  int  // CSS bookmark-level override (0 = use level, -1 = none/skip)
+	bookmarkClosed bool // CSS bookmark-state: closed (collapsed in viewer)
+	continuation   bool // true for the overflow half of a split heading
 }
 
 // NewHeading creates a heading using a standard font.

@@ -24,19 +24,19 @@ const (
 
 // List is a block-level element that renders ordered or unordered items.
 type List struct {
-	items          []listItem
-	style          ListStyle
 	font           *font.Standard
 	embedded       *font.EmbeddedFont
+	markerFont     *font.Standard     // optional override standard font for markers (nil = use list font)
+	markerEmbedded *font.EmbeddedFont // optional override embedded font for markers (nil = use list font)
+	markerColor    *Color             // optional override color for markers
+	items          []listItem
+	style          ListStyle
+	direction      Direction // text direction for list items
 	fontSize       float64
 	indent         float64 // left indent for item text (points)
 	leading        float64
-	direction      Direction          // text direction for list items
-	markerColor    *Color             // optional override color for markers
-	markerFontSize float64            // optional override font size for markers (0 = use list fontSize)
-	markerFont     *font.Standard     // optional override standard font for markers (nil = use list font)
-	markerEmbedded *font.EmbeddedFont // optional override embedded font for markers (nil = use list font)
-	markerInside   bool               // CSS list-style-position: inside (marker flows inline)
+	markerFontSize float64 // optional override font size for markers (0 = use list fontSize)
+	//
 
 	// start is the ordinal offset for marker numbering. The marker for the
 	// item at slice index i is numbered (i + 1 + start). It defaults to 0 so
@@ -44,7 +44,9 @@ type List struct {
 	// overflowFrom threads the count of items already emitted on prior pages
 	// into the continuation List so numbering continues across page breaks
 	// instead of restarting at 1.
-	start int
+	start        int
+	markerInside bool // CSS list-style-position: inside (marker flows inline)
+
 }
 
 // listItem is a single entry in a list, optionally containing a nested sub-list.
@@ -54,17 +56,7 @@ type List struct {
 // styled paragraph (supporting links, mixed fonts, etc.); otherwise it uses
 // the plain text field.
 type listItem struct {
-	text    string
-	runs    []TextRun // styled runs (nil = use plain text)
-	element Element   // rich content; overrides text/runs when set
-	subList *List     // optional nested list
-
-	// suppressMarker is set on a continuation fragment produced when an
-	// element item (or a plain runs item, see contPara) splits across pages.
-	// The marker (bullet/number) is drawn only on the first fragment, so
-	// continuation fragments suppress it.
-	suppressMarker bool
-
+	element Element // rich content; overrides text/runs when set
 	// contPara holds a pre-wrapped continuation paragraph for a plain
 	// (text/runs) item that was split across a page break. When non-nil it is
 	// used verbatim as the item's paragraph (overriding text/runs) so the tail
@@ -72,21 +64,31 @@ type listItem struct {
 	// re-deriving them from text.
 	contPara *Paragraph
 
+	subList *List // optional nested list
+	text    string
 	// markerText/markerSet hold a verbatim marker string supplied by CSS
 	// (li::marker { content: ... }). When markerSet is true the item's marker
 	// is exactly markerText, overriding the style-derived marker entirely —
 	// including ListNone — and an empty markerText suppresses the marker.
 	markerText string
-	markerSet  bool
+
+	runs []TextRun // styled runs (nil = use plain text)
+
+	// suppressMarker is set on a continuation fragment produced when an
+	// element item (or a plain runs item, see contPara) splits across pages.
+	// The marker (bullet/number) is drawn only on the first fragment, so
+	// continuation fragments suppress it.
+	suppressMarker bool
+
+	markerSet bool
 }
 
 // listLayoutRef carries list-specific rendering info on a Line.
 type listLayoutRef struct {
-	markerWords []Word  // words for the bullet/number (first line only)
-	indent      float64 // left indent for the item text
-
 	// element item fields (set when the item renders a rich Element)
 	element       Element // non-nil for rich-content items
+	markerWords   []Word  // words for the bullet/number (first line only)
+	indent        float64 // left indent for the item text
 	elementWidth  float64 // layout width for the element (content column)
 	markerOffsetY float64 // baseline of the first text line, from the line top
 }

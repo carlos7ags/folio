@@ -23,12 +23,12 @@ import (
 // (parsePseudoContent) where the html.Node is in scope; it never
 // flows through applyProperty. Do not add a `content` entry here.
 type cssProperty struct {
-	Name     string                               // canonical CSS name, e.g. "letter-spacing"
-	Aliases  []string                             // alternative names handled identically (e.g. "-webkit-hyphens", "grid-gap")
-	Category string                               // one of: Typography, Color, Backgrounds, BoxModel, Borders, Layout, Flexbox, Grid, MultiColumn, Tables, Pagination, Lists, Effects, PDF
-	Values   []string                             // accepted value forms, for docs (e.g. ["<length>", "normal"])
-	Notes    string                               // human-readable caveat for docs
 	Apply    func(s *computedStyle, value string) // mutate s based on value; silently ignore invalid input
+	Name     string                               // canonical CSS name, e.g. "letter-spacing"
+	Category string                               // one of: Typography, Color, Backgrounds, BoxModel, Borders, Layout, Flexbox, Grid, MultiColumn, Tables, Pagination, Lists, Effects, PDF
+	Notes    string                               // human-readable caveat for docs
+	Aliases  []string                             // alternative names handled identically (e.g. "-webkit-hyphens", "grid-gap")
+	Values   []string                             // accepted value forms, for docs (e.g. ["<length>", "normal"])
 }
 
 // cssProperties is the registry of all CSS properties Folio's HTML

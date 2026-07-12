@@ -106,10 +106,10 @@ type GSUBSubstitutions struct {
 // 7 (Extension) unwrap; exactly one of Single/Lig/Chain is populated to
 // match Type.
 type lookupRecord struct {
-	Type   uint16
 	Single map[uint16]uint16
 	Lig    map[uint16][]LigatureSubst
 	Chain  map[uint16][]ChainContextSubst
+	Type   uint16
 }
 
 // maxChainDepth bounds recursive ChainContext action dispatch. OpenType

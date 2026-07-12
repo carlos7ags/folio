@@ -50,8 +50,8 @@ func XYZDest(pageIndex int, left, top, zoom float64) Destination {
 // Outlines can be nested (children form sub-bookmarks).
 type Outline struct {
 	Title    string
-	Dest     Destination
 	Children []Outline
+	Dest     Destination
 	// Closed marks the entry's subtree as collapsed by default in PDF
 	// viewers. Encoded by buildOutlineTree as a negative /Count per
 	// ISO 32000 §12.3.3 — the absolute value still reflects the number

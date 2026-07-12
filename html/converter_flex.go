@@ -120,9 +120,9 @@ func (c *converter) convertFlex(n *html.Node, style computedStyle) []layout.Elem
 	// matches CSS Flexbox spec behavior. Children without `order`
 	// have the default value 0.
 	type pendingChild struct {
-		order int
-		item  *layout.FlexItem // non-nil if this child needs FlexItem wrapping
 		elem  layout.Element   // non-nil if this child is added as a plain element
+		item  *layout.FlexItem // non-nil if this child needs FlexItem wrapping
+		order int
 	}
 	var pending []pendingChild
 	for child := n.FirstChild; child != nil; child = child.NextSibling {

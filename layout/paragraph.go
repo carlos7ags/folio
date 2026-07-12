@@ -14,23 +14,23 @@ import (
 // It is composed of one or more TextRuns, each with its own font, size,
 // and color. All runs flow together as a single word-wrapped unit.
 type Paragraph struct {
-	runs             []TextRun
-	leading          float64 // line height multiplier (e.g. 1.2 means 120% of fontSize)
-	align            Align
-	alignSet         bool              // true if SetAlign was called explicitly
-	direction        Direction         // base text direction for bidi layout
-	spaceBefore      float64           // extra space before the paragraph (points)
-	spaceAfter       float64           // extra space after the paragraph (points)
 	background       *Color            // background fill color (nil = transparent)
-	firstIndent      float64           // first-line indent (points, from CSS text-indent)
-	orphans          int               // min lines at bottom of page before break (0 = disabled)
-	widows           int               // min lines at top of page after break (0 = disabled)
-	ellipsis         bool              // if true, truncate overflowing text with "..."
+	stringSets       map[string]string // CSS string-set values to capture
 	wordBreak        string            // "normal" (default), "break-all", "keep-all"
 	hyphens          string            // "none", "manual" (default), "auto" (automatic hyphenation)
-	textAlignLast    Align             // alignment for the last line (0 = use default)
-	textAlignLastSet bool              // true if textAlignLast was explicitly set
-	stringSets       map[string]string // CSS string-set values to capture
+	runs             []TextRun
+	leading          float64 // line height multiplier (e.g. 1.2 means 120% of fontSize)
+	spaceBefore      float64 // extra space before the paragraph (points)
+	spaceAfter       float64 // extra space after the paragraph (points)
+	align            Align
+	textAlignLast    Align     // alignment for the last line (0 = use default)
+	direction        Direction // base text direction for bidi layout
+	firstIndent      float64   // first-line indent (points, from CSS text-indent)
+	orphans          int       // min lines at bottom of page before break (0 = disabled)
+	widows           int       // min lines at top of page after break (0 = disabled)
+	alignSet         bool      // true if SetAlign was called explicitly
+	ellipsis         bool      // if true, truncate overflowing text with "..."
+	textAlignLastSet bool      // true if textAlignLast was explicitly set
 }
 
 // NewParagraph creates a paragraph with a single run using a standard PDF font.

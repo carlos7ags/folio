@@ -12,6 +12,10 @@ import (
 // FileAttachment describes a file to be embedded in the PDF.
 // PDF/A-3B is the only PDF/A level that permits file attachments (ISO 19005-3 §6.4).
 type FileAttachment struct {
+
+	// CreationDate is the file's creation timestamp. If zero, the document's
+	// Info.CreationDate is used; if that is also zero, the current time is used.
+	CreationDate time.Time
 	// FileName is the name as it will appear in the PDF (e.g. "factur-x.xml").
 	// Used for both /F (ASCII) and /UF (Unicode) entries in the filespec dictionary.
 	FileName string
@@ -32,10 +36,6 @@ type FileAttachment struct {
 
 	// Data is the raw file content to embed.
 	Data []byte
-
-	// CreationDate is the file's creation timestamp. If zero, the document's
-	// Info.CreationDate is used; if that is also zero, the current time is used.
-	CreationDate time.Time
 }
 
 // AttachFile schedules a file to be embedded in the document.

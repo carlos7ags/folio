@@ -16,13 +16,13 @@ const (
 // point value, a percentage of available space, or a calc()-style
 // expression resolved lazily at layout time.
 type UnitValue struct {
-	Value float64
-	Unit  UnitType
 	// Calc resolves the value against the available width. Only used
 	// when Unit == UnitCalc; nil otherwise. Lets calc() expressions
 	// containing percentages be resolved against the actual layout area
 	// rather than an eagerly-captured container width.
-	Calc func(available float64) float64
+	Calc  func(available float64) float64
+	Value float64
+	Unit  UnitType
 }
 
 // Pt creates a UnitValue in PDF points.

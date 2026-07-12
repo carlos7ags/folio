@@ -91,11 +91,11 @@ func SubsetCFF(cffBytes []byte, usedGlyphs map[uint16]rune) ([]byte, error) {
 	// replaced by `return`).
 	type fdBuild struct {
 		fontDict       []byte
-		fontDictPatch  fontDictPatch // size + offset patch positions
 		privateDict    []byte
-		subrsPatch     int  // byte position of Subrs operand placeholder; -1 if none
-		hasSubrs       bool // mirror of subrsPatch != -1, for clarity
 		localSubrsData []byte
+		fontDictPatch  fontDictPatch // size + offset patch positions
+		subrsPatch     int           // byte position of Subrs operand placeholder; -1 if none
+		hasSubrs       bool          // mirror of subrsPatch != -1, for clarity
 	}
 	builds := make([]fdBuild, len(src.fds))
 	for i, fd := range src.fds {

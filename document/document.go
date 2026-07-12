@@ -45,13 +45,13 @@ type ElementDecorator func(ctx PageContext) layout.Element
 
 // NamedDest is a named destination within the document.
 type NamedDest struct {
-	Name      string // destination name
-	PageIndex int    // 0-based page index
+	Name string // destination name
 	// Fit type: "Fit" (fit page), "FitH" (fit width at y), "XYZ" (position + zoom)
-	FitType string
-	Top     float64 // y position for FitH/XYZ
-	Left    float64 // x position for XYZ
-	Zoom    float64 // zoom level for XYZ (0 = unchanged)
+	FitType   string
+	PageIndex int     // 0-based page index
+	Top       float64 // y position for FitH/XYZ
+	Left      float64 // x position for XYZ
+	Zoom      float64 // zoom level for XYZ (0 = unchanged)
 }
 
 // absoluteElement is a layout element placed at fixed coordinates.
@@ -60,16 +60,16 @@ type absoluteElement struct {
 	x, y         float64
 	width        float64
 	pageIndex    int // -1 = last page
-	rightAligned bool
 	zIndex       int
+	rightAligned bool
 	fixed        bool // render on every page (position: fixed)
 }
 
 // Document is the top-level API for building a PDF.
 type Document struct {
-	pages            []*Page
-	pageSize         PageSize
-	margins          layout.Margins
+	acroForm interface {
+		Build(func(core.PdfObject) *core.PdfIndirectReference, []*core.PdfIndirectReference) (*core.PdfIndirectReference, map[int][]*core.PdfIndirectReference)
+	}
 	firstMargins     *layout.Margins             // @page :first
 	leftMargins      *layout.Margins             // @page :left
 	rightMargins     *layout.Margins             // @page :right
@@ -77,11 +77,6 @@ type Document struct {
 	firstMarginBoxes map[string]layout.MarginBox // first-page margin boxes (@page :first)
 	leftMarginBoxes  map[string]layout.MarginBox // left-page margin boxes (@page :left)
 	rightMarginBoxes map[string]layout.MarginBox // right-page margin boxes (@page :right)
-	elements         []layout.Element
-	absolutes        []absoluteElement
-	Info             Info        // document metadata (Title, Author, etc.)
-	outlines         []Outline   // bookmarks / outline tree
-	namedDests       []NamedDest // named destinations
 	header           PageDecorator
 	footer           PageDecorator
 	headerElem       ElementDecorator
@@ -89,17 +84,22 @@ type Document struct {
 	watermark        *WatermarkConfig
 	debugMediaBox    *debugMediaBoxConfig
 	encryption       *EncryptionConfig
-	tagged           bool        // if true, produce tagged PDF with structure tree
-	actualText       bool        // if true (default), wrap shaped Arabic words in /ActualText markers
 	pdfA             *PdfAConfig // if non-nil, produce PDF/A conformant output
-	acroForm         interface {
-		Build(func(core.PdfObject) *core.PdfIndirectReference, []*core.PdfIndirectReference) (*core.PdfIndirectReference, map[int][]*core.PdfIndirectReference)
-	}
-	viewerPrefs   *ViewerPreferences
-	pageLabels    []PageLabelRange
-	autoBookmarks bool // if true, generate outlines from layout headings
-	attachments   []FileAttachment
-	fileID        []byte // explicit trailer /ID set via SetFileID; nil means none
+	viewerPrefs      *ViewerPreferences
+	Info             Info // document metadata (Title, Author, etc.)
+	pages            []*Page
+	elements         []layout.Element
+	absolutes        []absoluteElement
+	outlines         []Outline   // bookmarks / outline tree
+	namedDests       []NamedDest // named destinations
+	pageLabels       []PageLabelRange
+	attachments      []FileAttachment
+	fileID           []byte // explicit trailer /ID set via SetFileID; nil means none
+	margins          layout.Margins
+	pageSize         PageSize
+	tagged           bool // if true, produce tagged PDF with structure tree
+	actualText       bool // if true (default), wrap shaped Arabic words in /ActualText markers
+	autoBookmarks    bool // if true, generate outlines from layout headings
 }
 
 // NewDocument creates a new PDF document with the given page size.
@@ -539,8 +539,8 @@ func (d *Document) buildAllPages(ctx context.Context) (all []*Page, structTags [
 func buildAutoBookmarks(results []layout.PageResult, pageOffset int) []Outline {
 	var outlines []Outline
 	type stackEntry struct {
-		level   int
 		outline *Outline
+		level   int
 	}
 	var stack []stackEntry
 

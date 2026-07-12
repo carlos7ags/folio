@@ -19,6 +19,12 @@ import (
 // Future fields will be added behind backward-compatible defaults; this
 // struct is the single extension point for writer behavior.
 type WriteOptions struct {
+
+	// ObjectStreamCapacity caps the number of objects packed into a
+	// single /ObjStm. Zero means "use the writer default". Ignored
+	// unless UseObjectStreams is set.
+	ObjectStreamCapacity int
+
 	// UseXRefStream replaces the traditional xref table and trailer with
 	// a cross-reference stream object (ISO 32000-1 §7.5.8). The stream
 	// dictionary carries the same /Root, /Info, /Encrypt, and /ID fields
@@ -32,11 +38,6 @@ type WriteOptions struct {
 	// stream to express. Phase 1 of the optimizer does not implement
 	// this option; setting it returns an error from WriteToWithOptions.
 	UseObjectStreams bool
-
-	// ObjectStreamCapacity caps the number of objects packed into a
-	// single /ObjStm. Zero means "use the writer default". Ignored
-	// unless UseObjectStreams is set.
-	ObjectStreamCapacity int
 
 	// OrphanSweep removes indirect objects unreachable from the
 	// document roots before serialization. The reachable set is

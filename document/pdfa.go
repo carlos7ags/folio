@@ -63,15 +63,14 @@ const (
 
 // PdfAConfig holds PDF/A conformance settings.
 type PdfAConfig struct {
-	Level PdfALevel
-
-	// ICCProfile is the ICC color profile data for the output intent.
-	// If nil, a minimal sRGB profile description is used.
-	ICCProfile []byte
 
 	// OutputCondition is the output condition identifier
 	// (e.g. "sRGB IEC61966-2.1"). Defaults to "sRGB IEC61966-2.1".
 	OutputCondition string
+
+	// ICCProfile is the ICC color profile data for the output intent.
+	// If nil, a minimal sRGB profile description is used.
+	ICCProfile []byte
 
 	// XMPSchemas is an optional list of additional schema entries to declare
 	// inside the single pdfaExtension:schemas <rdf:Bag>. Each entry is injected
@@ -88,6 +87,7 @@ type PdfAConfig struct {
 	// after the pdfaExtension:schemas block. The Namespace and Prefix fields
 	// are used to build the xmlns attribute; Properties holds the values.
 	XMPProperties []XMPPropertyBlock
+	Level         PdfALevel
 }
 
 // XMPSchema describes one schema entry to add to the pdfaExtension:schemas bag.

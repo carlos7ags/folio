@@ -58,9 +58,9 @@ type Invoice struct {
 	Number   string
 	Date     string
 	Customer string
+	Notes    string
 	Items    []LineItem
 	Total    float64
-	Notes    string
 }
 
 // sampleInvoice returns the demo invoice rendered by main(). Exported

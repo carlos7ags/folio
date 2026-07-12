@@ -19,16 +19,21 @@ import (
 //
 // Spec reference: Adobe Technical Note #5176 (CFF v1).
 type cffFont struct {
-	raw []byte // full source CFF bytes
-
-	header []byte // header bytes (Header §6); length = hdrSize
-
 	nameIndex    *cffIndex // §5 INDEX format; one entry holds the PostScript name
 	topDictIndex *cffIndex // single-Top-DICT INDEX (CID-keyed CFFs)
 	stringIndex  *cffIndex // §10 — SID resolution; copy-through for subsetting
 	gsubrIndex   *cffIndex // §16 Global subroutines
 
+	charStringsIndex *cffIndex // §17 CharStrings INDEX (one entry per GID)
+	fdArrayIndex     *cffIndex // §19 FDArray INDEX (entries are font DICTs)
+
+	raw []byte // full source CFF bytes
+
+	header []byte // header bytes (Header §6); length = hdrSize
+
 	topDict cffDict // decoded operators of the single Top DICT
+
+	fds []*cffFD // one per FDArray INDEX entry
 
 	// Sections located via Top DICT operands. The byte ranges in raw
 	// are computed defensively; sub-format parsing is deferred.
@@ -36,9 +41,6 @@ type cffFont struct {
 	charsetSize    int // byte length of charset (incl. format byte)
 	fdSelectOffset int
 	fdSelectSize   int
-
-	charStringsIndex *cffIndex // §17 CharStrings INDEX (one entry per GID)
-	fdArrayIndex     *cffIndex // §19 FDArray INDEX (entries are font DICTs)
 
 	// Decoded Top DICT scalars Phase 3 needs without re-traversing.
 	rosRegistry   int64
@@ -48,39 +50,39 @@ type cffFont struct {
 
 	numGlyphs int // == charStringsIndex.count; mirrored for clarity
 
-	fds []*cffFD // one per FDArray INDEX entry
 }
 
 // cffFD holds the per-FD state of a CID-keyed CFF: font DICT bytes,
 // the Private DICT that lives at an absolute offset, and the Local
 // Subr INDEX rooted at a relative offset from the Private DICT start.
 type cffFD struct {
+
+	// localSubrs may be nil when the FD declares no local Subr INDEX
+	// (the Private DICT lacks the Subrs operator). Spec-legal.
+	localSubrs *cffIndex
 	// fontDictBytes is the FDArray INDEX object i — the bytes of the
 	// font DICT used for this FD. Subsetting copies and rewrites this.
 	fontDictBytes []byte
 	fontDict      cffDict // decoded entries
 
-	privateOffset int     // absolute offset in cffFont.raw
-	privateSize   int     // byte length
-	privateBytes  []byte  // alias to raw[privateOffset:privateOffset+privateSize]
-	privateDict   cffDict // decoded entries
+	privateBytes []byte  // alias to raw[privateOffset:privateOffset+privateSize]
+	privateDict  cffDict // decoded entries
 
-	// localSubrs may be nil when the FD declares no local Subr INDEX
-	// (the Private DICT lacks the Subrs operator). Spec-legal.
-	localSubrs *cffIndex
+	privateOffset int // absolute offset in cffFont.raw
+	privateSize   int // byte length
 }
 
 // cffIndex is a parsed INDEX structure (TN #5176 §5). Empty INDEXes
 // (count == 0) are valid and serialize to two zero bytes; they expose
 // no objects and have offSize == 0.
 type cffIndex struct {
-	rawStart    int // absolute offset where the INDEX begins in cffFont.raw
-	rawEnd      int // one past the last byte of the INDEX
+	offsets     []int
+	raw         []byte // aliases cffFont.raw — do not mutate
+	rawStart    int    // absolute offset where the INDEX begins in cffFont.raw
+	rawEnd      int    // one past the last byte of the INDEX
 	count       int
 	offSize     int // 1..4 for non-empty INDEXes; 0 for empty
 	objectsBase int // absolute offset where object payloads start
-	offsets     []int
-	raw         []byte // aliases cffFont.raw — do not mutate
 }
 
 // Object returns the bytes of object i. The returned slice aliases the
@@ -225,12 +227,12 @@ const (
 // real verbatim. realIndices lists those slot indices so callers do
 // not have to maintain a separate flag.
 type cffDictEntry struct {
-	operator     int
-	operandStart int
-	operandEnd   int
 	intOperands  []int64
 	operandSpans [][2]int
 	realIndices  []int
+	operator     int
+	operandStart int
+	operandEnd   int
 }
 
 // cffDict is the ordered list of entries parsed from a DICT.

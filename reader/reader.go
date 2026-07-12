@@ -33,13 +33,13 @@ const (
 // PdfReader holds the parsed state of an existing PDF file, including
 // the cross-reference table, object resolver, document catalog, and pages.
 type PdfReader struct {
-	data       []byte
 	xref       *xrefTable
 	resolver   *resolver
 	catalog    *core.PdfDictionary
+	fontCache  map[int]*FontEntry // shared font cache keyed by indirect ref object number
+	data       []byte
 	pages      []*PageInfo
 	strictness Strictness
-	fontCache  map[int]*FontEntry // shared font cache keyed by indirect ref object number
 	access     AccessLevel
 }
 
@@ -91,10 +91,10 @@ func (b Box) IsZero() bool { return b == Box{} }
 
 // PageInfo holds parsed information about a single page.
 type PageInfo struct {
-	Number int     // 1-based page number
-	Width  float64 // page width in points (from effective visible box)
-	Height float64 // page height in points (from effective visible box)
-	Rotate int     // rotation in degrees (0, 90, 180, 270)
+	inheritedResources core.PdfObject // /Resources inherited from ancestor Pages node
+
+	pageDict *core.PdfDictionary
+	reader   *PdfReader
 
 	// The 5 PDF page geometry boxes (ISO 32000 §14.11.2).
 	// MediaBox is required; others are optional and inherit from MediaBox if absent.
@@ -104,9 +104,11 @@ type PageInfo struct {
 	TrimBox  Box // intended finished page dimensions (default = CropBox)
 	ArtBox   Box // meaningful content area (default = CropBox)
 
-	pageDict           *core.PdfDictionary
-	reader             *PdfReader
-	inheritedResources core.PdfObject // /Resources inherited from ancestor Pages node
+	Number int     // 1-based page number
+	Width  float64 // page width in points (from effective visible box)
+	Height float64 // page height in points (from effective visible box)
+	Rotate int     // rotation in degrees (0, 90, 180, 270)
+
 }
 
 // VisibleBox returns the effective visible area of the page.
@@ -129,15 +131,16 @@ func Load(path string) (*PdfReader, error) {
 
 // ReadOptions configures the PDF reader.
 type ReadOptions struct {
-	Strictness   Strictness
-	MaxCache     int          // max cached objects (0 = default 10000)
-	MemoryLimits MemoryLimits // memory safety limits for decompression
 
 	// Password authenticates an encrypted document. An empty string
 	// attempts the empty password — the common case for files whose
 	// "protection" only restricts permissions — not "no password
 	// supplied". Ignored for unencrypted documents.
-	Password string
+	Password     string
+	MemoryLimits MemoryLimits // memory safety limits for decompression
+
+	Strictness Strictness
+	MaxCache   int // max cached objects (0 = default 10000)
 }
 
 // Parse reads and parses a PDF from a byte slice.

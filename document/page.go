@@ -49,15 +49,15 @@ func (ps PageSize) Landscape() PageSize {
 
 // fontResource is a font registered on a page, either standard or embedded.
 type fontResource struct {
-	name     string             // resource name (e.g. "F1")
 	standard *font.Standard     // non-nil for standard fonts
 	embedded *font.EmbeddedFont // non-nil for embedded fonts
+	name     string             // resource name (e.g. "F1")
 }
 
 // imageResource is an image registered on a page.
 type imageResource struct {
-	name  string // resource name (e.g. "Im1")
 	image *folioimage.Image
+	name  string // resource name (e.g. "Im1")
 }
 
 // MarkupType identifies the kind of text markup annotation.
@@ -76,58 +76,63 @@ const (
 
 // Annotation represents a PDF annotation on a page.
 type Annotation struct {
-	subtype  string      // e.g. "Link", "Text", "Highlight", "Underline", "Squiggly", "StrikeOut"
-	rect     [4]float64  // [x1, y1, x2, y2] in PDF points
-	uri      string      // for /URI actions (external links)
-	dest     string      // for /GoTo actions (named destination)
-	destPage int         // for /GoTo actions (page index, -1 = use named dest)
-	color    *[3]float64 // annotation color (nil = default)
-	border   [3]float64  // [hCorner, vCorner, width] — default [0 0 0] = no border
+	color   *[3]float64 // annotation color (nil = default)
+	subtype string      // e.g. "Link", "Text", "Highlight", "Underline", "Squiggly", "StrikeOut"
+	uri     string      // for /URI actions (external links)
+	dest    string      // for /GoTo actions (named destination)
 
 	// Text annotation (sticky note) fields.
 	contents string // text content of the annotation
 	name     string // icon name: "Comment", "Note", "Help", "Insert", etc.
-	open     bool   // whether the popup is initially open
 
 	// Text markup fields.
 	quadPoints [][8]float64 // quadrilateral regions for text markup annotations
+	rect       [4]float64   // [x1, y1, x2, y2] in PDF points
+	border     [3]float64   // [hCorner, vCorner, width] — default [0 0 0] = no border
+
+	destPage int  // for /GoTo actions (page index, -1 = use named dest)
+	open     bool // whether the popup is initially open
+
 }
 
 // extGStateResource is a graphics state parameter dictionary registered on a page.
 type extGStateResource struct {
-	name string              // resource name (e.g. "GS1")
 	dict *core.PdfDictionary // the ExtGState dictionary
+	name string              // resource name (e.g. "GS1")
 }
 
 // Page represents a single page in a document.
 // It tracks font resources, image resources, and content stream operations.
 // formXObjectResource is a pre-built Form XObject (e.g. an imported page).
 type formXObjectResource struct {
-	name   string          // resource name (e.g. "Pg1")
 	stream *core.PdfStream // the Form XObject stream with /Type, /Subtype, /BBox, /Resources
+	name   string          // resource name (e.g. "Pg1")
 }
 
 // Page represents a single page in a document.
 // It tracks font resources, image resources, and content stream operations.
 type Page struct {
-	size         PageSize
-	customSize   *PageSize             // per-page size override (nil = inherit from Document)
-	fonts        []fontResource        // ordered font resources
-	images       []imageResource       // ordered image resources
-	extGStates   []extGStateResource   // ordered ExtGState resources
-	formXObjects []formXObjectResource // imported pages as Form XObjects
-	stream       *content.Stream       // content stream builder
-	annotations  []Annotation          // page annotations (links, etc.)
-	rotate       int                   // page rotation in degrees (0, 90, 180, 270)
+	customSize *PageSize       // per-page size override (nil = inherit from Document)
+	stream     *content.Stream // content stream builder
 
 	// Optional page geometry boxes (ISO 32000 §14.11.2).
 	// If nil, the box is not written. MediaBox is always derived from size.
-	cropBox  *[4]float64 // visible region (default = MediaBox)
-	bleedBox *[4]float64 // bleed region for production
-	trimBox  *[4]float64 // intended finished page dimensions
-	artBox   *[4]float64 // meaningful content area
+	cropBox       *[4]float64           // visible region (default = MediaBox)
+	bleedBox      *[4]float64           // bleed region for production
+	trimBox       *[4]float64           // intended finished page dimensions
+	artBox        *[4]float64           // meaningful content area
+	debugMediaBox *debugMediaBoxConfig  // per-page debug MediaBox outline (nil = use document default)
+	fonts         []fontResource        // ordered font resources
+	images        []imageResource       // ordered image resources
+	extGStates    []extGStateResource   // ordered ExtGState resources
+	formXObjects  []formXObjectResource // imported pages as Form XObjects
+	annotations   []Annotation          // page annotations (links, etc.)
+	size          PageSize
+	rotate        int // page rotation in degrees (0, 90, 180, 270)
 
-	debugMediaBox *debugMediaBoxConfig // per-page debug MediaBox outline (nil = use document default)
+	// Optional page geometry boxes (ISO 32000 §14.11.2).
+	// If nil, the box is not written. MediaBox is always derived from size.
+
 }
 
 // boxToArray converts a [4]float64 to a PdfArray.

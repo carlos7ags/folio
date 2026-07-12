@@ -14,8 +14,8 @@ import (
 // number — the value is implicitly zero. Stream objects are not eligible
 // for inclusion and the builder rejects them.
 type ObjStmEntry struct {
-	ObjectNumber int
 	Object       PdfObject
+	ObjectNumber int
 }
 
 // ObjStmPlacement reports where an entry ended up after BuildObjStm:

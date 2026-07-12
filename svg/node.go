@@ -5,10 +5,10 @@ package svg
 
 // Node represents a parsed SVG element.
 type Node struct {
-	Tag       string
 	Attrs     map[string]string
+	Tag       string
+	Text      string // text content for <text> elements
+	Children  []*Node
 	Style     Style
 	Transform Matrix
-	Children  []*Node
-	Text      string // text content for <text> elements
 }

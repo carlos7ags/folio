@@ -16,11 +16,11 @@ import (
 // SVG is a parsed SVG document ready to be rendered.
 type SVG struct {
 	root        *Node
-	width       float64 // from width attribute (0 if not set)
-	height      float64 // from height attribute (0 if not set)
+	defs        map[string]*Node // reusable elements indexed by id
 	viewBox     ViewBox
 	aspectRatio PreserveAspectRatio
-	defs        map[string]*Node // reusable elements indexed by id
+	width       float64 // from width attribute (0 if not set)
+	height      float64 // from height attribute (0 if not set)
 }
 
 // ViewBox defines the SVG coordinate system.

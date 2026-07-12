@@ -10,19 +10,20 @@ import (
 
 // RedactOptions configures the redaction behavior.
 type RedactOptions struct {
-	// FillColor is the RGB color of the redaction box (0-1 each).
-	// Default: black [0, 0, 0].
-	FillColor [3]float64
 
 	// OverlayText is optional text drawn centered on each redaction box
 	// (e.g. "REDACTED", "[CONFIDENTIAL]").
 	OverlayText string
 
-	// OverlayFontSize is the font size for overlay text. Default: 8.
-	OverlayFontSize float64
+	// FillColor is the RGB color of the redaction box (0-1 each).
+	// Default: black [0, 0, 0].
+	FillColor [3]float64
 
 	// OverlayColor is the RGB color for overlay text. Default: white [1, 1, 1].
 	OverlayColor [3]float64
+
+	// OverlayFontSize is the font size for overlay text. Default: 8.
+	OverlayFontSize float64
 
 	// StripMetadata removes document-level metadata (/Info dictionary,
 	// /Metadata XMP stream, /PieceInfo) from the output.

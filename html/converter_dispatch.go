@@ -15,9 +15,9 @@ import (
 
 // containingBlock tracks a positioned ancestor for absolute positioning resolution.
 type containingBlock struct {
+	pending []pendingOverlay // absolute children waiting to be attached to the Div
 	width   float64          // resolved content width in points
 	height  float64          // resolved content height in points (0 if unknown)
-	pending []pendingOverlay // absolute children waiting to be attached to the Div
 }
 
 // pendingOverlay stores an absolute element waiting to be attached to its

@@ -29,9 +29,9 @@ const defaultObjectStreamCapacity = 100
 // records for the compressed entries it contains. The placement records
 // drive the type-2 xref entries emitted by writeXRefStreamWithObjStms.
 type packedObjStm struct {
-	objNum     int
 	stream     *core.PdfStream
 	placements []core.ObjStmPlacement
+	objNum     int
 }
 
 // writeXRefStreamWithObjStms is the writer path for

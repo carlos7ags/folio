@@ -80,8 +80,8 @@ func (w *Writer) deduplicateObjects() {
 	// byte-identical output, so the hash is stable across calls and
 	// the writer's later serialization sees the same dictionary state.
 	type hashedSlot struct {
-		idx  int    // index into w.objects
 		hash string // hex SHA-256 of canonical bytes; "" means "do not dedup"
+		idx  int    // index into w.objects
 	}
 	hashed := make([]hashedSlot, len(w.objects))
 	var buf bytes.Buffer

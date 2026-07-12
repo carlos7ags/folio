@@ -8,9 +8,9 @@ import "github.com/carlos7ags/folio/core"
 // StructNode represents a node in the PDF structure tree.
 type StructNode struct {
 	Tag        string        `json:"tag"`                    // structure type (e.g. "P", "H1", "Table", "Span")
+	Children   []*StructNode `json:"children,omitempty"`     // child nodes
 	MCID       int           `json:"mcid"`                   // marked content identifier (-1 if not a leaf)
 	PageObjNum int           `json:"page_obj_num,omitempty"` // page object number for this MCID
-	Children   []*StructNode `json:"children,omitempty"`     // child nodes
 }
 
 // StructureTree represents the parsed PDF structure tree.

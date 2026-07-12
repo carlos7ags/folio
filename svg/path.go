@@ -12,8 +12,8 @@ import (
 
 // PathCommand represents a single SVG path command with absolute coordinates.
 type PathCommand struct {
-	Type byte      // 'M', 'L', 'C', 'Q', 'A', 'Z' (always uppercase/absolute after parsing)
 	Args []float64 // coordinate arguments
+	Type byte      // 'M', 'L', 'C', 'Q', 'A', 'Z' (always uppercase/absolute after parsing)
 }
 
 // ParsePathData parses an SVG path d attribute into a slice of absolute-coordinate commands.

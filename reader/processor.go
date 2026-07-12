@@ -10,25 +10,25 @@ import "math"
 // the current transformation matrix at the time of rendering.
 type TextSpan struct {
 	Text       string     `json:"text"`
+	Font       string     `json:"font"`
+	Tag        string     `json:"tag"`
+	Matrix     [6]float64 `json:"matrix"`
+	Color      [3]float64 `json:"color"`
 	X          float64    `json:"x"`
 	Y          float64    `json:"y"`
 	Width      float64    `json:"width"`
 	Height     float64    `json:"height"`
-	Font       string     `json:"font"`
-	Color      [3]float64 `json:"color"`
-	Matrix     [6]float64 `json:"matrix"`
-	Tag        string     `json:"tag"`
-	Visible    bool       `json:"visible"`
 	SpaceWidth float64    `json:"space_width"`
 	MCID       int        `json:"mcid"`
+	Visible    bool       `json:"visible"`
 }
 
 // PathOp represents a graphics path operation extracted from a content stream.
 type PathOp struct {
-	Type        PathType     `json:"type"`
 	Points      [][2]float64 `json:"points"`
 	StrokeColor [3]float64   `json:"stroke_color"`
 	FillColor   [3]float64   `json:"fill_color"`
+	Type        PathType     `json:"type"`
 	LineWidth   float64      `json:"line_width"`
 	Painted     PaintOp      `json:"painted"`
 }
@@ -69,33 +69,35 @@ type ImageRef struct {
 // GlyphSpan is a single glyph with its individual position and width.
 // Produced when glyph-level extraction is enabled.
 type GlyphSpan struct {
-	Char  rune
-	X, Y  float64 // baseline position in user space
-	Width float64 // glyph width in user space
 	Font  string
 	Color [3]float64
+	X, Y  float64 // baseline position in user space
+	Width float64 // glyph width in user space
+	Char  rune
 }
 
 // graphicsState holds the mutable PDF graphics state tracked during parsing.
 type graphicsState struct {
-	ctm       [6]float64 // current transformation matrix
-	fillColor [3]float64 // current fill color (RGB)
-	fontName  string
-	fontSize  float64
-
-	// Text state (within BT...ET)
-	textMatrix     [6]float64 // current text matrix (Tm)
-	textLineMatrix [6]float64 // line start matrix (set by Td/TD/Tm, used by T*)
-	leading        float64
-	textRenderMode int // Tr: 0=fill, 1=stroke, 2=fill+stroke, 3=invisible, 4-7=clip variants
+	fontName string
 
 	// Marked content tag stack (BMC/BDC ... EMC).
 	tagStack []string // current tag nesting, e.g. ["Document", "P"]
 
-	// Marked content identifier from BDC properties (/MCID).
-	currentMCID int   // -1 if not inside marked content with MCID
-	mcidStack   []int // stack of MCID values for nested BDC/BMC...EMC
+	mcidStack []int // stack of MCID values for nested BDC/BMC...EMC
 
+	ctm [6]float64 // current transformation matrix
+
+	// Text state (within BT...ET)
+	textMatrix     [6]float64 // current text matrix (Tm)
+	textLineMatrix [6]float64 // line start matrix (set by Td/TD/Tm, used by T*)
+	fillColor      [3]float64 // current fill color (RGB)
+	fontSize       float64
+
+	leading        float64
+	textRenderMode int // Tr: 0=fill, 1=stroke, 2=fill+stroke, 3=invisible, 4-7=clip variants
+
+	// Marked content identifier from BDC properties (/MCID).
+	currentMCID int // -1 if not inside marked content with MCID
 }
 
 // newGraphicsState returns the default graphics state.
@@ -111,33 +113,35 @@ func newGraphicsState() graphicsState {
 // state (CTM, color, font, clipping), and produces typed results:
 // TextSpans, PathOps, ImageRefs, and optionally GlyphSpans.
 type ContentProcessor struct {
-	fonts  FontCache
-	state  graphicsState
-	stack  []graphicsState // q/Q save/restore stack
-	spans  []TextSpan
-	paths  []PathOp
-	images []ImageRef
-	glyphs []GlyphSpan
-
-	// Current path being constructed (between m/l/c/re and S/f/B).
-	curPath     []pathSegment
-	lineWidth   float64
-	strokeColor [3]float64
-
-	// Options.
-	extractGlyphs bool // if true, emit per-glyph GlyphSpans
+	fonts FontCache
 
 	// FormXObject resolver: given a resource name (e.g. "Fm1"), returns
 	// the parsed content ops of the Form XObject, or nil if not a form.
 	// Set via SetFormResolver to enable recursive Form XObject processing.
 	formResolver func(name string) []ContentOp
-	depth        int // recursion depth (0 = top-level call)
+	stack        []graphicsState // q/Q save/restore stack
+	spans        []TextSpan
+	paths        []PathOp
+	images       []ImageRef
+	glyphs       []GlyphSpan
+
+	// Current path being constructed (between m/l/c/re and S/f/B).
+	curPath     []pathSegment
+	state       graphicsState
+	strokeColor [3]float64
+
+	lineWidth float64
+	depth     int // recursion depth (0 = top-level call)
+
+	// Options.
+	extractGlyphs bool // if true, emit per-glyph GlyphSpans
+
 }
 
 // pathSegment is a single segment of a path being constructed.
 type pathSegment struct {
-	typ    PathType
 	points [][2]float64
+	typ    PathType
 }
 
 // SetFormResolver sets a callback that resolves Form XObject names to
@@ -414,13 +418,13 @@ func (p *ContentProcessor) Process(ops []ContentOp) []TextSpan {
 			if len(op.Operands) >= 2 {
 				x, y := tokenFloat(op.Operands[0]), tokenFloat(op.Operands[1])
 				ux, uy := transformPoint(p.state.ctm, x, y)
-				p.curPath = append(p.curPath, pathSegment{PathMove, [][2]float64{{ux, uy}}})
+				p.curPath = append(p.curPath, pathSegment{typ: PathMove, points: [][2]float64{{ux, uy}}})
 			}
 		case "l": // lineto
 			if len(op.Operands) >= 2 {
 				x, y := tokenFloat(op.Operands[0]), tokenFloat(op.Operands[1])
 				ux, uy := transformPoint(p.state.ctm, x, y)
-				p.curPath = append(p.curPath, pathSegment{PathLine, [][2]float64{{ux, uy}}})
+				p.curPath = append(p.curPath, pathSegment{typ: PathLine, points: [][2]float64{{ux, uy}}})
 			}
 		case "c": // cubic bezier
 			if len(op.Operands) >= 6 {
@@ -429,7 +433,7 @@ func (p *ContentProcessor) Process(ops []ContentOp) []TextSpan {
 					x, y := tokenFloat(op.Operands[i*2]), tokenFloat(op.Operands[i*2+1])
 					pts[i][0], pts[i][1] = transformPoint(p.state.ctm, x, y)
 				}
-				p.curPath = append(p.curPath, pathSegment{PathCurve, pts})
+				p.curPath = append(p.curPath, pathSegment{typ: PathCurve, points: pts})
 			}
 		case "re": // rectangle
 			if len(op.Operands) >= 4 {
@@ -437,7 +441,7 @@ func (p *ContentProcessor) Process(ops []ContentOp) []TextSpan {
 				w, h := tokenFloat(op.Operands[2]), tokenFloat(op.Operands[3])
 				ux, uy := transformPoint(p.state.ctm, x, y)
 				uw, uh := w*matrixScale(p.state.ctm), h*matrixScale(p.state.ctm)
-				p.curPath = append(p.curPath, pathSegment{PathRect, [][2]float64{{ux, uy}, {uw, uh}}})
+				p.curPath = append(p.curPath, pathSegment{typ: PathRect, points: [][2]float64{{ux, uy}, {uw, uh}}})
 			}
 		case "h": // close path
 			p.curPath = append(p.curPath, pathSegment{typ: PathClose})

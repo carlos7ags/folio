@@ -109,8 +109,8 @@ type certID struct {
 
 // ocspResponse is the ASN.1 OCSPResponse structure (RFC 6960).
 type ocspResponse struct {
-	ResponseStatus asn1.Enumerated
 	ResponseBytes  responseBytes `asn1:"explicit,tag:0,optional"`
+	ResponseStatus asn1.Enumerated
 }
 
 // responseBytes carries the response type and DER-encoded response body.

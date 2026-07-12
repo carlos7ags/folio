@@ -33,8 +33,8 @@ import (
 
 // fixture is one row of the comparison table.
 type fixture struct {
-	name  string
 	build func() *document.Document
+	name  string
 }
 
 func textHeavy() *document.Document {

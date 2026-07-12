@@ -73,18 +73,18 @@ type Options struct {
 	// directory, so the caller's original value is never mutated.
 	ConvertOpts *foliohtml.Options
 
-	// PageSize sets the page size for RenderFile / RenderDocument.
-	// Defaults to US Letter (612x792 pt). Ignored by Render, which
-	// returns raw elements without page context. When the template
-	// contains @page CSS rules, the @page size takes precedence.
-	PageSize document.PageSize
-
 	// Margins sets the page margins for RenderFile / RenderDocument.
 	// Defaults to 36pt (0.5in) on all sides. Ignored by Render.
 	// When the template contains @page margin rules, those take
 	// precedence. Use a non-nil pointer to explicitly set zero
 	// margins: &layout.Margins{} produces a full-bleed document.
 	Margins *layout.Margins
+
+	// PageSize sets the page size for RenderFile / RenderDocument.
+	// Defaults to US Letter (612x792 pt). Ignored by Render, which
+	// returns raw elements without page context. When the template
+	// contains @page CSS rules, the @page size takes precedence.
+	PageSize document.PageSize
 }
 
 func (o *Options) funcs() htmltpl.FuncMap {

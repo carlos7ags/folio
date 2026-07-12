@@ -31,12 +31,12 @@ const (
 
 // Token is a single PDF lexical token.
 type Token struct {
+	Value string // raw text value
 	Type  TokenType
-	Value string  // raw text value
 	Int   int64   // parsed integer (for TokenNumber)
 	Real  float64 // parsed float (for TokenNumber)
-	IsInt bool    // true if the number is an integer
 	Pos   int64   // byte offset in the input
+	IsInt bool    // true if the number is an integer
 }
 
 // Tokenizer reads PDF tokens from a byte stream.

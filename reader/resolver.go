@@ -13,15 +13,15 @@ import (
 
 // resolver fetches and caches PDF objects by their object number.
 type resolver struct {
-	data       []byte
 	xref       *xrefTable
+	mem        *memoryTracker // memory safety limits
 	cache      map[int]core.PdfObject
-	maxCache   int             // max cached objects (0 = unlimited)
-	order      []int           // insertion order for LRU eviction
-	mem        *memoryTracker  // memory safety limits
 	resolving  map[int]bool    // tracks objects currently being resolved (cycle detection)
-	strictness Strictness      // controls error handling behavior
 	decryptor  *core.Decryptor // nil for unencrypted documents
+	data       []byte
+	order      []int      // insertion order for LRU eviction
+	maxCache   int        // max cached objects (0 = unlimited)
+	strictness Strictness // controls error handling behavior
 }
 
 // newResolver creates a resolver that fetches objects from data using the

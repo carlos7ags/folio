@@ -102,10 +102,10 @@ var glyphToRune = map[string]rune{
 }
 
 type fontData struct {
-	name    string
-	varName string
 	widths  map[rune]int
 	kerns   map[[2]rune]int
+	name    string
+	varName string
 }
 
 func parseAFM(path string) (*fontData, error) {

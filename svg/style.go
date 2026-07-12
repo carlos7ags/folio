@@ -12,28 +12,28 @@ import (
 
 // Style holds resolved visual properties for an SVG node.
 type Style struct {
-	Fill             *Color    // nil means default (black for shapes)
-	FillRef          string    // url(#id) reference (e.g. gradient id)
+	Fill             *Color // nil means default (black for shapes)
+	Stroke           *Color // nil means none
+	FillRef          string // url(#id) reference (e.g. gradient id)
+	FillRule         string // "nonzero" or "evenodd"
+	StrokeRef        string // url(#id) reference for stroke
+	StrokeLineCap    string // "butt", "round", "square"
+	StrokeLineJoin   string // "miter", "round", "bevel"
+	Display          string // "none" hides the element
+	Visibility       string // "hidden" hides but preserves space
+	FontFamily       string
+	FontWeight       string    // "bold", "normal", etc.
+	FontStyle        string    // "italic", "normal"
+	TextAnchor       string    // "start", "middle", "end"
+	DominantBaseline string    // "auto", "middle", "hanging", "central"
+	StrokeDashArray  []float64 // dash pattern
 	FillOpacity      float64   // 0-1, default 1
-	FillRule         string    // "nonzero" or "evenodd"
-	Stroke           *Color    // nil means none
-	StrokeRef        string    // url(#id) reference for stroke
 	StrokeOpacity    float64   // 0-1, default 1
 	StrokeWidth      float64   // default 1
-	StrokeLineCap    string    // "butt", "round", "square"
-	StrokeLineJoin   string    // "miter", "round", "bevel"
 	StrokeMiterLimit float64   // default 4
-	StrokeDashArray  []float64 // dash pattern
 	StrokeDashOffset float64   // dash offset
 	Opacity          float64   // group/element opacity, default 1
-	Display          string    // "none" hides the element
-	Visibility       string    // "hidden" hides but preserves space
-	FontFamily       string
 	FontSize         float64
-	FontWeight       string // "bold", "normal", etc.
-	FontStyle        string // "italic", "normal"
-	TextAnchor       string // "start", "middle", "end"
-	DominantBaseline string // "auto", "middle", "hanging", "central"
 }
 
 // DefaultStyle returns a Style with default values.

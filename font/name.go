@@ -68,9 +68,9 @@ func parseName(data []byte) (nameRecords, error) {
 	}
 
 	type candidate struct {
-		score int
-		data  []byte
 		dec   func([]byte) string
+		data  []byte
+		score int
 	}
 	best := map[uint16]candidate{}
 

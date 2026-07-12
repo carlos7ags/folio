@@ -21,10 +21,15 @@ type parsedFont struct {
 	// parsers (gsub, gpos, kern, subset).
 	rawTables map[string][]byte
 
-	head head
-	hhea hhea
-	maxp maxp
-	os2  *os2 // optional — older TrueType fonts omit OS/2.
+	os2 *os2 // optional — older TrueType fonts omit OS/2.
+
+	// cmap is the Unicode → GID lookup parsed from the cmap table.
+	cmap cmapTable
+
+	// nameTable holds resolved name records keyed by NameID. Only the
+	// IDs Folio actually consults are kept (PostScript, Full).
+	postScriptName string
+	fullName       string
 
 	// hmtx: longHorMetric advances + LSBs. len == numGlyphs once
 	// parseHmtx fills it. Glyphs beyond numberOfHMetrics share the
@@ -32,13 +37,9 @@ type parsedFont struct {
 	advances []uint16
 	lsbs     []int16
 
-	// nameTable holds resolved name records keyed by NameID. Only the
-	// IDs Folio actually consults are kept (PostScript, Full).
-	postScriptName string
-	fullName       string
-
-	// cmap is the Unicode → GID lookup parsed from the cmap table.
-	cmap cmapTable
+	head head
+	hhea hhea
+	maxp maxp
 }
 
 // parseAllTables parses the table directory and decodes every table

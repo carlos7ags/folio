@@ -52,22 +52,22 @@ type ExtGStateEntry struct {
 
 // LinkArea describes a clickable region on a rendered page.
 type LinkArea struct {
-	X, Y, W, H float64 // bounding box in PDF points (bottom-left origin)
 	URI        string  // external URL (empty if internal link)
 	DestName   string  // internal named destination (empty if external)
+	X, Y, W, H float64 // bounding box in PDF points (bottom-left origin)
 }
 
 // ImageEntry is an image registered on a rendered page.
 type ImageEntry struct {
-	Name  string
 	Image *folioimage.Image
+	Name  string
 }
 
 // FontEntry is a font registered on a rendered page.
 type FontEntry struct {
-	Name     string
 	Standard *font.Standard
 	Embedded *font.EmbeddedFont
+	Name     string
 }
 
 // absoluteItem is an element placed at fixed coordinates, outside normal flow.
@@ -76,8 +76,8 @@ type absoluteItem struct {
 	x, y         float64
 	width        float64 // layout width; 0 means use full page content width
 	pageIndex    int     // -1 means "current page at time of rendering"
-	rightAligned bool    // x is a right-edge offset; final X = pageWidth - x - elementWidth
 	zIndex       int     // negative = render behind normal flow content
+	rightAligned bool    // x is a right-edge offset; final X = pageWidth - x - elementWidth
 	fixed        bool    // position: fixed — draw on every page
 }
 
@@ -85,18 +85,23 @@ type absoluteItem struct {
 // The Document layer uses these to build the PDF structure tree.
 type StructTagInfo struct {
 	Tag         string // structure type (e.g. "P", "H1", "Table")
+	AltText     string // alternative text (for Figure tags)
 	MCID        int    // marked content ID on this page
 	PageIndex   int    // which page this tag is on
-	AltText     string // alternative text (for Figure tags)
 	ParentIndex int    // index of parent tag in the StructTags slice (-1 = top-level)
 }
 
 // Renderer lays out a sequence of elements into pages,
 // handling page breaks automatically.
 type Renderer struct {
-	pageWidth        float64
-	pageHeight       float64
-	margins          Margins
+
+	// ctx bounds the layout pass when set via RenderContext. It is stored
+	// on this short-lived, per-render struct (never shared or persisted) so
+	// the pagination loops can check it at page and element boundaries. nil
+	// means no cancellation. ctxErr records the first ctx.Err() seen and
+	// aborts the remaining layout; RenderContext returns it.
+	ctx              context.Context
+	ctxErr           error
 	firstMargins     *Margins             // @page :first margins (nil = use default)
 	leftMargins      *Margins             // @page :left margins for even pages (nil = use default)
 	rightMargins     *Margins             // @page :right margins for odd pages (nil = use default)
@@ -104,26 +109,21 @@ type Renderer struct {
 	firstMarginBoxes map[string]MarginBox // first-page margin boxes (@page :first)
 	leftMarginBoxes  map[string]MarginBox // left-page margin boxes (@page :left)
 	rightMarginBoxes map[string]MarginBox // right-page margin boxes (@page :right)
-	elements         []Element
-	absolutes        []absoluteItem
-	tagged           bool            // if true, emit BDC/EMC marked content
-	actualText       bool            // if true, emit ISO 32000-2 §14.9.4 /ActualText for shaped Arabic
-	structTags       []StructTagInfo // collected during rendering
-
 	// Running string values for CSS string-set / string() support.
 	// Maps string name → current value. Updated during pagination as
 	// elements with StringSets are placed on pages.
 	runningStrings map[string]string
 	// Per-page snapshot of running string values at the end of each page.
 	pageStrings []map[string]string
+	elements    []Element
+	absolutes   []absoluteItem
+	structTags  []StructTagInfo // collected during rendering
+	margins     Margins
+	pageWidth   float64
+	pageHeight  float64
+	tagged      bool // if true, emit BDC/EMC marked content
+	actualText  bool // if true, emit ISO 32000-2 §14.9.4 /ActualText for shaped Arabic
 
-	// ctx bounds the layout pass when set via RenderContext. It is stored
-	// on this short-lived, per-render struct (never shared or persisted) so
-	// the pagination loops can check it at page and element boundaries. nil
-	// means no cancellation. ctxErr records the first ctx.Err() seen and
-	// aborts the remaining layout; RenderContext returns it.
-	ctx    context.Context
-	ctxErr error
 }
 
 // marginBoxOrder fixes the drawing order of margin boxes so content-stream
@@ -137,14 +137,6 @@ var marginBoxOrder = [...]string{
 // MarginBox holds the content template for a CSS margin box.
 // Content may contain placeholders like {counter(page)} and {counter(pages)}.
 type MarginBox struct {
-	Content  string     // template string with placeholders
-	FontSize float64    // font size in points (0 = default 9pt)
-	Color    [3]float64 // RGB color (0-1 each)
-	// HasColor is true only when the source CSS explicitly set a `color`
-	// declaration. It distinguishes an explicit `color: black` ({0,0,0})
-	// from an unset color: when false the renderer applies the default
-	// gray; when true it honours Color verbatim (including pure black).
-	HasColor bool
 	// Font is the standard PDF font to draw with when Embedded is nil,
 	// resolved from the margin box's own font-style/font-weight/
 	// font-family declarations. nil falls back to plain Helvetica — the
@@ -156,6 +148,14 @@ type MarginBox struct {
 	// and embedded — required for PDF/A. When nil the renderer falls back
 	// to Font, or plain Helvetica if Font is also nil.
 	Embedded *font.EmbeddedFont
+	Content  string     // template string with placeholders
+	FontSize float64    // font size in points (0 = default 9pt)
+	Color    [3]float64 // RGB color (0-1 each)
+	// HasColor is true only when the source CSS explicitly set a `color`
+	// declaration. It distinguishes an explicit `color: black` ({0,0,0})
+	// from an unset color: when false the renderer applies the default
+	// gray; when true it honours Color verbatim (including pure black).
+	HasColor bool
 }
 
 // MarginBoxSet holds margin boxes for a page variant.
@@ -464,9 +464,9 @@ func (r *Renderer) Add(e Element) {
 
 // AbsoluteOpts configures an absolutely positioned element.
 type AbsoluteOpts struct {
-	RightAligned bool // x is a right-edge offset
 	ZIndex       int  // negative = render behind normal flow
 	PageIndex    int  // -1 = last page
+	RightAligned bool // x is a right-edge offset
 	Fixed        bool // position: fixed — draw on every page
 }
 
