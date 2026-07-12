@@ -517,9 +517,12 @@ func (p *Paragraph) Layout(maxWidth float64) []Line {
 		}
 	}
 
-	// Apply ellipsis truncation: if enabled, keep only the first line
-	// and replace trailing text with "..." if it overflows.
-	if p.ellipsis && len(lines) > 1 {
+	// Apply ellipsis truncation: if enabled, keep only the first line and
+	// replace trailing text with "..." if it overflows — either because
+	// wrapping produced more than one line, or (under white-space:nowrap,
+	// which always yields a single line) because that single line is
+	// itself wider than maxWidth.
+	if p.ellipsis && len(lines) > 0 && (len(lines) > 1 || lines[0].Width > maxWidth) {
 		lines = lines[:1]
 		lines[0].IsLast = true
 		// Truncate words to fit within maxWidth and append ellipsis.

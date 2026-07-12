@@ -54,29 +54,31 @@ func computeBaseline(words []Word, lineH float64) float64 {
 }
 
 // resolveLineHeight computes a paragraph's (uniform, whole-paragraph) line
-// box height. When leading is [LeadingNormal], the height is derived from
-// the vertical metrics of dominant (the run that set maxFontSize) instead
-// of a flat multiplier — matching how browsers resolve CSS
-// `line-height: normal` per the active font, including fonts that declare
-// an unusually large line-gap. font.Standard (the base-14 PDF fonts) has no
-// embedded vertical metrics to consult, so it falls back to the same 1.2
-// approximation used before this existed.
+// box height. When leading is [LeadingNormal], the height is the max over
+// every run's own resolved normal leading — matching how browsers size a
+// line box from every inline box on it, not "whichever run happens to carry
+// the largest font-size." font.Standard (the base-14 PDF fonts) has no
+// embedded vertical metrics to consult, so each such run contributes the
+// same fontSize*1.2 approximation used before this existed, rather than
+// being excluded from the max outright — otherwise a large plain-font run
+// sharing a line with a small embedded-font run would resolve to a line
+// height shorter than the plain font actually needs.
 func resolveLineHeight(leading, maxFontSize float64, runs []TextRun) float64 {
 	if leading != LeadingNormal {
 		return maxFontSize * leading
 	}
-	// CSS resolves `normal` per inline box and takes the tallest one, not
-	// "whichever run happens to carry the largest font-size" — a run.Font
-	// (base-14, no embedded vertical metrics) can't contribute here, but a
-	// smaller-font Embedded run can still need more leading than a larger
-	// plain-font run, and a naive "the run that set maxFontSize" pick is
-	// order-dependent when multiple runs tie on font size.
 	var maxHeight float64
 	for _, run := range runs {
-		if run.Embedded == nil {
-			continue
+		var h float64
+		switch {
+		case run.Embedded != nil:
+			h = run.Embedded.NormalLineHeight(run.FontSize)
+		case run.Font != nil:
+			h = run.FontSize * 1.2
+		default:
+			continue // inline elements / line-break markers carry no font metrics
 		}
-		if h := run.Embedded.NormalLineHeight(run.FontSize); h > maxHeight {
+		if h > maxHeight {
 			maxHeight = h
 		}
 	}
@@ -173,8 +175,15 @@ func inlineSpaceAfter(measured []Word, runs []TextRun, currentIdx int) float64 {
 }
 
 // MinWidth implements Measurable. Returns the width of the longest word
-// (the narrowest the paragraph can be without clipping).
+// (the narrowest the paragraph can be without clipping). Under
+// white-space:nowrap there is no wrap opportunity at all, so the paragraph
+// can't shrink below its full single-line width — a shrink-to-fit/auto-width
+// container sized to the longest *word* would be too narrow and the nowrap
+// text would overflow it.
 func (p *Paragraph) MinWidth() float64 {
+	if p.noWrap {
+		return p.MaxWidth()
+	}
 	maxWordW := 0.0
 	for _, run := range p.runs {
 		measurer := runMeasurer(run)

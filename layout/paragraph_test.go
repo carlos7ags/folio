@@ -251,6 +251,44 @@ func TestParagraphLeadingNormalMixedFontsTakesMaxRegardlessOfOrder(t *testing.T)
 	}
 }
 
+// TestParagraphLeadingNormalLargeStandardFontNotUndersized asserts that a
+// large font.Standard run sharing a line with a small embedded-font run
+// still gets at least its own fontSize*1.2 leading under line-height:normal
+// — a standard-font run must contribute to the max, not be excluded from it
+// just because it has no embedded vertical metrics to consult.
+func TestParagraphLeadingNormalLargeStandardFontNotUndersized(t *testing.T) {
+	path, err := filepath.Abs("../font/testdata/Poppins-Bold.ttf")
+	if err != nil {
+		t.Fatal(err)
+	}
+	face, err := font.LoadFont(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ef := font.NewEmbeddedFont(face)
+
+	const bigSize = 24
+	const smallSize = 8
+	smallEmbeddedHeight := ef.NormalLineHeight(smallSize)
+	minAcceptable := bigSize * 1.2
+	if smallEmbeddedHeight >= minAcceptable {
+		t.Fatalf("test fixture assumption broken: small embedded run's height (%v) should be less than the large standard run's minimum (%v)", smallEmbeddedHeight, minAcceptable)
+	}
+
+	p := NewStyledParagraph(
+		TextRun{Text: "Big ", Font: font.Helvetica, FontSize: bigSize},
+		TextRun{Text: "small", Embedded: ef, FontSize: smallSize},
+	).SetLeading(LeadingNormal)
+
+	lines := p.Layout(500)
+	if len(lines) == 0 {
+		t.Fatal("expected at least one line")
+	}
+	if lines[0].Height < minAcceptable-0.001 {
+		t.Errorf("Layout: height %.3f is shorter than the large standard run's own minimum leading %.3f — overlapping lines", lines[0].Height, minAcceptable)
+	}
+}
+
 func TestParagraphWordWidths(t *testing.T) {
 	p := NewParagraph("AB", font.Helvetica, 10)
 	lines := p.Layout(500)
@@ -1346,6 +1384,30 @@ func TestParagraphEllipsis(t *testing.T) {
 	}
 }
 
+// TestParagraphEllipsisWithNoWrap asserts that white-space:nowrap combined
+// with text-overflow:ellipsis — the standard CSS single-line-truncation
+// idiom (white-space:nowrap; overflow:hidden; text-overflow:ellipsis) —
+// still truncates. nowrap always yields exactly one line, so truncation
+// can't be gated on "more than one line" the way ordinary wrapped overflow
+// is; it must also fire when that single line is itself wider than
+// maxWidth.
+func TestParagraphEllipsisWithNoWrap(t *testing.T) {
+	text := "This is a very long line of unbreakable-looking text for nowrap truncation"
+	p := NewParagraph(text, font.Helvetica, 12).SetNoWrap(true).SetEllipsis(true)
+
+	lines := p.Layout(100)
+	if len(lines) != 1 {
+		t.Fatalf("expected exactly 1 line under nowrap, got %d", len(lines))
+	}
+	if lines[0].Width > 100 {
+		t.Errorf("expected the line to be truncated to fit within maxWidth=100, got width %.2f", lines[0].Width)
+	}
+	last := lines[0].Words[len(lines[0].Words)-1]
+	if !strings.HasSuffix(last.Text, "...") {
+		t.Errorf("expected truncated line to end with an ellipsis, last word = %q", last.Text)
+	}
+}
+
 func TestParagraphWidowsOrphans(t *testing.T) {
 	// Long paragraph that overflows a short page.
 	text := ""
@@ -1399,4 +1461,41 @@ func TestParagraphNoWrapOverflowsInsteadOfBreaking(t *testing.T) {
 			t.Fatalf("expected the word to be character-broken across multiple lines, got %d", len(lines))
 		}
 	})
+
+	t.Run("does not soft-wrap at spaces", func(t *testing.T) {
+		p := NewParagraph("hello world this is nowrap text", font.Helvetica, 12).SetNoWrap(true)
+		lines := p.Layout(50)
+		if len(lines) != 1 {
+			t.Fatalf("expected the whole multi-word run to stay on one overflowing line, got %d lines", len(lines))
+		}
+	})
+
+	t.Run("break-all does not force a break nowrap forbids", func(t *testing.T) {
+		p := NewParagraph(word, font.Helvetica, 12).SetNoWrap(true).SetWordBreak("break-all")
+		lines := p.Layout(50)
+		if len(lines) != 1 {
+			t.Fatalf("expected nowrap to override break-all and keep one overflowing line, got %d lines", len(lines))
+		}
+	})
+}
+
+// TestParagraphNoWrapPropagatesAcrossOverflowContinuation is the regression
+// test for cloneWithWords dropping noWrap: a nowrap paragraph that overflows
+// a page/column boundary (via PlanLayout's LayoutPartial/Overflow) must keep
+// nowrap on its continuation fragment, not regress to character-breaking.
+func TestParagraphNoWrapPropagatesAcrossOverflowContinuation(t *testing.T) {
+	text := "first\n" + strings.Repeat("A", 60)
+	p := NewParagraph(text, font.Helvetica, 12).SetNoWrap(true)
+	plan := p.PlanLayout(LayoutArea{Width: 50, Height: 15})
+	if plan.Status != LayoutPartial {
+		t.Fatalf("expected LayoutPartial (first line fits, second overflows the height), got %v", plan.Status)
+	}
+	overflow, ok := plan.Overflow.(*Paragraph)
+	if !ok {
+		t.Fatalf("expected *Paragraph overflow, got %T", plan.Overflow)
+	}
+	lines := overflow.Layout(50)
+	if len(lines) != 1 {
+		t.Errorf("expected the nowrap continuation to stay on one overflowing line, got %d (noWrap was dropped by the clone)", len(lines))
+	}
 }

@@ -690,7 +690,11 @@ func TestWhiteSpaceNowrapAcrossFonts(t *testing.T) {
 			if len(elems) == 0 {
 				t.Fatal("expected elements")
 			}
-			plan := elems[0].PlanLayout(layout.LayoutArea{Width: 320, Height: 1000})
+			// The unbroken token measures ~270-295pt across these fonts at
+			// this font-size; constrain to well below that so it must
+			// genuinely overflow (not just fit) to exercise the nowrap
+			// guard — a wider area would pass even with nowrap reverted.
+			plan := elems[0].PlanLayout(layout.LayoutArea{Width: 150, Height: 1000})
 			if len(plan.Blocks) != 1 {
 				t.Errorf("white-space:nowrap should keep the token on one overflowing line, got %d blocks", len(plan.Blocks))
 			}
