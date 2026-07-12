@@ -808,6 +808,30 @@ func (d *Div) PlanLayout(area LayoutArea) LayoutPlan {
 			fittedInFlow++
 
 		case LayoutPartial:
+			// A child that wants to stay together (CSS break-inside: avoid) must
+			// not be fragmented mid-container: defer the whole child to overflow
+			// so it restarts intact on the next page, rather than splitting it
+			// here. Guarded on having already placed a child (fittedInFlow > 0),
+			// so the deferred child arrives first in the overflow container next
+			// page and — if it is taller than a whole page — fragments there
+			// instead of looping. Scoped to the auto-height fragmenting path;
+			// a definite/clipping box keeps its contain semantics. Mirrors the
+			// renderer's top-level keep-together handling (render_plans.go) for
+			// the case where the box is nested inside another container.
+			// NOTE: this asserts on elem directly, which is correct here. If a
+			// decorator that wraps an element without reproducing its optional
+			// interfaces (e.g. an anchor/bookmark marker around an element with
+			// an id) is ever introduced into this package, this assert must
+			// unwrap first — mirror render_plans.go's KeepTogether check — or a
+			// decorated keep-together child would be silently fragmented.
+			if paginateOverflow && fittedInFlow > 0 {
+				if kt, ok := elem.(interface{ KeepTogether() bool }); ok && kt.KeepTogether() {
+					allFit = false
+					overflowStartIdx = idx
+					overflowElements = append(overflowElements, elem)
+					break
+				}
+			}
 			for _, block := range plan.Blocks {
 				block.X += d.padding.Left
 				block.Y += curY
