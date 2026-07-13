@@ -7,6 +7,7 @@ import (
 	"archive/zip"
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"iter"
 	"net/http"
@@ -125,32 +126,44 @@ func FuzzParsePDF(f *testing.F) {
 	})
 }
 
+var errSkip = errors.New("skip")
+
 func downloadZIP(ctx context.Context, zipFn, url string) (*zip.ReadCloser, error) {
-	zr, err := zip.OpenReader(zipFn)
-	if err == nil && zr != nil {
-		return zr, err
+	// If the file is there but erroneous, then don't download it again.
+	if zr, err := zip.OpenReader(zipFn); err == nil && zr != nil {
+		return zr, nil
+	} else if !errors.Is(err, os.ErrNotExist) {
+		fmt.Println(zipFn + " tombstone found, don't try to download again")
+		return nil, errors.Join(errSkip, err)
 	}
-	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
-	if err != nil {
-		return nil, err
-	}
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	if resp != nil && resp.Body != nil {
-		defer func() { _ = resp.Body.Close() }()
-	}
-	fh, err := os.Create(zipFn)
-	if err != nil {
-		return nil, err
-	}
-	_, err = io.Copy(fh, resp.Body)
-	_ = resp.Body.Close()
-	if err != nil {
-		return nil, err
-	}
-	if err = fh.Close(); err != nil {
+	if err := func() error {
+		_ = os.Remove(zipFn)
+		dl, _ := ctx.Deadline()
+		fmt.Printf("Downloading %s to %s (max dur: %s)...\n", url, zipFn, time.Until(dl).String())
+		req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+		if err != nil {
+			return fmt.Errorf("NewRequest: %w", err)
+		}
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			return fmt.Errorf("Do: %w", err)
+		}
+		if resp != nil && resp.Body != nil {
+			defer func() { _ = resp.Body.Close() }()
+		}
+		fh, err := os.Create(zipFn)
+		if err != nil {
+			return fmt.Errorf("Create: %w", err)
+		}
+		_, err = io.Copy(fh, resp.Body)
+		_ = resp.Body.Close()
+		if err != nil {
+			return fmt.Errorf("Copy: %w", err)
+		}
+		return fh.Close()
+	}(); err != nil {
+		fmt.Println("download", url, "error:", err)
+		_ = os.Truncate(zipFn, 0) // Leave the file there to avoid downloading again
 		return nil, err
 	}
 	return zip.OpenReader(zipFn)
@@ -173,8 +186,16 @@ func downloadPDFs(t testing.TB) iter.Seq[file] {
 	if _, ok := t.Context().Deadline(); ok {
 		maxPDFSize = 1 << 20
 	}
+	dl, _ := t.Context().Deadline()
+	if dl.IsZero() {
+		dl = time.Now().Add(time.Minute)
+	} else {
+		dl = time.Now().Add(time.Until(dl) / 10)
+	}
+	ctx, cancel := context.WithTimeout(t.Context(), time.Until(dl))
 
 	return func(yield func(file) bool) {
+		defer cancel()
 		type zrError struct {
 			*zip.ReadCloser
 			Name string
@@ -188,19 +209,21 @@ func downloadPDFs(t testing.TB) iter.Seq[file] {
 			"pdfcpu":      "https://github.com/pdfcpu/pdfcpu/archive/refs/heads/master.zip",
 		} {
 			wg.Go(func() {
-				t.Log("downloading", url, "...")
-				ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
+				ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 				zr, err := downloadZIP(ctx, filepath.Join(cacheDir, nm+".zip"), url)
 				cancel()
 				if err != nil {
 					if errors.Is(err, context.DeadlineExceeded) {
 						t.Logf("WARNING: downloading %s timed out", nm+".zip")
-						err = nil
+						return
+					} else if errors.Is(err, errSkip) {
+						t.Logf("WARNING: %s: %+v", nm+".zip", err)
+						return
 					}
 				}
 				select {
 				case zrCh <- zrError{ReadCloser: zr, Name: nm, Err: err}:
-				case <-t.Context().Done():
+				case <-ctx.Done():
 					if zr != nil {
 						_ = zr.Close()
 					}
@@ -218,6 +241,8 @@ func downloadPDFs(t testing.TB) iter.Seq[file] {
 				for _, f := range zr.File {
 					if !strings.HasSuffix(f.Name, ".pdf") {
 						continue
+					} else if ctx.Err() != nil {
+						return errExit
 					}
 					if err := func() error {
 						rc, err := f.Open()
@@ -250,7 +275,7 @@ func downloadPDFs(t testing.TB) iter.Seq[file] {
 				}
 				return nil
 			}(); err != nil {
-				if errors.Is(err, errExit) {
+				if errors.Is(err, errExit) || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 					return
 				}
 				t.Error(err)
