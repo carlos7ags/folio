@@ -4,6 +4,7 @@
 package reader
 
 import (
+	"errors"
 	"fmt"
 	"os"
 
@@ -464,7 +465,7 @@ func (r *PdfReader) parsePageTree() error {
 	}
 
 	r.pages = nil
-	return r.collectPages(pagesDict, inherited{})
+	return r.collectPages(pagesDict, inherited{}, nil)
 }
 
 // inherited carries inheritable page tree attributes down the tree.
@@ -477,8 +478,17 @@ type inherited struct {
 	rotate    *core.PdfNumber
 }
 
+var errCircularReference = errors.New("circular reference")
+
 // collectPages recursively collects leaf pages from the page tree.
-func (r *PdfReader) collectPages(node *core.PdfDictionary, inh inherited) error {
+// visited tracks node pointers we've already processed to detect cycles
+// (a malformed PDF can have a Pages node that references itself).
+func (r *PdfReader) collectPages(node *core.PdfDictionary, inh inherited, visited map[*core.PdfDictionary]struct{}) error {
+	// Cycle detection: skip nodes we've already visited.
+	if _, ok := visited[node]; ok {
+		return fmt.Errorf("reader: page tree: %w", errCircularReference)
+	}
+
 	// Update inheritable attributes from this node.
 	if mb := node.Get("MediaBox"); mb != nil {
 		if arr, ok := mb.(*core.PdfArray); ok {
@@ -523,6 +533,11 @@ func (r *PdfReader) collectPages(node *core.PdfDictionary, inh inherited) error 
 		return fmt.Errorf("reader: /Kids is not an array")
 	}
 
+	if visited == nil {
+		visited = make(map[*core.PdfDictionary]struct{})
+	}
+	visited[node] = struct{}{}
+
 	for _, kidRef := range kids.All() {
 		kidObj, err := r.resolver.ResolveDeep(kidRef)
 		if err != nil {
@@ -532,7 +547,10 @@ func (r *PdfReader) collectPages(node *core.PdfDictionary, inh inherited) error 
 		if !ok {
 			continue
 		}
-		if err := r.collectPages(kidDict, inh); err != nil {
+		if err := r.collectPages(kidDict, inh, visited); err != nil {
+			if errors.Is(err, errCircularReference) {
+				continue
+			}
 			return err
 		}
 	}

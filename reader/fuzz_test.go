@@ -4,34 +4,72 @@
 package reader
 
 import (
+	"archive/zip"
+	"context"
+	"errors"
+	"fmt"
+	"io"
+	"iter"
+	"net/http"
+	"os"
+	"path/filepath"
+	"strings"
+	"sync"
 	"testing"
+	"time"
 )
+
+func testTokenizer(t testing.TB, name string, data []byte) {
+	tok := NewTokenizer(data)
+	// Consume all tokens — must not panic, and must advance.
+	var pos int
+	for {
+		token := tok.Next()
+		if token.Type == TokenEOF {
+			break
+		}
+		if pos == tok.pos {
+			if token = tok.Next(); token.Type == TokenEOF {
+				break
+			}
+			if pos == tok.pos {
+				t.Fatalf("%s didn't advance from %d", name, pos)
+			}
+		}
+		pos = tok.pos
+	}
+}
+
+func TestTokenizer(t *testing.T) {
+	for file := range downloadPDFs(t) {
+		t.Run(file.Name, func(t *testing.T) {
+			testTokenizer(t, file.Name, file.Data)
+		})
+	}
+}
 
 // FuzzTokenizer tests that the tokenizer never panics on arbitrary input.
 func FuzzTokenizer(f *testing.F) {
 	// Seed corpus with valid PDF fragments.
-	f.Add([]byte("42 3.14 -7"))
-	f.Add([]byte("(Hello World)"))
-	f.Add([]byte("<48656C6C6F>"))
-	f.Add([]byte("/Type /Pages"))
-	f.Add([]byte("true false null"))
-	f.Add([]byte("<< /Type /Catalog /Pages 2 0 R >>"))
-	f.Add([]byte("[1 2 3 (hello) /Name]"))
-	f.Add([]byte("% this is a comment\n42"))
-	f.Add([]byte("1 0 obj\n<< /Type /Page >>\nendobj"))
-	f.Add([]byte("(nested (parens) string)"))
-	f.Add([]byte(`(escape \n \r \t \\ \( \))`))
-	f.Add([]byte("<< /Length 0 >>\nstream\nendstream"))
+	f.Add("numbers", []byte("42 3.14 -7"))
+	f.Add("string", []byte("(Hello World)"))
+	f.Add("word", []byte("<48656C6C6F>"))
+	f.Add("/", []byte("/Type /Pages"))
+	f.Add("bools", []byte("true false null"))
+	f.Add("list", []byte("<< /Type /Catalog /Pages 2 0 R >>"))
+	f.Add("arr", []byte("[1 2 3 (hello) /Name]"))
+	f.Add("comment", []byte("% this is a comment\n42"))
+	f.Add("obj", []byte("1 0 obj\n<< /Type /Page >>\nendobj"))
+	f.Add("nested_parens", []byte("(nested (parens) string)"))
+	f.Add("escape", []byte(`(escape \n \r \t \\ \( \))`))
+	f.Add("stream", []byte("<< /Length 0 >>\nstream\nendstream"))
 
-	f.Fuzz(func(t *testing.T, data []byte) {
-		tok := NewTokenizer(data)
-		// Consume all tokens — must not panic.
-		for i := 0; i < 10000; i++ {
-			token := tok.Next()
-			if token.Type == TokenEOF {
-				break
-			}
-		}
+	for file := range downloadPDFs(f) {
+		f.Add(file.Name, file.Data)
+	}
+
+	f.Fuzz(func(t *testing.T, name string, data []byte) {
+		testTokenizer(t, name, data)
 	})
 }
 
@@ -44,6 +82,10 @@ func FuzzParse(f *testing.F) {
 	f.Add([]byte("(Hello) /Name true null 3.14"))
 	f.Add([]byte("<< /A << /B 1 >> >>"))
 	f.Add([]byte("[<< /X 1 >> << /Y 2 >>]"))
+
+	for file := range downloadPDFs(f) {
+		f.Add(file.Data)
+	}
 
 	f.Fuzz(func(t *testing.T, data []byte) {
 		tok := NewTokenizer(data)
@@ -59,6 +101,10 @@ func FuzzParsePDF(f *testing.F) {
 	f.Add([]byte("%PDF-1.4\n1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj\n2 0 obj<</Type/Pages/Kids[3 0 R]/Count 1>>endobj\n3 0 obj<</Type/Page/Parent 2 0 R/MediaBox[0 0 612 792]>>endobj\nxref\n0 4\n0000000000 65535 f \n0000000009 00000 n \n0000000058 00000 n \n0000000115 00000 n \ntrailer<</Size 4/Root 1 0 R>>\nstartxref\n190\n%%EOF"))
 	// Xref stream with a negative /W field width — regression seed.
 	f.Add(buildPDFWithXrefStreamW("[-5 3 1]"))
+
+	for file := range downloadPDFs(f) {
+		f.Add(file.Data)
+	}
 
 	f.Fuzz(func(t *testing.T, data []byte) {
 		// Must not panic — errors are expected on random input.
@@ -78,4 +124,163 @@ func FuzzParsePDF(f *testing.F) {
 			}
 		}
 	})
+}
+
+var errSkip = errors.New("skip")
+
+func downloadZIP(ctx context.Context, zipFn, url string) (*zip.ReadCloser, error) {
+	// If the file is there but erroneous, then don't download it again.
+	if zr, err := zip.OpenReader(zipFn); err == nil && zr != nil {
+		return zr, nil
+	} else if !errors.Is(err, os.ErrNotExist) {
+		fmt.Println(zipFn + " tombstone found, don't try to download again")
+		return nil, errors.Join(errSkip, err)
+	}
+	if err := func() error {
+		_ = os.Remove(zipFn)
+		dl, _ := ctx.Deadline()
+		fmt.Printf("Downloading %s to %s (max dur: %s)...\n", url, zipFn, time.Until(dl).String())
+		req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+		if err != nil {
+			return fmt.Errorf("NewRequest: %w", err)
+		}
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			return fmt.Errorf("Do: %w", err)
+		}
+		if resp != nil && resp.Body != nil {
+			defer func() { _ = resp.Body.Close() }()
+		}
+		fh, err := os.Create(zipFn)
+		if err != nil {
+			return fmt.Errorf("Create: %w", err)
+		}
+		_, err = io.Copy(fh, resp.Body)
+		_ = resp.Body.Close()
+		if err != nil {
+			return fmt.Errorf("Copy: %w", err)
+		}
+		return fh.Close()
+	}(); err != nil {
+		fmt.Println("download", url, "error:", err)
+		_ = os.Truncate(zipFn, 0) // Leave the file there to avoid downloading again
+		return nil, err
+	}
+	return zip.OpenReader(zipFn)
+}
+
+type file struct {
+	Name string
+	Data []byte
+}
+
+func downloadPDFs(t testing.TB) iter.Seq[file] {
+	cacheDir, _ := os.UserCacheDir()
+	if cacheDir == "" {
+		cacheDir = t.TempDir()
+	} else {
+		cacheDir = filepath.Join(cacheDir, "folio")
+	}
+	_ = os.MkdirAll(cacheDir, 0775)
+	maxPDFSize := 10 << 20
+	if _, ok := t.Context().Deadline(); ok {
+		maxPDFSize = 1 << 20
+	}
+	dl, _ := t.Context().Deadline()
+	if dl.IsZero() {
+		dl = time.Now().Add(time.Minute)
+	} else {
+		dl = time.Now().Add(time.Until(dl) / 10)
+	}
+	ctx, cancel := context.WithTimeout(t.Context(), time.Until(dl))
+
+	return func(yield func(file) bool) {
+		defer cancel()
+		type zrError struct {
+			*zip.ReadCloser
+			Name string
+			Err  error
+		}
+		zrCh := make(chan zrError)
+		var wg sync.WaitGroup
+		for nm, url := range map[string]string{
+			"poppler":     "https://gitlab.freedesktop.org/poppler/test/-/archive/master/test-master.zip?ref_type=heads&path=tests",
+			"klausnitzer": "https://github.com/klausnitzer/pentest-pdf-collection/archive/refs/heads/main.zip",
+			"pdfcpu":      "https://github.com/pdfcpu/pdfcpu/archive/refs/heads/master.zip",
+		} {
+			wg.Go(func() {
+				ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+				zr, err := downloadZIP(ctx, filepath.Join(cacheDir, nm+".zip"), url)
+				cancel()
+				if err != nil {
+					if errors.Is(err, context.DeadlineExceeded) {
+						t.Logf("WARNING: downloading %s timed out", nm+".zip")
+						return
+					} else if errors.Is(err, errSkip) {
+						t.Logf("WARNING: %s: %+v", nm+".zip", err)
+						return
+					}
+				}
+				select {
+				case zrCh <- zrError{ReadCloser: zr, Name: nm, Err: err}:
+				case <-ctx.Done():
+					if zr != nil {
+						_ = zr.Close()
+					}
+				}
+			})
+		}
+		go func() { wg.Wait(); close(zrCh) }()
+		errExit := errors.New("exit")
+		for zr := range zrCh {
+			if err := func() error {
+				if zr.Err != nil || zr.ReadCloser == nil {
+					return zr.Err
+				}
+				defer func() { _ = zr.Close() }()
+				for _, f := range zr.File {
+					if !strings.HasSuffix(f.Name, ".pdf") {
+						continue
+					} else if ctx.Err() != nil {
+						return errExit
+					}
+					if err := func() error {
+						rc, err := f.Open()
+						if err != nil {
+							return err
+						}
+						var b []byte
+						if maxPDFSize == 0 {
+							b, err = io.ReadAll(rc)
+						} else {
+							b, err = io.ReadAll(io.LimitReader(rc, int64(maxPDFSize)+1))
+							if len(b) > maxPDFSize {
+								return nil
+							}
+						}
+						_ = rc.Close()
+						if err != nil {
+							return err
+						}
+						if !yield(file{Data: b, Name: zr.Name + ":" + strings.ReplaceAll(f.Name, "/", "%2F")}) {
+							return errExit
+						}
+						return nil
+					}(); err != nil {
+						if errors.Is(err, errExit) {
+							return errExit
+						}
+						t.Error(err)
+					}
+				}
+				return nil
+			}(); err != nil {
+				if errors.Is(err, errExit) || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+					return
+				}
+				t.Error(err)
+				continue
+			}
+		}
+	}
 }

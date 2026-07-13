@@ -27,6 +27,8 @@ const (
 	TokenDictOpen                    // <<
 	TokenDictClose                   // >>
 	TokenEOF                         // end of input
+
+	paranoid = true // avoid infinite loops at all cost
 )
 
 // Token is a single PDF lexical token.
@@ -71,44 +73,87 @@ func (t *Tokenizer) Data() []byte { return t.data }
 
 // Next returns the next token, skipping whitespace and comments.
 func (t *Tokenizer) Next() Token {
+	if t.pos >= t.len {
+		return Token{Type: TokenEOF, Pos: int64(t.pos)}
+	}
+
+	oldPos := t.pos
+	if paranoid {
+		defer func() {
+			if oldPos >= t.pos {
+				panic("Tokenizer didn't advance")
+			}
+		}()
+	}
+
 	t.skipWhitespaceAndComments()
 
 	if t.pos >= t.len {
 		return Token{Type: TokenEOF, Pos: int64(t.pos)}
 	}
 
-	pos := int64(t.pos)
-	ch := t.data[t.pos]
+	var did string
+	tok := func() Token {
+		pos := int64(t.pos)
+		ch := t.data[t.pos]
 
-	switch {
-	case ch == '/':
-		return t.readName(pos)
-	case ch == '(':
-		return t.readLiteralString(pos)
-	case ch == '<':
-		if t.pos+1 < t.len && t.data[t.pos+1] == '<' {
-			t.pos += 2
-			return Token{Type: TokenDictOpen, Value: "<<", Pos: pos}
+		switch ch {
+		case '/':
+			did = "name"
+			return t.readName(pos)
+		case '(':
+			did = "literalString"
+			return t.readLiteralString(pos)
+		case ')': // not really correct, but helps advancing
+			did = ")"
+			t.pos++
+			return Token{Type: TokenString, Value: "", Pos: pos}
+		case '<':
+			if t.pos+1 < t.len && t.data[t.pos+1] == '<' {
+				did = "<<"
+				t.pos += 2
+				return Token{Type: TokenDictOpen, Value: "<<", Pos: pos}
+			}
+			did = "hexString"
+			return t.readHexString(pos)
+		case '>':
+			if t.pos+1 < t.len && t.data[t.pos+1] == '>' {
+				did = ">>"
+				t.pos += 2
+				return Token{Type: TokenDictClose, Value: ">>", Pos: pos}
+			}
+			did = ">"
+			t.pos++
+			return Token{Type: TokenKeyword, Value: ">", Pos: pos}
+		case '[':
+			did = "["
+			t.pos++
+			return Token{Type: TokenArrayOpen, Value: "[", Pos: pos}
+		case ']':
+			did = "]"
+			t.pos++
+			return Token{Type: TokenArrayClose, Value: "]", Pos: pos}
+		default:
+			if isDigit(ch) || ch == '+' || ch == '-' || ch == '.' {
+				did = "number"
+				return t.readNumber(pos)
+			}
+			did = "kwBool"
+			return t.readKeywordOrBool(pos)
 		}
-		return t.readHexString(pos)
-	case ch == '>':
-		if t.pos+1 < t.len && t.data[t.pos+1] == '>' {
-			t.pos += 2
-			return Token{Type: TokenDictClose, Value: ">>", Pos: pos}
+	}()
+	if t.pos == oldPos {
+		t.skipWhitespaceAndComments()
+		if t.pos == oldPos {
+			if true {
+				t.pos++ // force skip of junk character
+			} else {
+				panic(fmt.Sprintf("%s didn't advance from %d [%d, %d] (len=%d)", did, oldPos, t.data[t.pos], t.data[t.pos+1], t.len))
+			}
 		}
-		t.pos++
-		return Token{Type: TokenKeyword, Value: ">", Pos: pos}
-	case ch == '[':
-		t.pos++
-		return Token{Type: TokenArrayOpen, Value: "[", Pos: pos}
-	case ch == ']':
-		t.pos++
-		return Token{Type: TokenArrayClose, Value: "]", Pos: pos}
-	case isDigit(ch) || ch == '+' || ch == '-' || ch == '.':
-		return t.readNumber(pos)
-	default:
-		return t.readKeywordOrBool(pos)
 	}
+
+	return tok
 }
 
 // Peek returns the next token without advancing the position.
