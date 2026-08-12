@@ -16,16 +16,25 @@ import (
 	"github.com/carlos7ags/folio/layout"
 )
 
+type marginsSettings struct {
+	Top    float64 `json:"top"`
+	Right  float64 `json:"right"`
+	Bottom float64 `json:"bottom"`
+	Left   float64 `json:"left"`
+}
+
 type renderSettings struct {
-	PageSize             string `json:"pageSize"`
-	MediaType            string `json:"mediaType"`
-	PdfProfile           string `json:"pdfProfile"`
-	PdfTitle             string `json:"pdfTitle"`
-	IgnoreResourceErrors bool   `json:"ignoreResourceErrors"`
-	CssDpi               int    `json:"cssDpi"`
-	Watermark            string `json:"watermark,omitempty"`  // optional watermark text
-	HeaderHTML           string `json:"headerHtml,omitempty"` // HTML for page header
-	FooterHTML           string `json:"footerHtml,omitempty"` // HTML for page footer
+	PageSize             string          `json:"pageSize"`
+	Orientation          string          `json:"orientation"`           // "portrait" (default) or "landscape"
+	Margins              *marginsSettings `json:"margins,omitempty"`    // optional page margins in points
+	MediaType            string          `json:"mediaType"`
+	PdfProfile           string          `json:"pdfProfile"`
+	PdfTitle             string          `json:"pdfTitle"`
+	IgnoreResourceErrors bool            `json:"ignoreResourceErrors"`
+	CssDpi               int             `json:"cssDpi"`
+	Watermark            string          `json:"watermark,omitempty"`  // optional watermark text
+	HeaderHTML           string          `json:"headerHtml,omitempty"` // HTML for page header
+	FooterHTML           string          `json:"footerHtml,omitempty"` // HTML for page footer
 }
 
 func renderHTML(_ js.Value, args []js.Value) any {
@@ -51,6 +60,10 @@ func renderHTML(_ js.Value, args []js.Value) any {
 		pageSize = document.PageSizeA3
 	}
 
+	if settings.Orientation == "landscape" {
+		pageSize = pageSize.Landscape()
+	}
+
 	opts := &html.Options{
 		PageWidth:  pageSize.Width,
 		PageHeight: pageSize.Height,
@@ -71,6 +84,16 @@ func renderHTML(_ js.Value, args []js.Value) any {
 	}
 
 	doc := document.NewDocument(pageSize)
+
+	// Apply user-specified margins (overrides @page defaults).
+	if settings.Margins != nil {
+		doc.SetMargins(layout.Margins{
+			Top:    settings.Margins.Top,
+			Right:  settings.Margins.Right,
+			Bottom: settings.Margins.Bottom,
+			Left:   settings.Margins.Left,
+		})
+	}
 
 	// Apply @page margins (must be after NewDocument to override defaults).
 	if pc := result.PageConfig; pc != nil {
