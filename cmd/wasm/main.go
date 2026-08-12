@@ -9,6 +9,7 @@ import (
 	"bytes"
 	"encoding/base64"
 	"encoding/json"
+	"os"
 	"syscall/js"
 
 	"github.com/carlos7ags/folio/document"
@@ -27,6 +28,9 @@ type renderSettings struct {
 	PageSize             string          `json:"pageSize"`
 	Orientation          string          `json:"orientation"`           // "portrait" (default) or "landscape"
 	Margins              *marginsSettings `json:"margins,omitempty"`    // optional page margins in points
+	BasePath             string          `json:"basePath,omitempty"`    // local asset root (maps to html.Options.BaseFS)
+	FallbackFontPath     string          `json:"fallbackFontPath"`      // Unicode-capable TTF/OTF for non-WinAnsi chars
+	AllowAbsolutePaths   bool            `json:"allowAbsolutePaths"`    // allow reading absolute paths when BaseFS is nil
 	MediaType            string          `json:"mediaType"`
 	PdfProfile           string          `json:"pdfProfile"`
 	PdfTitle             string          `json:"pdfTitle"`
@@ -65,8 +69,13 @@ func renderHTML(_ js.Value, args []js.Value) any {
 	}
 
 	opts := &html.Options{
-		PageWidth:  pageSize.Width,
-		PageHeight: pageSize.Height,
+		PageWidth:           pageSize.Width,
+		PageHeight:          pageSize.Height,
+		FallbackFontPath:    settings.FallbackFontPath,
+		AllowAbsolutePaths:  settings.AllowAbsolutePaths,
+	}
+	if settings.BasePath != "" {
+		opts.BaseFS = os.DirFS(settings.BasePath)
 	}
 
 	result, err := html.ConvertFull(htmlStr, opts)
