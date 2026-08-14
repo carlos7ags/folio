@@ -7,11 +7,104 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+## [0.10.1] - 2026-08-14
+
+Hardening release: signature verification is now chain-aware with an
+aggregate verdict, the optimizer refuses to silently strip compliance data,
+parsers fail closed on malformed input, and multi-page table layout is ~2.3×
+faster. Note one behavior change: `optimize.Bytes` returns `ErrLossyInput`
+for input carrying PDF/A output intents, XMP metadata, embedded files,
+tagging, or a document language unless `Options{AllowLossy: true}` is passed.
+
+### Added
+
+- **`sign.SignatureResult.OK()`** — single aggregate verdict that requires a
+  valid digest and signature, a `/ByteRange` covering the whole file, and a
+  trusted chain; closes the incremental-update tamper gap where `DigestValid`
+  alone stayed true for a partially covered file.
+- **`optimize.Options`** with `AllowLossy` opting in to optimizing documents
+  that carry document-level compliance data (see `ErrLossyInput`).
+- **`zugferd.NewAmountChecked` / `Amount.AddChecked`** — overflow-checked
+  amount construction and addition for data-driven input.
+- **Third-party encrypted-PDF fixtures** — the reader's encryption tests now
+  parse qpdf-generated AES-256, AES-128, RC4-128, owner-password-only, and
+  `EncryptMetadata false` files instead of only round-tripping folio's own
+  writer.
+- **TSA / OCSP / document-timestamp tests** — the PAdES B-LT path
+  (`TSAClient`, `OCSPClient`, `AddDocumentTimestamp`, `AddDSS`) gained its
+  first test coverage, driven by local httptest servers.
+
+### Changed
+
+- **`sign.Verify` parses full certificate chains** — the signer certificate
+  is selected by the SignerInfo's issuer-and-serial, remaining certificates
+  feed chain building as intermediates, the RFC 5652 `contentType` signed
+  attribute is required, `HasTimestamp` reports only a real RFC 3161
+  timestamp attribute, `/Contents` hex strings tolerate whitespace and odd
+  digit counts, and signatures and `/DSS` are located through the AcroForm
+  object graph (with a raw-scan fallback) so decoy dictionaries in stream
+  payloads are no longer reported and all SignerInfos are examined.
+- **`optimize.Bytes` refuses compliance-bearing input** with `ErrLossyInput`
+  unless `Options{AllowLossy: true}` is passed (behavior change — see above).
+- **AES-256 (R6) decryption validates `/Perms`** — the encrypted permissions
+  block is decrypted and checked against `/P`, so a tampered permission word
+  is rejected instead of silently trusted.
+- **CI**: fuzz crashes now fail the build (five targets, including the
+  previously missing `FuzzParsePDF`), tests run on an ubuntu/macos/windows
+  matrix, and the wasm binary is build-checked.
+
 ### Fixed
+
+- **`optimize` preserves inherited page attributes** — `/MediaBox`,
+  `/CropBox`, `/Rotate`, and `/Resources` inherited from an ancestor
+  `/Pages` node are materialized onto each rewritten page; inputs relying on
+  inheritance previously came out with no page size or resources.
+- **`zugferd` amounts no longer wrap on overflow** — parsing bounds the
+  digit count, arithmetic is overflow-checked in validation, and
+  `Amount.String` renders `math.MinInt64` correctly; wrapped values could
+  previously satisfy the totals validation while emitting corrupt XML.
+- **CSS colors fail closed** — malformed hex or component values no longer
+  parse as opaque black, and NaN/Inf color components and lengths are
+  rejected before they can reach the PDF content stream.
+- **`border-collapse` resolves spanned edges per grid segment** — a
+  `colspan`/`rowspan` cell's shared edge is resolved against every neighbor
+  along the span instead of only the first, so mixed neighbor borders no
+  longer erase or misdraw grid-line segments.
+- **Oversize rowspan groups split across pages** — a rowspan group taller
+  than a full page falls back to per-row splitting (continuing the spanning
+  cell as a styled placeholder) instead of silently drawing past the bottom
+  margin.
+- **`text-overflow: ellipsis` works in rendered documents** — truncation now
+  runs in the `PlanLayout` render path used by HTML conversion, not only in
+  direct `Layout` calls.
+- **Long-word breaking accounts for `letter-spacing`**, and guards against
+  empty runs and negative available widths (previously a potential panic).
+- **`Layout` and `measureWords` share one word-flattening path** — the
+  measure and render pipelines had diverged copies that could disagree on
+  break points.
 
 - **Internal anchor links now register a PDF named destination** — a block-level element with an `id` (`<h2 id="section">`, `<div id="details">`, …) now auto-registers a named destination, so `<a href="#section">` resolves to a direct `/Dest` on the target's page instead of emitting a dangling `/GoTo` string action that jumps nowhere. The HTML walker wraps any block element carrying an `id` in a `layout` anchor marker that tags its first `PlacedBlock`; the renderer surfaces these on `PageResult.Anchors`, and the document layer registers them via `AddNamedDest` during layout — no caller `doc.AddNamedDest()` needed. Resolved links use an `/XYZ` destination at the target's y-position with zoom retained (the same shape auto-bookmarks use, so a link and an outline entry to the same target behave identically); the annotation resolver and the `/Dests` writer share one destination-array builder and agree first-registration-wins on duplicate names. The anchor and bookmark markers now expose an `unwrap` so the layouter still reaches a decorated element's optional interfaces (CSS `clear`, `page-break-inside: avoid`, flex cross-axis stretch) — previously wrapping an element to record its `id` silently disabled those. Inline targets (`<span id>`, the `<a id>`/`<a name>` idiom) are out of scope: the destination is registered only for block-level elements. This restores the `layout.Anchor` behavior documented under 0.8.0 (#223), which was absent from the tree.
 
 - **`/XYZ` destinations emit an explicit `Top` coordinate** — named destinations and outline entries previously wrote `null` for a zero `Top`, which viewers read as "retain current y", so a target at `y=0` navigated nowhere. `Top` is now always an explicit real; `Left` and zoom keep null-for-zero to preserve the reader's horizontal scroll and zoom.
+
+- **`letter-spacing` applies to inter-word gaps and list items** — the tracking previously stopped at each word boundary, so spaced text showed normal-width spaces between letter-spaced words; the gap now carries the spacing, and `<li>` content (including markers' text) honors it too.
+
+- **Table caption and section styling** — a `<caption>` now applies its own style rather than inheriting the table's; `display: none` on `<thead>`/`<tbody>`/`<tfoot>` hides the section; and a section's own style (color, font, background) cascades to its cells' content as in browsers.
+
+- **Reader guards the page tree against cycles** — a malformed or hostile PDF whose `/Pages` tree contains a reference cycle or pathological depth no longer hangs or recurses unboundedly; the walk detects revisited nodes and depth limits and fails with an error.
+
+- **WASM build honors document settings** — page orientation, margins, document metadata, and custom fonts passed through the wasm bindings were previously ignored; they now reach the document builder.
+
+### Performance
+
+- **Multi-page table layout ~2.3× faster** — paragraph intrinsic widths are
+  memoized and resolved column widths are cached across page-break
+  continuations (~59% fewer allocations on a 200-row table).
+
+### Build
+
+- The stray `links` binary is no longer tracked and is removed by
+  `make clean`.
 
 ## [0.10.0] - 2026-07-10
 
