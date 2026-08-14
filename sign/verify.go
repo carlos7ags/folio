@@ -116,6 +116,18 @@ type SignatureResult struct {
 	// falling back to a raw "/DSS" byte scan otherwise. Its contents (OCSP
 	// responses, CRLs, certificates) are not validated.
 	HasDSS bool
+
+	// IsDocTimeStamp is true when this entry is a document timestamp
+	// (added by AddDocumentTimestamp) rather than an author or approval
+	// signature: its /V dictionary has /Type /DocTimeStamp or /SubFilter
+	// /ETSI.RFC3161. Both share the AcroForm /FT /Sig field type, so
+	// locateSignaturesGraph reports both kinds; callers that only care
+	// about author/approval signatures should filter on this field. The
+	// /Contents of a document timestamp holds an RFC 3161 token rather
+	// than a CMS SignedData signing this document's ByteRange, so
+	// DigestValid, SignatureValid, and ChainStatus are not meaningful
+	// verdicts on the document's authorship for these entries.
+	IsDocTimeStamp bool
 }
 
 // OK reports the aggregate verdict for this signature: the ByteRange digest
@@ -205,6 +217,7 @@ func verifyLocation(pdf []byte, loc sigLocation, opts VerifyOptions) ([]Signatur
 			Reason:              loc.reason,
 			Location:            loc.location,
 			ByteRangeCoversFile: byteRangeOK,
+			IsDocTimeStamp:      loc.isDocTimeStamp,
 		}
 		res.SignerCertificate = cms.cert
 		res.SigningTime = cms.signingTime
@@ -272,6 +285,7 @@ type sigLocation struct {
 	contentsStart          int // absolute offset of the /Contents '<'
 	contentsEnd            int // absolute offset just past the /Contents '>'
 	der                    []byte
+	isDocTimeStamp         bool // /V dict is /Type /DocTimeStamp or /SubFilter /ETSI.RFC3161
 }
 
 // locateSignaturesGraph finds signatures by walking the parsed object
@@ -471,14 +485,29 @@ func sigLocationFromDict(pdf []byte, sd *core.PdfDictionary) (sigLocation, error
 	}
 
 	return sigLocation{
-		name:          pdfStringField(sd, "Name"),
-		reason:        pdfStringField(sd, "Reason"),
-		location:      pdfStringField(sd, "Location"),
-		byteRange:     br,
-		contentsStart: contentsStart,
-		contentsEnd:   contentsEnd,
-		der:           der,
+		name:           pdfStringField(sd, "Name"),
+		reason:         pdfStringField(sd, "Reason"),
+		location:       pdfStringField(sd, "Location"),
+		byteRange:      br,
+		contentsStart:  contentsStart,
+		contentsEnd:    contentsEnd,
+		der:            der,
+		isDocTimeStamp: isDocTimeStampDict(sd),
 	}, nil
+}
+
+// isDocTimeStampDict reports whether sd (a resolved /V dictionary) is a
+// document timestamp rather than an author/approval signature, per
+// ISO 32000-2 §12.8.3.3: /Type /DocTimeStamp or /SubFilter
+// /ETSI.RFC3161. AddDocumentTimestamp (doctimestamp.go) sets both.
+func isDocTimeStampDict(sd *core.PdfDictionary) bool {
+	if typeName, ok := sd.Get("Type").(*core.PdfName); ok && typeName.Value == "DocTimeStamp" {
+		return true
+	}
+	if sf, ok := sd.Get("SubFilter").(*core.PdfName); ok && sf.Value == "ETSI.RFC3161" {
+		return true
+	}
+	return false
 }
 
 // pdfStringField reads a string-valued dictionary entry, returning "" if
