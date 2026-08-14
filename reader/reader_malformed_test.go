@@ -4,6 +4,7 @@
 package reader
 
 import (
+	"fmt"
 	"strconv"
 	"strings"
 	"testing"
@@ -401,4 +402,116 @@ func TestMalformedXrefStreamHugeW(t *testing.T) {
 		_, err := Parse(buildPDFWithXrefStreamW("[1000000000 3 1]"))
 		return err
 	})
+}
+
+// buildPDFFromObjects assembles a minimal PDF whose body is objs[i] for
+// object number i+1, with a catalog expected at object 1.
+func buildPDFFromObjects(objs []string) []byte {
+	body := "%PDF-1.7\n"
+	offsets := make([]int, 0, len(objs))
+	for i, o := range objs {
+		offsets = append(offsets, len(body))
+		body += strconv.Itoa(i+1) + " 0 obj\n" + o + "\nendobj\n"
+	}
+	xrefOff := len(body)
+	body += "xref\n0 " + strconv.Itoa(len(objs)+1) + "\n0000000000 65535 f \n"
+	for _, off := range offsets {
+		body += fmt.Sprintf("%010d 00000 n \n", off)
+	}
+	body += "trailer\n<< /Size " + strconv.Itoa(len(objs)+1) + " /Root 1 0 R >>\n" +
+		"startxref\n" + strconv.Itoa(xrefOff) + "\n%%EOF\n"
+	return []byte(body)
+}
+
+// TestPageTreeSelfReference covers a /Pages node listing itself in
+// /Kids. Walking it without a cycle guard recurses until the goroutine
+// stack overflows, which is a fatal error the caller cannot recover
+// from — so this test crashes the process on regression rather than
+// merely failing.
+func TestPageTreeSelfReference(t *testing.T) {
+	data := buildPDFFromObjects([]string{
+		"<< /Type /Catalog /Pages 2 0 R >>",
+		"<< /Type /Pages /Kids [2 0 R] /Count 1 /MediaBox [0 0 612 792] >>",
+	})
+	r, err := Parse(data)
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	if got := r.PageCount(); got != 0 {
+		t.Errorf("PageCount() = %d, want 0 (cyclic tree has no leaf pages)", got)
+	}
+}
+
+// TestPageTreeMutualCycle covers a two-node cycle: A lists B, B lists A.
+// The real page under A must still be collected.
+func TestPageTreeMutualCycle(t *testing.T) {
+	data := buildPDFFromObjects([]string{
+		"<< /Type /Catalog /Pages 2 0 R >>",
+		"<< /Type /Pages /Kids [4 0 R 3 0 R] /Count 2 /MediaBox [0 0 612 792] >>",
+		"<< /Type /Pages /Kids [2 0 R] /Count 1 >>",
+		"<< /Type /Page /Parent 2 0 R >>",
+	})
+	r, err := Parse(data)
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	if got := r.PageCount(); got != 1 {
+		t.Errorf("PageCount() = %d, want 1 (cycle skipped, real page kept)", got)
+	}
+}
+
+// TestPageTreeCycleStrict checks that strict mode reports the cycle
+// instead of silently returning a short page list.
+func TestPageTreeCycleStrict(t *testing.T) {
+	data := buildPDFFromObjects([]string{
+		"<< /Type /Catalog /Pages 2 0 R >>",
+		"<< /Type /Pages /Kids [2 0 R] /Count 1 /MediaBox [0 0 612 792] >>",
+	})
+	_, err := ParseWithOptions(data, ReadOptions{Strictness: StrictnessStrict})
+	if err == nil {
+		t.Fatal("ParseWithOptions(strict) = nil error, want a cycle error")
+	}
+	if !strings.Contains(err.Error(), "cycle") {
+		t.Errorf("error = %q, want it to mention a cycle", err)
+	}
+}
+
+// TestPageTreeSharedNode guards the cycle check against over-reach: a
+// Pages node reachable through two sibling branches is not a cycle, and
+// its pages must be collected once per reference.
+func TestPageTreeSharedNode(t *testing.T) {
+	data := buildPDFFromObjects([]string{
+		"<< /Type /Catalog /Pages 2 0 R >>",
+		"<< /Type /Pages /Kids [3 0 R 4 0 R] /Count 2 /MediaBox [0 0 612 792] >>",
+		"<< /Type /Pages /Kids [5 0 R] /Count 1 >>",
+		"<< /Type /Pages /Kids [5 0 R] /Count 1 >>",
+		"<< /Type /Page /Parent 2 0 R >>",
+	})
+	r, err := Parse(data)
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	if got := r.PageCount(); got != 2 {
+		t.Errorf("PageCount() = %d, want 2 (shared node expanded under both parents)", got)
+	}
+}
+
+// TestPageTreeExcessiveDepth covers an acyclic but pathologically deep
+// chain, which overflows the stack just as a cycle would.
+func TestPageTreeExcessiveDepth(t *testing.T) {
+	const depth = maxPageTreeDepth + 50
+	objs := []string{"<< /Type /Catalog /Pages 2 0 R >>"}
+	for i := range depth {
+		kid := strconv.Itoa(i + 3)
+		objs = append(objs, "<< /Type /Pages /Kids ["+kid+" 0 R] /Count 1 /MediaBox [0 0 612 792] >>")
+	}
+	objs = append(objs, "<< /Type /Page >>")
+
+	r, err := Parse(buildPDFFromObjects(objs))
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	if got := r.PageCount(); got != 0 {
+		t.Errorf("PageCount() = %d, want 0 (branch abandoned past the depth cap)", got)
+	}
 }
