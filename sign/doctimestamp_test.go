@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/carlos7ags/folio/core"
 	"github.com/carlos7ags/folio/reader"
 )
 
@@ -73,28 +74,98 @@ func TestAddDocumentTimestamp(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Verify: %v", err)
 	}
-	if len(rep.Signatures) == 0 {
-		t.Fatal("expected at least one signature result")
+	// buildAcroFormWithExisting resolves the catalog's /AcroForm entry
+	// (typically an indirect reference for a signed PDF) and carries the
+	// original /Fields into the rebuilt AcroForm alongside the new
+	// DocTimeStamp field, so both the original signature and the new
+	// document timestamp remain reachable via the AcroForm graph.
+	if len(rep.Signatures) != 2 {
+		t.Fatalf("len(rep.Signatures) = %d, want 2", len(rep.Signatures))
 	}
-	// The original signature is the first one located. Note: with the
-	// object-graph-based locateSignaturesGraph, the DocTimeStamp field also
-	// carries /FT /Sig, so it is picked up as a second (unverifiable, since
-	// its /Contents holds an RFC3161 token rather than a CMS SignedData)
-	// signature location. The plan (written against the pre-graph
-	// byte-scan locateSignatures, which only matched "/Type /Sig") expected
-	// exactly one result; the object-graph rework changed that. We assert
-	// on the first result — the original signature — which is what this
-	// test is actually guarding.
-	orig := rep.Signatures[0]
-	if !orig.DigestValid {
-		t.Error("original signature DigestValid = false, want true")
+
+	var sawSignature, sawTimestamp bool
+	for _, s := range rep.Signatures {
+		if s.IsDocTimeStamp {
+			sawTimestamp = true
+			if !s.DigestValid {
+				t.Error("document timestamp DigestValid = false, want true")
+			}
+			if !s.ByteRangeCoversFile {
+				t.Error("document timestamp ByteRangeCoversFile = false, want true")
+			}
+		} else {
+			sawSignature = true
+			if !s.DigestValid {
+				t.Error("original signature DigestValid = false, want true")
+			}
+			if !s.SignatureValid {
+				t.Error("original signature SignatureValid = false, want true")
+			}
+		}
 	}
-	if !orig.SignatureValid {
-		t.Error("original signature SignatureValid = false, want true")
+	if !sawSignature {
+		t.Error("expected one signature entry with IsDocTimeStamp = false (the original signature)")
 	}
-	if !orig.ByteRangeCoversFile {
-		t.Error("original signature ByteRangeCoversFile = false, want true")
+	if !sawTimestamp {
+		t.Error("expected one signature entry with IsDocTimeStamp = true (the document timestamp)")
 	}
+}
+
+// TestAddDocumentTimestamp_DirectAcroFormDict covers the case where the
+// catalog's /AcroForm entry is a direct dictionary rather than an indirect
+// reference, ensuring buildAcroFormWithExisting also preserves fields in
+// that shape.
+func TestAddDocumentTimestamp_DirectAcroFormDict(t *testing.T) {
+	signed := signMinimalPDFForLTV(t)
+
+	r, err := reader.Parse(signed)
+	if err != nil {
+		t.Fatalf("reader.Parse: %v", err)
+	}
+	catalog := r.Catalog()
+	if catalog == nil {
+		t.Fatal("catalog is nil")
+	}
+
+	acroFormObj := catalog.Get("AcroForm")
+	if _, isRef := acroFormObj.(*core.PdfIndirectReference); !isRef {
+		t.Skip("catalog's /AcroForm is not an indirect reference in this fixture")
+	}
+	resolved, err := r.ResolveObject(acroFormObj)
+	if err != nil {
+		t.Fatalf("ResolveObject(AcroForm): %v", err)
+	}
+	acroFormDict, ok := resolved.(*core.PdfDictionary)
+	if !ok {
+		t.Fatal("resolved AcroForm is not a dictionary")
+	}
+
+	newFieldObjNum := r.MaxObjectNumber() + 100
+	result := buildAcroFormWithExisting(nil, catalogWithDirectAcroForm(catalog, acroFormDict), newFieldObjNum)
+
+	fieldsObj := result.Get("Fields")
+	fieldsArr, ok := fieldsObj.(*core.PdfArray)
+	if !ok {
+		t.Fatal("Fields is not an array")
+	}
+	if fieldsArr.Len() < 2 {
+		t.Fatalf("Fields array has %d entries, want at least 2 (existing + new)", fieldsArr.Len())
+	}
+}
+
+// catalogWithDirectAcroForm returns a copy of catalog with /AcroForm set to
+// the given dictionary directly (not an indirect reference), for testing the
+// direct-dictionary code path of buildAcroFormWithExisting.
+func catalogWithDirectAcroForm(catalog *core.PdfDictionary, acroForm *core.PdfDictionary) *core.PdfDictionary {
+	d := core.NewPdfDictionary()
+	for key, value := range catalog.All() {
+		if key == "AcroForm" {
+			continue
+		}
+		d.Set(key, value)
+	}
+	d.Set("AcroForm", acroForm)
+	return d
 }
 
 func TestAddDocumentTimestamp_NilClient(t *testing.T) {

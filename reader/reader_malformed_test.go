@@ -327,7 +327,7 @@ func buildMinimalPDFWithBadXref() []byte {
 			"trailer\n" +
 			"<< /Size 3 /Root 1 0 R >>\n" +
 			"startxref\n" +
-			"95\n" + // offset to "xref" keyword
+			"110\n" + // offset to "xref" keyword
 			"%%EOF\n")
 }
 

@@ -332,7 +332,7 @@ func repairXref(data []byte) (*xrefTable, error) {
 			continue
 		}
 		t3 := tok.Next()
-		if t3.Type != TokenKeyword && t3.Value != "obj" {
+		if t3.Type != TokenKeyword || t3.Value != "obj" {
 			continue
 		}
 		// Found "N G obj" at position pos.
