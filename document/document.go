@@ -280,6 +280,40 @@ func (d *Document) AddNamedDest(dest NamedDest) {
 	d.namedDests = append(d.namedDests, dest)
 }
 
+// buildNamedDestArray builds a PDF explicit destination array for nd, targeting
+// the page referenced by pageRef (ISO 32000 §12.3.2.2). The fit type selects
+// the syntax: "FitH" scrolls the given top edge to the window top, "XYZ"
+// positions the top-left corner at an explicit zoom, and anything else fits
+// the whole page. Shared by the link-annotation resolver and the /Dests
+// catalog writer so both emit the same destination for a given name.
+func buildNamedDestArray(nd NamedDest, pageRef *core.PdfIndirectReference) *core.PdfArray {
+	switch nd.FitType {
+	case "FitH":
+		return core.NewPdfArray(
+			pageRef,
+			core.NewPdfName("FitH"),
+			core.NewPdfReal(nd.Top),
+		)
+	case "XYZ":
+		// Top is always an explicit position — a destination whose target
+		// sits at y=0 must navigate there, not "retain current" as null
+		// would (ISO 32000 §12.3.2.2). Left/zoom keep null-for-zero so the
+		// viewer preserves the reader's x scroll and zoom.
+		return core.NewPdfArray(
+			pageRef,
+			core.NewPdfName("XYZ"),
+			pdfNumOrNull(nd.Left),
+			core.NewPdfReal(nd.Top),
+			pdfNumOrNull(nd.Zoom),
+		)
+	default: // "Fit"
+		return core.NewPdfArray(
+			pageRef,
+			core.NewPdfName("Fit"),
+		)
+	}
+}
+
 // Add appends a layout element (e.g. Paragraph) to the document.
 // Elements are laid out automatically with word wrapping and page breaks
 // when WriteTo/Save is called.
@@ -419,7 +453,7 @@ func (d *Document) buildAllPages(ctx context.Context) (all []*Page, structTags [
 		if rerr != nil {
 			return nil, nil, rerr
 		}
-		for _, res := range results {
+		for i, res := range results {
 			ps := d.pageSize
 			if res.PageHeight > 0 {
 				ps.Height = res.PageHeight
@@ -458,6 +492,20 @@ func (d *Document) buildAllPages(ctx context.Context) (all []*Page, structTags [
 					destPage: -1,
 				}
 				p.annotations = append(p.annotations, ann)
+			}
+			// Register fragment ids as named destinations so internal
+			// links (<a href="#id">) resolve to their target block. Use XYZ
+			// with zoom 0 (retain current zoom) — the same destination shape
+			// auto-bookmarks use — so clicking a link and clicking an outline
+			// entry to the same target behave identically instead of the link
+			// forcing a fit-width zoom.
+			for _, a := range res.Anchors {
+				d.AddNamedDest(NamedDest{
+					Name:      a.Name,
+					PageIndex: manualPageCount + i,
+					FitType:   "XYZ",
+					Top:       a.Y,
+				})
 			}
 			all = append(all, p)
 		}
@@ -855,10 +903,7 @@ func (d *Document) WriteToWithContext(ctx context.Context, w io.Writer, opts Wri
 					resolved := false
 					for _, nd := range d.namedDests {
 						if nd.Name == ann.dest && nd.PageIndex >= 0 && nd.PageIndex < len(pageRefs) {
-							annotDict.Set("Dest", core.NewPdfArray(
-								pageRefs[nd.PageIndex],
-								core.NewPdfName("Fit"),
-							))
+							annotDict.Set("Dest", buildNamedDestArray(nd, pageRefs[nd.PageIndex]))
 							resolved = true
 							break
 						}
@@ -928,29 +973,16 @@ func (d *Document) WriteToWithContext(ctx context.Context, w io.Writer, opts Wri
 			if nd.PageIndex < 0 || nd.PageIndex >= len(pageRefs) {
 				continue
 			}
-			var destArray *core.PdfArray
-			switch nd.FitType {
-			case "FitH":
-				destArray = core.NewPdfArray(
-					pageRefs[nd.PageIndex],
-					core.NewPdfName("FitH"),
-					core.NewPdfReal(nd.Top),
-				)
-			case "XYZ":
-				destArray = core.NewPdfArray(
-					pageRefs[nd.PageIndex],
-					core.NewPdfName("XYZ"),
-					core.NewPdfReal(nd.Left),
-					core.NewPdfReal(nd.Top),
-					core.NewPdfReal(nd.Zoom),
-				)
-			default: // "Fit"
-				destArray = core.NewPdfArray(
-					pageRefs[nd.PageIndex],
-					core.NewPdfName("Fit"),
-				)
+			// First registration wins, matching the link-annotation resolver
+			// (which stops at the first match) — so a name that appears twice
+			// (duplicate ids, or an id colliding with a caller's AddNamedDest)
+			// resolves to the same target in the /Dests dict and in every
+			// annotation, instead of the dict last-wins disagreeing with the
+			// annotation first-wins.
+			if destsDict.Get(nd.Name) != nil {
+				continue
 			}
-			destsDict.Set(nd.Name, destArray)
+			destsDict.Set(nd.Name, buildNamedDestArray(nd, pageRefs[nd.PageIndex]))
 		}
 		destsRef := writer.AddObject(destsDict)
 		catalog.Set("Dests", destsRef)

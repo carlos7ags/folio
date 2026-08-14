@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Fixed
+
+- **Internal anchor links now register a PDF named destination** — a block-level element with an `id` (`<h2 id="section">`, `<div id="details">`, …) now auto-registers a named destination, so `<a href="#section">` resolves to a direct `/Dest` on the target's page instead of emitting a dangling `/GoTo` string action that jumps nowhere. The HTML walker wraps any block element carrying an `id` in a `layout` anchor marker that tags its first `PlacedBlock`; the renderer surfaces these on `PageResult.Anchors`, and the document layer registers them via `AddNamedDest` during layout — no caller `doc.AddNamedDest()` needed. Resolved links use an `/XYZ` destination at the target's y-position with zoom retained (the same shape auto-bookmarks use, so a link and an outline entry to the same target behave identically); the annotation resolver and the `/Dests` writer share one destination-array builder and agree first-registration-wins on duplicate names. The anchor and bookmark markers now expose an `unwrap` so the layouter still reaches a decorated element's optional interfaces (CSS `clear`, `page-break-inside: avoid`, flex cross-axis stretch) — previously wrapping an element to record its `id` silently disabled those. Inline targets (`<span id>`, the `<a id>`/`<a name>` idiom) are out of scope: the destination is registered only for block-level elements. This restores the `layout.Anchor` behavior documented under 0.8.0 (#223), which was absent from the tree.
+
+- **`/XYZ` destinations emit an explicit `Top` coordinate** — named destinations and outline entries previously wrote `null` for a zero `Top`, which viewers read as "retain current y", so a target at `y=0` navigated nowhere. `Top` is now always an explicit real; `Left` and zoom keep null-for-zero to preserve the reader's horizontal scroll and zoom.
+
 ## [0.10.0] - 2026-07-10
 
 Adds offline signature verification, encrypted-PDF reading, a Factur-X/ZUGFeRD invoice package, and a standalone PDF optimizer, alongside a security-hardening pass across the reader, font, and C ABI layers against malformed input. This release carries breaking changes: `font.Face` now declares its shaping accessors directly instead of through optional provider interfaces, `html` no longer fetches remote or absolute-path assets by default, and the C ABI's `folio_last_error` changes pointer-ownership semantics.

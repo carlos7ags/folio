@@ -303,6 +303,15 @@ func (c *converter) convertElement(n *html.Node, parentStyle computedStyle) []la
 
 	elems := c.convertElementInner(n, style)
 
+	// Register the element's id as a named-destination target so
+	// <a href="#id"> links resolve to it. Wrapping the produced element
+	// tags its first PlacedBlock with the anchor name; the renderer
+	// surfaces it and the document layer registers a PDF named
+	// destination automatically (no caller AddNamedDest needed).
+	if id := getAttr(n, "id"); id != "" && len(elems) > 0 {
+		elems[0] = layout.NewAnchor(elems[0], id)
+	}
+
 	// Apply CSS bookmark-level on non-heading elements. Headings carry
 	// their own bookmark metadata via convertHeading → layout.Heading;
 	// for other elements we wrap the produced Element so its first
