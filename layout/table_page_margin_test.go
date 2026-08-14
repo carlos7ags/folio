@@ -37,8 +37,9 @@ func pageContentMinY(stream string) (minY float64, found bool) {
 		case "re": // x y w h re — y is the rect's bottom edge
 			if len(f) >= 5 {
 				var y float64
-				fmt.Sscanf(f[len(f)-4], "%g", &y)
-				consider(y)
+				if _, err := fmt.Sscanf(f[len(f)-4], "%g", &y); err == nil {
+					consider(y)
+				}
 			}
 		}
 	}

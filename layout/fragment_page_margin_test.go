@@ -41,10 +41,12 @@ func drawnYBand(stream string) (minY, maxY float64, found bool) {
 		case "re": // x y w h re
 			if len(f) >= 5 {
 				var y, h float64
-				fmt.Sscanf(f[len(f)-4], "%g", &y)
-				fmt.Sscanf(f[len(f)-2], "%g", &h)
-				consider(y)
-				consider(y + h)
+				_, errY := fmt.Sscanf(f[len(f)-4], "%g", &y)
+				_, errH := fmt.Sscanf(f[len(f)-2], "%g", &h)
+				if errY == nil && errH == nil {
+					consider(y)
+					consider(y + h)
+				}
 			}
 		}
 	}
