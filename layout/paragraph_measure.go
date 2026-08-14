@@ -133,7 +133,7 @@ func inlineSpaceAfter(measured []Word, runs []TextRun, currentIdx int) float64 {
 		if r.InlineElement != nil {
 			continue
 		}
-		return runMeasurer(r).MeasureString(" ", r.FontSize) + r.WordSpacing
+		return runMeasurer(r).MeasureString(" ", r.FontSize) + r.WordSpacing + 2*r.LetterSpacing
 	}
 	// No text context at all — flush spacing.
 	return 0
@@ -179,7 +179,7 @@ func (p *Paragraph) MaxWidth() float64 {
 		}
 		measurer := runMeasurer(run)
 		words := splitWords(run.Text)
-		spaceW := measurer.MeasureString(" ", run.FontSize)
+		spaceW := measurer.MeasureString(" ", run.FontSize) + 2*run.LetterSpacing
 		for i, w := range words {
 			ww := measurer.MeasureString(w, run.FontSize)
 			if run.LetterSpacing != 0 {
@@ -295,7 +295,9 @@ func (p *Paragraph) measureWords(maxWidth float64) ([]Word, float64) {
 		glueAdjacentRuns(measured, p.runs, i)
 
 		measurer := runMeasurer(run)
-		spaceW := measurer.MeasureString(" ", run.FontSize) + run.WordSpacing
+		// Letter-spacing also widens the inter-word gap: a single space has
+		// two adjacent-character boundaries (before and after it).
+		spaceW := measurer.MeasureString(" ", run.FontSize) + run.WordSpacing + 2*run.LetterSpacing
 		text := run.Text
 
 		// If the run starts with punctuation (no leading space) and we

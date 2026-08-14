@@ -319,7 +319,11 @@ func (p *Paragraph) Layout(maxWidth float64) []Line {
 		glueAdjacentRuns(measured, p.runs, i)
 
 		measurer := runMeasurer(run)
-		spaceW := measurer.MeasureString(" ", run.FontSize) + run.WordSpacing
+		// Letter-spacing applies between every pair of adjacent characters,
+		// including across the space separating two words (per CSS Text §8.2
+		// there are two such boundaries around a single space), so widen the
+		// inter-word gap by 2× the spacing.
+		spaceW := measurer.MeasureString(" ", run.FontSize) + run.WordSpacing + 2*run.LetterSpacing
 		words := splitWords(run.Text)
 
 		nextLineBreak := nextLineBreakFromBr
