@@ -632,6 +632,9 @@ func (d *Div) PlanLayout(area LayoutArea) LayoutPlan {
 		effectiveWidth = minW
 	}
 	innerWidth := effectiveWidth - d.padding.Left - d.padding.Right
+	if innerWidth < 0 {
+		innerWidth = 0
+	}
 	innerHeight := area.Height - d.padding.Top - d.padding.Bottom
 	if innerHeight < 0 {
 		innerHeight = 0

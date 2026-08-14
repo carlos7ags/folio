@@ -8,7 +8,11 @@ on:
 
 jobs:
   test:
-    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
 
@@ -19,15 +23,21 @@ jobs:
           cache: true
 
       - name: Install qpdf
+        if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y qpdf
 
+      - name: Install libxml2-utils
+        run: sudo apt-get install -y libxml2-utils
+
       - name: Format check
+        if: runner.os == 'Linux'
         run: test -z "$(gofmt -s -l .)" || (echo "Run 'gofmt -s -w .' to fix formatting:" && gofmt -s -l . && exit 1)
 
       - name: Vet
         run: go vet ./...
 
       - name: Lint
+        if: runner.os == 'Linux'
         uses: golangci/golangci-lint-action@v9
         with:
           version: latest
@@ -35,10 +45,18 @@ jobs:
       - name: Build
         run: go build ./...
 
+      - name: Build wasm
+        if: runner.os == 'Linux'
+        run: GOOS=js GOARCH=wasm go build -o /dev/null ./cmd/wasm/
+
       - name: Test
         run: go test ./... -race -coverprofile=coverage.out -count=1 -timeout 300s
 
+      - name: ZUGFeRD XSD validation
+        run: go test -tags xsdvalidate ./zugferd/ -run TestXSDValidation -v
+
       - name: Check no competitor references in source
+        if: runner.os == 'Linux'
         run: |
           if grep -riE 'itext|itextpdf|pdfbox|openpdf|reportlab|lowagie' --include='*.go' .; then
             echo "ERROR: Source code must not reference competitor libraries"
@@ -46,14 +64,17 @@ jobs:
           fi
 
       - name: Audit C ABI (header vs exports)
+        if: runner.os == 'Linux'
         run: bash scripts/audit-cabi.sh
 
       - name: Build shared library
+        if: runner.os == 'Linux'
         run: |
           VERSION=$(git describe --tags --always --dirty 2>/dev/null || echo "dev")
           CGO_ENABLED=1 go build -ldflags "-X main.version=$VERSION" -buildmode=c-shared -o libfolio.so ./export/
 
       - name: Test C ABI
+        if: runner.os == 'Linux'
         run: |
           cc -o export/testdata/test_cabi export/testdata/test_cabi.c -L. -lfolio -Wl,-rpath,.
           ./export/testdata/test_cabi
@@ -71,8 +92,25 @@ jobs:
 
       - name: Fuzz tokenizer
         run: go test ./reader/... -fuzz=FuzzTokenizer -fuzztime=30s
-        continue-on-error: true
 
       - name: Fuzz parser
         run: go test ./reader/... -fuzz='^FuzzParse$' -fuzztime=30s
-        continue-on-error: true
+
+      - name: Fuzz PDF parser
+        run: go test ./reader/... -fuzz='^FuzzParsePDF$' -fuzztime=30s
+
+      - name: Fuzz SVG path data
+        run: go test ./svg/... -fuzz=FuzzPathData -fuzztime=30s
+
+      - name: Fuzz SVG parser
+        run: go test ./svg/... -fuzz=FuzzSVGParse -fuzztime=30s
+
+      - name: Upload crashing fuzz inputs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fuzz-failures
+          path: |
+            reader/testdata/fuzz/
+            svg/testdata/fuzz/
+          if-no-files-found: ignore

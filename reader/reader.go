@@ -69,7 +69,11 @@ var ErrUnsupportedEncryption = core.ErrUnsupportedEncryption
 // supplied password matched the user (open) password, or [AccessOwner]
 // if it matched the owner (permissions) password instead. /P permission
 // bits are exposed via the /Encrypt dictionary in [PdfReader.Trailer]
-// but are not enforced — folio is a library, not a viewer.
+// but are not enforced — folio is a library, not a viewer. For AES-256
+// (R=6) documents the /P bits are authenticated against the encrypted
+// /Perms entry at open time (a mismatch fails ParseWithOptions), but
+// folio still does not enforce them: whether to honor print/extract/
+// modify restrictions is the calling application's decision.
 func (r *PdfReader) Access() AccessLevel {
 	return r.access
 }

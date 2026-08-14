@@ -142,6 +142,9 @@ func inlineSpaceAfter(measured []Word, runs []TextRun, currentIdx int) float64 {
 // MinWidth implements Measurable. Returns the width of the longest word
 // (the narrowest the paragraph can be without clipping).
 func (p *Paragraph) MinWidth() float64 {
+	if p.minWValid {
+		return p.cachedMinW
+	}
 	maxWordW := 0.0
 	for _, run := range p.runs {
 		measurer := runMeasurer(run)
@@ -157,12 +160,17 @@ func (p *Paragraph) MinWidth() float64 {
 			}
 		}
 	}
+	p.cachedMinW = maxWordW
+	p.minWValid = true
 	return maxWordW
 }
 
 // MaxWidth implements Measurable. Returns the width of all text on a single
 // line (the natural width without wrapping).
 func (p *Paragraph) MaxWidth() float64 {
+	if p.maxWValid {
+		return p.cachedMaxW
+	}
 	total := 0.0
 	for _, run := range p.runs {
 		// Inline elements (e.g. a nested inline-block) participate in the
@@ -197,6 +205,8 @@ func (p *Paragraph) MaxWidth() float64 {
 			total += spaceW
 		}
 	}
+	p.cachedMaxW = total
+	p.maxWValid = true
 	return total
 }
 

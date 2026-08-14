@@ -1489,3 +1489,304 @@ func TestTableCellSpacingWithColspan(t *testing.T) {
 		t.Errorf("expected consumed > 30 with cell spacing, got %f", plan.Consumed)
 	}
 }
+
+// TestResolveBordersColspanSegments verifies that a colspan cell's bottom
+// edge is resolved per grid segment against each row-below neighbor, not
+// against only the first one (issue: segment-granular border-collapse
+// conflict resolution).
+func TestResolveBordersColspanSegments(t *testing.T) {
+	tbl := NewTable()
+	tbl.SetColumnWidths([]float64{100, 100, 100})
+	tbl.SetBorderCollapse(true)
+
+	r0 := tbl.AddRow()
+	r0.AddCell("Total", font.Helvetica, 10).
+		SetColspan(3).
+		SetBorders(CellBorders{Bottom: SolidBorder(1, ColorBlack)})
+
+	r1 := tbl.AddRow()
+	r1.AddCell("A", font.Helvetica, 10).
+		SetBorders(CellBorders{Top: Border{Width: 0}}) // none
+	r1.AddCell("B", font.Helvetica, 10).
+		SetBorders(CellBorders{Top: SolidBorder(2, ColorBlack)})
+	r1.AddCell("C", font.Helvetica, 10).
+		SetBorders(CellBorders{Top: Border{Width: 0}}) // none
+
+	colWidths := tbl.resolveColWidths(400)
+	grid := tbl.buildGrid(colWidths)
+	resolveBorders(grid, len(colWidths))
+
+	// The winner of each segment is written to the FAR (below) cell's
+	// segTop — the near (spanning) cell's own segBottom is zeroed, per the
+	// documented "later element wins, near clears" convention.
+	if len(grid[1].cells) != 3 {
+		t.Fatalf("expected 3 row-1 cells, got %d", len(grid[1].cells))
+	}
+	want := []float64{1, 2, 1}
+	for i, w := range want {
+		got := grid[1].cells[i].segTop[0]
+		if got.Width != w {
+			t.Errorf("segment %d: got width %v, want %v", i, got.Width, w)
+		}
+	}
+}
+
+// TestResolveBordersRowspanSegments is the symmetric case: a rowspan
+// cell's right edge resolved per row segment against each column-right
+// neighbor.
+func TestResolveBordersRowspanSegments(t *testing.T) {
+	tbl := NewTable()
+	tbl.SetColumnWidths([]float64{100, 100})
+	tbl.SetBorderCollapse(true)
+
+	r0 := tbl.AddRow()
+	r0.AddCell("Span", font.Helvetica, 10).
+		SetRowspan(3).
+		SetBorders(CellBorders{Right: SolidBorder(1, ColorBlack)})
+	r0.AddCell("A", font.Helvetica, 10).
+		SetBorders(CellBorders{Left: Border{Width: 0}}) // none
+
+	r1 := tbl.AddRow()
+	r1.AddCell("B", font.Helvetica, 10).
+		SetBorders(CellBorders{Left: SolidBorder(2, ColorBlack)})
+
+	r2 := tbl.AddRow()
+	r2.AddCell("C", font.Helvetica, 10).
+		SetBorders(CellBorders{Left: Border{Width: 0}}) // none
+
+	colWidths := tbl.resolveColWidths(400)
+	grid := tbl.buildGrid(colWidths)
+	resolveBorders(grid, len(colWidths))
+
+	// The winner of each segment is written to the FAR (right) cell's
+	// segLeft — the near (spanning) cell's own segRight is zeroed.
+	want := []float64{1, 2, 1}
+	for i, w := range want {
+		// Row 0 has two cells (spanner, A); rows 1-2 have only the
+		// right-column cell (B, C) since column 0 is occupied by the
+		// rowspan and buildGrid does not emit filler cells for it.
+		cellIdx := 0
+		if i == 0 {
+			cellIdx = 1
+		}
+		got := grid[i].cells[cellIdx].segLeft[0]
+		if got.Width != w {
+			t.Errorf("segment %d: got width %v, want %v", i, got.Width, w)
+		}
+	}
+}
+
+// TestResolveBordersHiddenSegment verifies that a BorderHidden declaration
+// on one neighbor suppresses only its own segment, leaving sibling
+// segments along the same spanned edge unaffected.
+func TestResolveBordersHiddenSegment(t *testing.T) {
+	tbl := NewTable()
+	tbl.SetColumnWidths([]float64{100, 100, 100})
+	tbl.SetBorderCollapse(true)
+
+	r0 := tbl.AddRow()
+	r0.AddCell("Total", font.Helvetica, 10).
+		SetColspan(3).
+		SetBorders(CellBorders{Bottom: SolidBorder(1, ColorBlack)})
+
+	r1 := tbl.AddRow()
+	r1.AddCell("A", font.Helvetica, 10).
+		SetBorders(CellBorders{Top: Border{Width: 3, Style: BorderHidden}})
+	r1.AddCell("B", font.Helvetica, 10).
+		SetBorders(CellBorders{Top: Border{Width: 0}})
+	r1.AddCell("C", font.Helvetica, 10).
+		SetBorders(CellBorders{Top: Border{Width: 0}})
+
+	colWidths := tbl.resolveColWidths(400)
+	grid := tbl.buildGrid(colWidths)
+	resolveBorders(grid, len(colWidths))
+
+	if got := grid[1].cells[0].segTop[0]; got != (Border{}) {
+		t.Errorf("segment 0 should be suppressed by BorderHidden, got %+v", got)
+	}
+	if got := grid[1].cells[1].segTop[0]; got.Width != 1 {
+		t.Errorf("segment 1 unaffected: got width %v, want 1", got.Width)
+	}
+	if got := grid[1].cells[2].segTop[0]; got.Width != 1 {
+		t.Errorf("segment 2 unaffected: got width %v, want 1", got.Width)
+	}
+}
+
+// TestTableColspanMixedBordersDraw is an end-to-end pin: PlanLayout for a
+// colspan "Total" row over columns with mixed borders must not drop any
+// segment when rendered.
+func TestTableColspanMixedBordersDraw(t *testing.T) {
+	tbl := NewTable()
+	tbl.SetColumnWidths([]float64{100, 100, 100})
+	tbl.SetBorderCollapse(true)
+
+	r0 := tbl.AddRow()
+	r0.AddCell("Total", font.Helvetica, 10).
+		SetColspan(3).
+		SetBorders(CellBorders{Bottom: SolidBorder(1, ColorBlack)})
+
+	r1 := tbl.AddRow()
+	r1.AddCell("A", font.Helvetica, 10).
+		SetBorders(CellBorders{Top: Border{Width: 0}})
+	r1.AddCell("B", font.Helvetica, 10).
+		SetBorders(CellBorders{Top: SolidBorder(2, ColorBlack)})
+	r1.AddCell("C", font.Helvetica, 10).
+		SetBorders(CellBorders{Top: Border{Width: 0}})
+
+	plan := tbl.PlanLayout(LayoutArea{Width: 400, Height: 500})
+	if plan.Status == LayoutNothing {
+		t.Fatal("expected output")
+	}
+
+	colWidths := tbl.resolveColWidths(400)
+	grid := tbl.buildGrid(colWidths)
+	resolveBorders(grid, len(colWidths))
+	want := []float64{1, 2, 1}
+	for i, w := range want {
+		got := grid[1].cells[i].segTop[0]
+		if got.Width != w {
+			t.Errorf("segment %d dropped or wrong: got width %v, want %v", i, got.Width, w)
+		}
+	}
+}
+
+// TestTableOversizeRowspanGroup covers a rowspan group whose leader is the
+// first body row and whose total height is far more than any single page
+// can hold. PlanLayout must fall back to per-row splitting inside the
+// group instead of emitting the whole group (or nothing useful) on one
+// page: nothing may be placed past the bottom margin, and the overflow
+// chain must terminate.
+func TestTableOversizeRowspanGroup(t *testing.T) {
+	const pageH = 100.0 // area height per page
+
+	tbl := NewTable()
+	tbl.SetColumnWidths([]float64{100, 100})
+	r := tbl.AddRow()
+	r.AddCell("Span", font.Helvetica, 10).SetRowspan(10)
+	r.AddCell("Row1", font.Helvetica, 10)
+	for i := 2; i <= 10; i++ {
+		// Column 0 is occupied by the rowspan; only add the column-1
+		// cell, matching real rowspan usage (buildRowspanSplitTable does
+		// the same).
+		tbl.AddRow().AddCell(fmt.Sprintf("Row%d", i), font.Helvetica, 10)
+	}
+
+	plan := tbl.PlanLayout(LayoutArea{Width: 400, Height: pageH})
+	if plan.Status != LayoutPartial || plan.Overflow == nil {
+		t.Fatalf("expected LayoutPartial with Overflow (group ~2x page height must split), got status=%v overflow=%v", plan.Status, plan.Overflow)
+	}
+
+	// Every emitted row block (including nested Table wrapper's children)
+	// must stay within the page bounds.
+	var walk func(blocks []PlacedBlock)
+	walk = func(blocks []PlacedBlock) {
+		for _, b := range blocks {
+			if b.Y+b.Height > pageH+0.01 {
+				t.Errorf("block %q at Y=%v H=%v exceeds page height %v", b.Tag, b.Y, b.Height, pageH)
+			}
+			walk(b.Children)
+		}
+	}
+	walk(plan.Blocks)
+
+	// Chase the overflow chain until it terminates (LayoutFull/Nothing),
+	// bounded so non-termination fails the test instead of hanging.
+	cur := plan.Overflow
+	for i := 0; i < 10; i++ {
+		ot, ok := cur.(*Table)
+		if !ok {
+			t.Fatalf("overflow is not *Table: %T", cur)
+		}
+		p := ot.PlanLayout(LayoutArea{Width: 400, Height: pageH})
+		walk(p.Blocks)
+		if p.Status != LayoutPartial || p.Overflow == nil {
+			return // terminated
+		}
+		cur = p.Overflow
+	}
+	t.Fatal("overflow chain did not terminate within 10 pages")
+}
+
+// TestTableOversizeRowspanGroupContinuesSpan verifies that when the split
+// lands strictly inside an oversize group, the overflow table's first row
+// re-carries a continuation of the spanning cell (reduced rowspan) rather
+// than losing the column entirely — the row after it must keep its cell in
+// column 1, not shift left into column 0 (mirrors
+// TestTableRowspanSplitPushesGroupToNextPage's column-shift check for the
+// #362 keep-together path).
+func TestTableOversizeRowspanGroupContinuesSpan(t *testing.T) {
+	const pageH = 100.0
+
+	tbl := NewTable()
+	tbl.SetColumnWidths([]float64{100, 100})
+	r := tbl.AddRow()
+	r.AddCell("Span", font.Helvetica, 10).SetRowspan(10)
+	r.AddCell("Row1", font.Helvetica, 10)
+	for i := 2; i <= 10; i++ {
+		tbl.AddRow().AddCell(fmt.Sprintf("Row%d", i), font.Helvetica, 10)
+	}
+
+	plan := tbl.PlanLayout(LayoutArea{Width: 400, Height: pageH})
+	overflow, ok := plan.Overflow.(*Table)
+	if !ok {
+		t.Fatalf("expected *Table overflow, got %T", plan.Overflow)
+	}
+	og := overflow.buildGrid(overflow.resolveColWidths(400))
+	if len(og) == 0 || len(og[0].cells) == 0 {
+		t.Fatal("overflow grid has no rows/cells")
+	}
+	first := og[0].cells[0]
+	if first.col != 0 {
+		t.Errorf("expected the continuation span cell at column 0, got %d", first.col)
+	}
+	if first.rowSpanCount <= 0 {
+		t.Errorf("expected a positive continuation rowspan, got %d", first.rowSpanCount)
+	}
+	if len(og) < 2 || len(og[1].cells) == 0 {
+		t.Fatal("overflow grid missing the row under the continued span")
+	}
+	if got := og[1].cells[0].col; got != 1 {
+		t.Errorf("row under continued span: cell col got %d, want 1 (no column shift)", got)
+	}
+}
+
+// TestTableOversizeGroupWithHeaderFooter covers the oversize fallback in
+// the presence of header/footer rows: the header must still repeat, the
+// footer must still land at the end, and the fallback must still fire.
+func TestTableOversizeGroupWithHeaderFooter(t *testing.T) {
+	const pageH = 100.0
+
+	tbl := NewTable()
+	tbl.SetColumnWidths([]float64{100, 100})
+	hdr := tbl.AddRow()
+	hdr.isHeader = true
+	hdr.AddCell("H1", font.Helvetica, 10)
+	hdr.AddCell("H2", font.Helvetica, 10)
+
+	r := tbl.AddRow()
+	r.AddCell("Span", font.Helvetica, 10).SetRowspan(10)
+	r.AddCell("Row1", font.Helvetica, 10)
+	for i := 2; i <= 10; i++ {
+		tbl.AddRow().AddCell(fmt.Sprintf("Row%d", i), font.Helvetica, 10)
+	}
+
+	ftr := tbl.AddRow()
+	ftr.isFooter = true
+	ftr.AddCell("F1", font.Helvetica, 10)
+	ftr.AddCell("F2", font.Helvetica, 10)
+
+	plan := tbl.PlanLayout(LayoutArea{Width: 400, Height: pageH})
+	if plan.Status != LayoutPartial || plan.Overflow == nil {
+		t.Fatalf("expected LayoutPartial with Overflow, got status=%v overflow=%v", plan.Status, plan.Overflow)
+	}
+	overflow, ok := plan.Overflow.(*Table)
+	if !ok {
+		t.Fatalf("expected *Table overflow, got %T", plan.Overflow)
+	}
+	if len(overflow.rows) == 0 || !overflow.rows[0].isHeader {
+		t.Error("expected the overflow table to repeat the header row")
+	}
+	if last := overflow.rows[len(overflow.rows)-1]; !last.isFooter {
+		t.Error("expected the overflow table's last row to be the footer")
+	}
+}
