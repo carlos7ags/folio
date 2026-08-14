@@ -295,13 +295,15 @@ func buildNamedDestArray(nd NamedDest, pageRef *core.PdfIndirectReference) *core
 			core.NewPdfReal(nd.Top),
 		)
 	case "XYZ":
-		// Zero left/top/zoom emit null ("retain current"), matching the
-		// outline destination writer (ISO 32000 §12.3.2.2).
+		// Top is always an explicit position — a destination whose target
+		// sits at y=0 must navigate there, not "retain current" as null
+		// would (ISO 32000 §12.3.2.2). Left/zoom keep null-for-zero so the
+		// viewer preserves the reader's x scroll and zoom.
 		return core.NewPdfArray(
 			pageRef,
 			core.NewPdfName("XYZ"),
 			pdfNumOrNull(nd.Left),
-			pdfNumOrNull(nd.Top),
+			core.NewPdfReal(nd.Top),
 			pdfNumOrNull(nd.Zoom),
 		)
 	default: // "Fit"
