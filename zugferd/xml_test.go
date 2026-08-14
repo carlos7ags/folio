@@ -256,3 +256,86 @@ func TestXMLMinimumProfileOmitsLinesAndTax(t *testing.T) {
 		t.Errorf("ApplicableTradeTax count = %d, want 0 for ProfileMinimum", n)
 	}
 }
+
+// childIndex returns the index, in document order among all direct
+// children of n, of the first child with the given local name, or -1
+// if absent. Used to assert relative element order against the
+// XSD-mandated xs:sequence for the elements this package emits.
+func (n *xnode) childIndex(local string) int {
+	for i := range n.Children {
+		if n.Children[i].XMLName.Local == local {
+			return i
+		}
+	}
+	return -1
+}
+
+// assertOrder fails the test unless the given local names appear, among
+// n's direct children, in strictly increasing index order (each must be
+// present).
+func assertOrder(t *testing.T, n *xnode, names ...string) {
+	t.Helper()
+	prevIdx := -1
+	prevName := ""
+	for _, name := range names {
+		idx := n.childIndex(name)
+		if idx < 0 {
+			t.Fatalf("missing child %q (expected after %q)", name, prevName)
+		}
+		if idx <= prevIdx {
+			t.Errorf("element order: %q (index %d) does not come after %q (index %d)", name, idx, prevName, prevIdx)
+		}
+		prevIdx, prevName = idx, name
+	}
+}
+
+// TestXMLElementOrderMatchesSchema is a tag-free, schema-shaped
+// regression net: it asserts the XSD-mandated child order (xs:sequence)
+// of the elements this package emits, for the subset of the CII schema
+// it covers. It complements (does not replace) the byte/semantic
+// comparisons in TestXMLSemanticEquivalenceWithOldExample.
+//
+// The official Factur-X XSD is not committed to this repo (see
+// xsd_test.go); the expected order below is the well-known UN/CEFACT
+// Cross-Industry Invoice (CII) D16B sequence for
+// rsm:CrossIndustryInvoice, rsm:SupplyChainTradeTransaction, and
+// ram:SpecifiedTradeSettlementHeaderMonetarySummation.
+func TestXMLElementOrderMatchesSchema(t *testing.T) {
+	out, err := sampleInvoice().XML(ProfileBasic)
+	if err != nil {
+		t.Fatalf("XML: %v", err)
+	}
+	root := parseXNode(t, out)
+
+	// Root: ExchangedDocumentContext, ExchangedDocument,
+	// SupplyChainTradeTransaction.
+	assertOrder(t, root,
+		"ExchangedDocumentContext",
+		"ExchangedDocument",
+		"SupplyChainTradeTransaction")
+
+	// SupplyChainTradeTransaction: IncludedSupplyChainTradeLineItem*,
+	// ApplicableHeaderTradeAgreement, ApplicableHeaderTradeDelivery (not
+	// emitted by this package), ApplicableHeaderTradeSettlement.
+	transaction := root.at(t, "SupplyChainTradeTransaction")
+	if transaction.childIndex("IncludedSupplyChainTradeLineItem") < 0 {
+		t.Fatalf("sampleInvoice's BASIC output has no IncludedSupplyChainTradeLineItem to order-check")
+	}
+	assertOrder(t, transaction,
+		"IncludedSupplyChainTradeLineItem",
+		"ApplicableHeaderTradeAgreement",
+		"ApplicableHeaderTradeSettlement")
+
+	// SpecifiedTradeSettlementHeaderMonetarySummation: LineTotalAmount
+	// ... GrandTotalAmount ... DuePayableAmount, as the XSD sequences
+	// them (this package does not emit ChargeTotalAmount/
+	// AllowanceTotalAmount, which the schema places between
+	// TaxTotalAmount and GrandTotalAmount).
+	summation := transaction.at(t, "ApplicableHeaderTradeSettlement.SpecifiedTradeSettlementHeaderMonetarySummation")
+	assertOrder(t, summation,
+		"LineTotalAmount",
+		"TaxBasisTotalAmount",
+		"TaxTotalAmount",
+		"GrandTotalAmount",
+		"DuePayableAmount")
+}

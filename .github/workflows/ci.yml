@@ -8,7 +8,11 @@ on:
 
 jobs:
   test:
-    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
 
@@ -19,15 +23,22 @@ jobs:
           cache: true
 
       - name: Install qpdf
+        if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y qpdf
 
+      - name: Install libxml2-utils
+        if: runner.os == 'Linux'
+        run: sudo apt-get install -y libxml2-utils
+
       - name: Format check
+        if: runner.os == 'Linux'
         run: test -z "$(gofmt -s -l .)" || (echo "Run 'gofmt -s -w .' to fix formatting:" && gofmt -s -l . && exit 1)
 
       - name: Vet
         run: go vet ./...
 
       - name: Lint
+        if: runner.os == 'Linux'
         uses: golangci/golangci-lint-action@v9
         with:
           version: latest
@@ -35,10 +46,101 @@ jobs:
       - name: Build
         run: go build ./...
 
+      - name: Build wasm
+        if: runner.os == 'Linux'
+        run: GOOS=js GOARCH=wasm go build -o /dev/null ./cmd/wasm/
+
       - name: Test
         run: go test ./... -race -coverprofile=coverage.out -count=1 -timeout 300s
 
+      # Downloads the UN/CEFACT Cross Industry Invoice (CII) D16B schema so
+      # the tagged XSD validation test below can run instead of skipping.
+      # Primary source is the official UNECE zip; UNECE has been observed
+      # to 403 non-browser clients from some networks, so this falls back
+      # to a pinned-commit mirror (ConnectingEurope/eInvoicing-EN16931,
+      # itself a verbatim re-publication of the UNECE-issued D16B SCRDM
+      # CII schema set) so the step still succeeds when that happens.
+      # Schemas are never committed to the repo — only downloaded into the
+      # runner's cache/workspace at CI time. A failed download is a
+      # network-flake, not a code regression: it degrades gracefully to a
+      # notice and the validation test below skips. If the schema *is*
+      # present, the validation test must still pass — that's the real
+      # gate.
+      - name: Cache UN/CEFACT CII schemas
+        if: runner.os == 'Linux'
+        id: xsd-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/xsd-schemas
+          key: xsd-schemas-cii-d16b-v1
+
+      - name: Download UN/CEFACT CII D16B schemas
+        if: runner.os == 'Linux' && steps.xsd-cache.outputs.cache-hit != 'true'
+        run: |
+          set -u
+          UNECE_URL="https://unece.org/fileadmin/DAM/cefact/xml_schemas/D16B_SCRDM__Subset__CII.zip"
+          # Pinned to a specific commit so the schema content used in CI
+          # cannot change out from under us. Upstream: UNECE-published
+          # D16B SCRDM (Subset) CII schema, "coupled clm" variant, as
+          # re-published verbatim by:
+          #   https://github.com/ConnectingEurope/eInvoicing-EN16931
+          MIRROR_SHA="b6c9e06a59812fb1a83585da40923b3678a649ad"
+          MIRROR_URL="https://github.com/ConnectingEurope/eInvoicing-EN16931/archive/${MIRROR_SHA}.zip"
+
+          work="$(mktemp -d)"
+          zip="$work/schemas.zip"
+          ok=0
+
+          if curl -fsSL --max-time 60 -o "$zip" "$UNECE_URL"; then
+            echo "downloaded from UNECE ($UNECE_URL)"
+            ok=1
+          else
+            echo "::notice::UNECE schema download failed, falling back to pinned mirror"
+            if curl -fsSL --max-time 60 -o "$zip" "$MIRROR_URL"; then
+              echo "downloaded from pinned mirror ($MIRROR_URL @ $MIRROR_SHA)"
+              ok=1
+            else
+              echo "::notice::UN/CEFACT CII schema download failed from both UNECE and the pinned mirror; XSD validation test will skip"
+            fi
+          fi
+
+          if [ "$ok" = "1" ]; then
+            extract="$work/extract"
+            mkdir -p "$extract"
+            if unzip -q "$zip" -d "$extract"; then
+              # Locate the "CII" schema root regardless of the archive's
+              # internal layout (the UNECE zip and the mirror's repo zip
+              # are not laid out identically) and normalize it to
+              # ~/xsd-schemas/CII/... which is what the tagged Go test
+              # expects under FOLIO_FACTURX_XSD_DIR.
+              cii_dir="$(find "$extract" -type d -name CII -path '*D16B*' -not -path '*uncoupled*' | head -1)"
+              if [ -z "$cii_dir" ]; then
+                cii_dir="$(find "$extract" -type d -name CII | head -1)"
+              fi
+              if [ -n "$cii_dir" ]; then
+                mkdir -p ~/xsd-schemas
+                rm -rf ~/xsd-schemas/CII
+                cp -R "$cii_dir" ~/xsd-schemas/CII
+                echo "installed schemas to ~/xsd-schemas/CII"
+              else
+                echo "::notice::could not locate a CII schema directory in the downloaded archive; XSD validation test will skip"
+              fi
+            else
+              echo "::notice::failed to extract downloaded schema archive; XSD validation test will skip"
+            fi
+          fi
+
+          rm -rf "$work"
+
+      - name: ZUGFeRD XSD validation
+        run: |
+          if [ "$RUNNER_OS" = "Linux" ] && [ -d "$HOME/xsd-schemas" ]; then
+            export FOLIO_FACTURX_XSD_DIR="$HOME/xsd-schemas"
+          fi
+          go test -tags xsdvalidate ./zugferd/ -run TestXSDValidation -v
+
       - name: Check no competitor references in source
+        if: runner.os == 'Linux'
         run: |
           if grep -riE 'itext|itextpdf|pdfbox|openpdf|reportlab|lowagie' --include='*.go' .; then
             echo "ERROR: Source code must not reference competitor libraries"
@@ -46,14 +148,17 @@ jobs:
           fi
 
       - name: Audit C ABI (header vs exports)
+        if: runner.os == 'Linux'
         run: bash scripts/audit-cabi.sh
 
       - name: Build shared library
+        if: runner.os == 'Linux'
         run: |
           VERSION=$(git describe --tags --always --dirty 2>/dev/null || echo "dev")
           CGO_ENABLED=1 go build -ldflags "-X main.version=$VERSION" -buildmode=c-shared -o libfolio.so ./export/
 
       - name: Test C ABI
+        if: runner.os == 'Linux'
         run: |
           cc -o export/testdata/test_cabi export/testdata/test_cabi.c -L. -lfolio -Wl,-rpath,.
           ./export/testdata/test_cabi
@@ -71,8 +176,25 @@ jobs:
 
       - name: Fuzz tokenizer
         run: go test ./reader/... -fuzz=FuzzTokenizer -fuzztime=30s
-        continue-on-error: true
 
       - name: Fuzz parser
         run: go test ./reader/... -fuzz='^FuzzParse$' -fuzztime=30s
-        continue-on-error: true
+
+      - name: Fuzz PDF parser
+        run: go test ./reader/... -fuzz='^FuzzParsePDF$' -fuzztime=30s
+
+      - name: Fuzz SVG path data
+        run: go test ./svg/... -fuzz=FuzzPathData -fuzztime=30s
+
+      - name: Fuzz SVG parser
+        run: go test ./svg/... -fuzz=FuzzSVGParse -fuzztime=30s
+
+      - name: Upload crashing fuzz inputs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fuzz-failures
+          path: |
+            reader/testdata/fuzz/
+            svg/testdata/fuzz/
+          if-no-files-found: ignore

@@ -176,7 +176,9 @@ func buildDestArray(dest Destination, pageRef *core.PdfIndirectReference) *core.
 			pageRef,
 			core.NewPdfName("XYZ"),
 			pdfNumOrNull(dest.Left),
-			pdfNumOrNull(dest.Top),
+			// Top is always an explicit position — a heading at y=0 must
+			// navigate there, not "retain current" as null would.
+			core.NewPdfReal(dest.Top),
 			pdfNumOrNull(dest.Zoom),
 		)
 	default: // DestFit

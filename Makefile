@@ -1,4 +1,4 @@
-.PHONY: build test vet fmt fuzz check clean wasm cshared test-cabi audit cross-all
+.PHONY: build test vet fmt fuzz check clean wasm cshared test-cabi audit cross-all docs-clean
 
 build:
 	go build ./...
@@ -101,9 +101,17 @@ cross-all: cross-linux-amd64 cross-linux-arm64 cross-windows-amd64 cross-macos-a
 
 clean:
 	rm -f coverage.out coverage.html
-	rm -f folio samples showcase
+	rm -f folio samples showcase links
 	rm -f folio.wasm
 	rm -f libfolio.dylib libfolio.h libfolio.so folio.dll
 	rm -f export/testdata/test_cabi
 	rm -f *.pdf
 	rm -rf dist/
+
+# docs-clean removes the dev-only node_modules install for the docs site
+# (~449MB). Not run by `make clean` and not run automatically by anything
+# else — it is destructive to an uncommitted local install, so it is opt-in.
+# Reinstall by re-running the docs site's package manager install command
+# in docs/ once its package.json is present.
+docs-clean:
+	rm -rf docs/node_modules

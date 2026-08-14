@@ -632,6 +632,9 @@ func (d *Div) PlanLayout(area LayoutArea) LayoutPlan {
 		effectiveWidth = minW
 	}
 	innerWidth := effectiveWidth - d.padding.Left - d.padding.Right
+	if innerWidth < 0 {
+		innerWidth = 0
+	}
 	// Subtract this box's own outer spacing (CSS margin-top/bottom, tracked as
 	// spaceBefore/spaceAfter) from the room given to children: content is
 	// offset down by spaceBefore and the reported Consumed includes both, so
@@ -717,7 +720,7 @@ func (d *Div) PlanLayout(area LayoutArea) LayoutPlan {
 		// In-flow child.
 		if hasFloat {
 			// CSS clear: advance past matching active floats first.
-			if cl, ok := elem.(Clearable); ok {
+			if cl, ok := baseElement(elem).(Clearable); ok {
 				cv := cl.ClearValue()
 				if cv == "left" || cv == "right" || cv == "both" {
 					if ny := fc.clear(cv, curY); ny > curY {

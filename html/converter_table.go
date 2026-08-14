@@ -59,12 +59,22 @@ func (c *converter) convertTable(n *html.Node, style computedStyle) []layout.Ele
 		}
 		switch child.DataAtom {
 		case atom.Caption:
-			// Render caption as a centered paragraph before the table.
+			// Render caption as a paragraph before the table, using the
+			// caption's own cascaded style (font/size/alignment), not the
+			// table's — same class of bug as thead/tbody/tfoot below.
+			captionStyle := c.computeElementStyle(child, style)
+			if captionStyle.Display == "none" {
+				continue
+			}
 			text := collectText(child)
 			if text != "" {
-				f := resolveFont(style)
-				p := layout.NewParagraph(text, f, style.FontSize)
-				p.SetAlign(layout.AlignCenter)
+				f := resolveFont(captionStyle)
+				p := layout.NewParagraph(text, f, captionStyle.FontSize)
+				if captionStyle.TextAlignSet {
+					p.SetAlign(resolveTextAlign(captionStyle))
+				} else {
+					p.SetAlign(layout.AlignCenter)
+				}
 				p.SetSpaceAfter(4)
 				elems = append(elems, p)
 			}
@@ -77,11 +87,23 @@ func (c *converter) convertTable(n *html.Node, style computedStyle) []layout.Ele
 		case atom.Col:
 			colWidths = append(colWidths, c.parseColWidth(child, style)...)
 		case atom.Thead:
-			c.convertTableRows(child, tbl, style, borderWidth, true)
+			sectionStyle := c.computeElementStyle(child, style)
+			if sectionStyle.Display == "none" {
+				continue
+			}
+			c.convertTableRows(child, tbl, sectionStyle, borderWidth, true)
 		case atom.Tbody:
-			c.convertTableRows(child, tbl, style, borderWidth, false)
+			sectionStyle := c.computeElementStyle(child, style)
+			if sectionStyle.Display == "none" {
+				continue
+			}
+			c.convertTableRows(child, tbl, sectionStyle, borderWidth, false)
 		case atom.Tfoot:
-			c.convertTableFooterRows(child, tbl, style, borderWidth)
+			sectionStyle := c.computeElementStyle(child, style)
+			if sectionStyle.Display == "none" {
+				continue
+			}
+			c.convertTableFooterRows(child, tbl, sectionStyle, borderWidth)
 		case atom.Tr:
 			c.convertTableRow(child, tbl, style, borderWidth, false)
 		}

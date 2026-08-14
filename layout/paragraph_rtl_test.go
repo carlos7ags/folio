@@ -200,8 +200,13 @@ func TestParagraphOverflowPreservesAllFields(t *testing.T) {
 	p.SetWordBreak("break-all")
 	p.SetHyphens("auto")
 	p.SetTextAlignLast(AlignCenter)
-	p.SetEllipsis(true)
 
+	// Note: ellipsis is intentionally not set here. PlanLayout now applies
+	// ellipsis truncation (matching Paragraph.Layout), which collapses
+	// wrapped text to a single fitting line — an ellipsis paragraph can
+	// no longer overflow, so it can't be used to force LayoutPartial here.
+	// Field propagation for ellipsis itself is covered by
+	// TestPlanLayoutEllipsis's SplitAfterLine subtest.
 	plan := p.PlanLayout(LayoutArea{Width: 100, Height: 15})
 	if plan.Status != LayoutPartial {
 		t.Fatalf("expected LayoutPartial, got %v", plan.Status)
@@ -221,9 +226,6 @@ func TestParagraphOverflowPreservesAllFields(t *testing.T) {
 	}
 	if !overflow.textAlignLastSet {
 		t.Error("textAlignLastSet not propagated")
-	}
-	if !overflow.ellipsis {
-		t.Error("ellipsis not propagated")
 	}
 }
 

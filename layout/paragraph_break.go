@@ -143,6 +143,9 @@ func breakCJKWords(words []Word) []Word {
 // already decided the word must split at this character, and shaping
 // honours that decision.
 func breakLongWords(words []Word, maxWidth float64) []Word {
+	if maxWidth < 0 {
+		maxWidth = 0
+	}
 	var result []Word
 	for _, w := range words {
 		if w.Width <= maxWidth {
@@ -160,6 +163,13 @@ func breakLongWords(words []Word, maxWidth float64) []Word {
 			sourceText = w.OriginalText
 		}
 		runes := []rune(sourceText)
+		if len(runes) == 0 {
+			// Zero-width/empty word (e.g. a blank LineBreak marker) can
+			// reach this path when maxWidth is negative, making every
+			// word "overflow". Nothing to split; pass it through.
+			result = append(result, w)
+			continue
+		}
 
 		shapeChunk := shapedChunkBuilder(&w, shaped)
 		// Probe the first single-rune chunk to detect a missing
@@ -180,19 +190,50 @@ func breakLongWords(words []Word, maxWidth float64) []Word {
 			var chunkWidth float64
 			var runeLen int
 			if !shaped {
-				// Unshaped words measure with MeasureString, which is prefix-
-				// summable (grapheme boundaries are prefix-stable) and carries no
-				// kerning across a chunk boundary. One walk from the chunk start
-				// finds the first-overflow break point and its width bit-
-				// identically, and stops there — so a token that splits into a few
-				// large chunks costs O(token) total rather than re-measuring every
-				// candidate prefix. The chunk is a zero-copy slice of the source.
-				byteLen, rl, cw := wordPrefixFit(&w, sourceText[byteStart:], maxWidth)
-				runeLen = rl
-				chunkSource = sourceText[byteStart : byteStart+byteLen]
-				chunkText = chunkSource
-				chunkWidth = cw
-				byteStart += byteLen
+				if w.LetterSpacing == 0 {
+					// Unshaped words measure with MeasureString, which is prefix-
+					// summable (grapheme boundaries are prefix-stable) and carries no
+					// kerning across a chunk boundary. One walk from the chunk start
+					// finds the first-overflow break point and its width bit-
+					// identically, and stops there — so a token that splits into a few
+					// large chunks costs O(token) total rather than re-measuring every
+					// candidate prefix. The chunk is a zero-copy slice of the source.
+					byteLen, rl, cw := wordPrefixFit(&w, sourceText[byteStart:], maxWidth)
+					runeLen = rl
+					chunkSource = sourceText[byteStart : byteStart+byteLen]
+					chunkText = chunkSource
+					chunkWidth = cw
+					byteStart += byteLen
+				} else {
+					// Letter-spacing adds (n-1) gaps to an n-rune chunk (matching
+					// paragraph_measure.go's intrinsic-width formula), so the fit
+					// decision can't reuse the plain-prefix-sum fast path: walk the
+					// cumulative rune-boundary widths and stop at the first prefix
+					// whose spaced width would overflow. Always take at least one
+					// rune so the loop makes progress.
+					// widths[n] is the (unspaced) width of the first n runes
+					// (widths[0] == 0 for zero runes) — see MeasureStringPrefixes.
+					widths := wordPrefixWidths(&w, sourceText[byteStart:])
+					rl := 1
+					cw := 0.0
+					maxN := len(widths) - 1
+					if maxN >= 1 {
+						cw = widths[1]
+						for n := 1; n <= maxN; n++ {
+							spaced := widths[n] + w.LetterSpacing*float64(n-1)
+							if spaced > maxWidth && n > 1 {
+								break
+							}
+							rl = n
+							cw = spaced
+						}
+					}
+					runeLen = rl
+					chunkSource = string(runes[start : start+runeLen])
+					chunkText = chunkSource
+					chunkWidth = cw
+					byteStart += len(chunkSource)
+				}
 			} else {
 				// Shaped words re-shape per candidate: Arabic/Indic widths are
 				// context-sensitive, not prefix-summable, so no cumulative
@@ -200,7 +241,9 @@ func breakLongWords(words []Word, maxWidth float64) []Word {
 				end := start + 1
 				for end < len(runes) {
 					_, _, width, _ := shapeChunk(string(runes[start : end+1]))
-					if width > maxWidth {
+					candidateRunes := end + 1 - start
+					spaced := width + w.LetterSpacing*float64(candidateRunes-1)
+					if spaced > maxWidth {
 						break
 					}
 					end++
@@ -208,6 +251,9 @@ func breakLongWords(words []Word, maxWidth float64) []Word {
 				runeLen = end - start
 				chunkSource = string(runes[start:end])
 				chunkText, chunkGIDs, chunkWidth, _ = shapeChunk(chunkSource)
+				if w.LetterSpacing != 0 && runeLen > 1 {
+					chunkWidth += w.LetterSpacing * float64(runeLen-1)
+				}
 			}
 			chunk := Word{
 				Text:          chunkText,
