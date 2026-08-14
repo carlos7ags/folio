@@ -425,13 +425,11 @@ func (c *converter) collectListItemRuns(li *html.Node, style computedStyle) []la
 				continue
 			}
 			stdFont, embFont := c.resolveFontForText(style, text)
-			runs = append(runs, layout.TextRun{
-				Text:     text,
-				Font:     stdFont,
-				Embedded: embFont,
-				FontSize: style.FontSize,
-				Color:    style.Color,
-			})
+			run := c.makeTextRun(text, stdFont, embFont, style)
+			// The li's own background paints as a block background, not a
+			// per-word text highlight.
+			run.BackgroundColor = nil
+			runs = append(runs, run)
 		case html.ElementNode:
 			childStyle := c.computeElementStyle(child, style)
 			childRuns := c.collectRuns(child, childStyle)

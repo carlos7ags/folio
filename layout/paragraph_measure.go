@@ -168,7 +168,7 @@ func inlineSpaceAfter(measured []Word, runs []TextRun, currentIdx int) float64 {
 		if r.InlineElement != nil {
 			continue
 		}
-		return runMeasurer(r).MeasureString(" ", r.FontSize) + r.WordSpacing
+		return runMeasurer(r).MeasureString(" ", r.FontSize) + r.WordSpacing + 2*r.LetterSpacing
 	}
 	// No text context at all — flush spacing.
 	return 0
@@ -181,8 +181,14 @@ func inlineSpaceAfter(measured []Word, runs []TextRun, currentIdx int) float64 {
 // container sized to the longest *word* would be too narrow and the nowrap
 // text would overflow it.
 func (p *Paragraph) MinWidth() float64 {
+	// Checked before the longest-word cache: MaxWidth() maintains its own
+	// cache, and cachedMinW holds the longest-word width, which is not what
+	// nowrap should report.
 	if p.noWrap {
 		return p.MaxWidth()
+	}
+	if p.minWValid {
+		return p.cachedMinW
 	}
 	maxWordW := 0.0
 	for _, run := range p.runs {
@@ -199,12 +205,17 @@ func (p *Paragraph) MinWidth() float64 {
 			}
 		}
 	}
+	p.cachedMinW = maxWordW
+	p.minWValid = true
 	return maxWordW
 }
 
 // MaxWidth implements Measurable. Returns the width of all text on a single
 // line (the natural width without wrapping).
 func (p *Paragraph) MaxWidth() float64 {
+	if p.maxWValid {
+		return p.cachedMaxW
+	}
 	total := 0.0
 	for _, run := range p.runs {
 		// Inline elements (e.g. a nested inline-block) participate in the
@@ -221,7 +232,7 @@ func (p *Paragraph) MaxWidth() float64 {
 		}
 		measurer := runMeasurer(run)
 		words := splitWords(run.Text)
-		spaceW := measurer.MeasureString(" ", run.FontSize)
+		spaceW := measurer.MeasureString(" ", run.FontSize) + 2*run.LetterSpacing
 		for i, w := range words {
 			ww := measurer.MeasureString(w, run.FontSize)
 			if run.LetterSpacing != 0 {
@@ -239,6 +250,8 @@ func (p *Paragraph) MaxWidth() float64 {
 			total += spaceW
 		}
 	}
+	p.cachedMaxW = total
+	p.maxWValid = true
 	return total
 }
 
@@ -337,7 +350,9 @@ func (p *Paragraph) measureWords(maxWidth float64) ([]Word, float64) {
 		glueAdjacentRuns(measured, p.runs, i)
 
 		measurer := runMeasurer(run)
-		spaceW := measurer.MeasureString(" ", run.FontSize) + run.WordSpacing
+		// Letter-spacing also widens the inter-word gap: a single space has
+		// two adjacent-character boundaries (before and after it).
+		spaceW := measurer.MeasureString(" ", run.FontSize) + run.WordSpacing + 2*run.LetterSpacing
 		text := run.Text
 
 		// If the run starts with punctuation (no leading space) and we

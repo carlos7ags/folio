@@ -29,12 +29,12 @@ type computedStyle struct {
 	// A length line-height (e.g. 20px) is otherwise eagerly divided by
 	// whatever font-size was current when the declaration ran, which is wrong
 	// when `font-size` is declared after `line-height` in the same rule.
-	lineHeightRaw        string
-	LetterSpacing        float64 // extra space between characters (points)
-	WordSpacing          float64 // extra space between words (points)
-	TextIndent           float64 // first-line indent (points)
-	WordBreak            string  // "normal", "break-all"
-	Hyphens              string  // "none", "manual", "auto"
+	lineHeightRaw string
+	LetterSpacing float64 // extra space between characters (points)
+	WordSpacing   float64 // extra space between words (points)
+	TextIndent    float64 // first-line indent (points)
+	WordBreak     string  // "normal", "break-all"
+	Hyphens       string  // "none", "manual", "auto"
 
 	// Box model
 	MarginTopAuto   bool // true if margin-top: auto (for flex layout)

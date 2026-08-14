@@ -8,6 +8,7 @@ import (
 	"crypto/aes"
 	"crypto/cipher"
 	"crypto/md5"
+	"encoding/binary"
 	"errors"
 	"fmt"
 )
@@ -40,7 +41,7 @@ type Decryptor struct {
 	Revision        EncryptionRevision
 	FileKey         []byte // 16 bytes (RC4/AES-128) or 32 bytes (AES-256)
 	Access          AccessLevel
-	P               int32 // permission flags from /P (not enforced)
+	P               int32 // permission flags from /P — authenticated against /Perms for R=6, informational only (never enforced)
 	EncryptMetadata bool  // /EncryptMetadata; false means /Metadata streams are stored in the clear
 
 	keyLen int
@@ -125,6 +126,33 @@ func newDecryptorR3R4(dict *PdfDictionary, fileID []byte, password string, rev E
 	return nil, ErrInvalidPassword
 }
 
+// aesECBDecryptBlock decrypts a single 16-byte block with AES-ECB — the
+// inverse of aesECBEncryptBlock (core/encrypt.go), used only for the R6
+// /Perms entry.
+func aesECBDecryptBlock(key, block16 []byte) []byte {
+	b, _ := aes.NewCipher(key)
+	out := make([]byte, 16)
+	b.Decrypt(out, block16)
+	return out
+}
+
+// validatePermsR6 implements ISO 32000-2 Algorithm 13: decrypt /Perms
+// with the file key and confirm it authenticates the plaintext /P value.
+func validatePermsR6(dict *PdfDictionary, fileKey []byte, p int32) error {
+	perms := dictBytes(dict, "Perms")
+	if len(perms) != 16 {
+		return fmt.Errorf("%w: malformed /Perms for revision R=6", ErrUnsupportedEncryption)
+	}
+	plain := aesECBDecryptBlock(fileKey, perms)
+	if plain[9] != 'a' || plain[10] != 'd' || plain[11] != 'b' {
+		return errors.New("core: /Perms block does not authenticate (bad marker)")
+	}
+	if int32(binary.LittleEndian.Uint32(plain[0:4])) != p {
+		return errors.New("core: /Perms permission bits do not match /P (file tampered?)")
+	}
+	return nil
+}
+
 // newDecryptorR6 authenticates password against /O and /U for revision
 // 6 (AES-256, PDF 2.0), per ISO 32000-2 §7.6.4.3.
 func newDecryptorR6(dict *PdfDictionary, fileID []byte, password string, p int32) (*Decryptor, error) {
@@ -143,6 +171,9 @@ func newDecryptorR6(dict *PdfDictionary, fileID []byte, password string, p int32
 		if err != nil {
 			return nil, fmt.Errorf("core: decrypt: unwrap /UE: %w", err)
 		}
+		if err := validatePermsR6(dict, fileKey, p); err != nil {
+			return nil, err
+		}
 		return &Decryptor{Revision: RevisionAES256, FileKey: fileKey, Access: AccessUser, P: p, EncryptMetadata: encryptMetadata, keyLen: 32}, nil
 	}
 
@@ -153,6 +184,9 @@ func newDecryptorR6(dict *PdfDictionary, fileID []byte, password string, p int32
 		fileKey, err := aesCBCDecryptNoPadding(algorithmR6Hash(pwd, oKeySalt, u), oe)
 		if err != nil {
 			return nil, fmt.Errorf("core: decrypt: unwrap /OE: %w", err)
+		}
+		if err := validatePermsR6(dict, fileKey, p); err != nil {
+			return nil, err
 		}
 		return &Decryptor{Revision: RevisionAES256, FileKey: fileKey, Access: AccessOwner, P: p, EncryptMetadata: encryptMetadata, keyLen: 32}, nil
 	}

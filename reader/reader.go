@@ -69,7 +69,11 @@ var ErrUnsupportedEncryption = core.ErrUnsupportedEncryption
 // supplied password matched the user (open) password, or [AccessOwner]
 // if it matched the owner (permissions) password instead. /P permission
 // bits are exposed via the /Encrypt dictionary in [PdfReader.Trailer]
-// but are not enforced — folio is a library, not a viewer.
+// but are not enforced — folio is a library, not a viewer. For AES-256
+// (R=6) documents the /P bits are authenticated against the encrypted
+// /Perms entry at open time (a mismatch fails ParseWithOptions), but
+// folio still does not enforce them: whether to honor print/extract/
+// modify restrictions is the calling application's decision.
 func (r *PdfReader) Access() AccessLevel {
 	return r.access
 }
@@ -328,7 +332,7 @@ func repairXref(data []byte) (*xrefTable, error) {
 			continue
 		}
 		t3 := tok.Next()
-		if t3.Type != TokenKeyword && t3.Value != "obj" {
+		if t3.Type != TokenKeyword || t3.Value != "obj" {
 			continue
 		}
 		// Found "N G obj" at position pos.
@@ -464,7 +468,7 @@ func (r *PdfReader) parsePageTree() error {
 	}
 
 	r.pages = nil
-	return r.collectPages(pagesDict, inherited{})
+	return r.collectPages(pagesDict, inherited{}, map[*core.PdfDictionary]struct{}{}, 0)
 }
 
 // inherited carries inheritable page tree attributes down the tree.
@@ -477,8 +481,37 @@ type inherited struct {
 	rotate    *core.PdfNumber
 }
 
+// maxPageTreeDepth caps page tree recursion. Real documents nest a
+// handful of levels; a tree deeper than this is malformed or hostile,
+// and following it would overflow the goroutine stack — an unrecoverable
+// fatal error rather than a catchable panic.
+const maxPageTreeDepth = 256
+
 // collectPages recursively collects leaf pages from the page tree.
-func (r *PdfReader) collectPages(node *core.PdfDictionary, inh inherited) error {
+//
+// visited holds the Pages nodes on the current root-to-node path so a
+// /Kids entry pointing back at an ancestor is caught instead of recursed
+// into forever. It is path-scoped, not walk-scoped: a node is removed on
+// the way back up, so a node legitimately reachable through two separate
+// branches is still expanded both times.
+//
+// Under StrictnessTolerant a cycle or over-deep branch is skipped and the
+// remaining pages are still collected; under StrictnessStrict it is an
+// error.
+func (r *PdfReader) collectPages(node *core.PdfDictionary, inh inherited, visited map[*core.PdfDictionary]struct{}, depth int) error {
+	if _, cycle := visited[node]; cycle {
+		if r.strictness == StrictnessStrict {
+			return fmt.Errorf("reader: page tree contains a cycle")
+		}
+		return nil
+	}
+	if depth > maxPageTreeDepth {
+		if r.strictness == StrictnessStrict {
+			return fmt.Errorf("reader: page tree deeper than %d levels", maxPageTreeDepth)
+		}
+		return nil
+	}
+
 	// Update inheritable attributes from this node.
 	if mb := node.Get("MediaBox"); mb != nil {
 		if arr, ok := mb.(*core.PdfArray); ok {
@@ -523,6 +556,11 @@ func (r *PdfReader) collectPages(node *core.PdfDictionary, inh inherited) error 
 		return fmt.Errorf("reader: /Kids is not an array")
 	}
 
+	// Mark this node for the duration of the subtree walk only, so the
+	// check above sees ancestors but not already-finished siblings.
+	visited[node] = struct{}{}
+	defer delete(visited, node)
+
 	for _, kidRef := range kids.All() {
 		kidObj, err := r.resolver.ResolveDeep(kidRef)
 		if err != nil {
@@ -532,7 +570,7 @@ func (r *PdfReader) collectPages(node *core.PdfDictionary, inh inherited) error 
 		if !ok {
 			continue
 		}
-		if err := r.collectPages(kidDict, inh); err != nil {
+		if err := r.collectPages(kidDict, inh, visited, depth+1); err != nil {
 			return err
 		}
 	}

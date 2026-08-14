@@ -81,6 +81,12 @@ func wrapBookmarkOverflow(inner Element) Element {
 	return NewBookmarkAnchor(inner, -1, "", false)
 }
 
+// unwrap returns the wrapped element so layout code can type-assert the
+// inner element's optional interfaces (see baseElement), rather than having
+// the bookmark wrapper mask Clearable / KeepTogether / HeightSettable and the
+// like on a decorated target.
+func (b *bookmarkAnchor) unwrap() Element { return b.inner }
+
 func (b *measurableBookmarkAnchor) MinWidth() float64 {
 	return b.inner.(Measurable).MinWidth()
 }

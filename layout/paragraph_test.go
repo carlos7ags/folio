@@ -1444,6 +1444,113 @@ func TestParagraphEllipsisWithNoWrap(t *testing.T) {
 	}
 }
 
+// TestPlanLayoutEllipsis asserts that Paragraph.PlanLayout — the render
+// path Div.PlanLayout actually calls — truncates with an ellipsis exactly
+// like Paragraph.Layout does. Regression for ellipsis being applied only
+// in Layout() and silently ignored by PlanLayout.
+func TestPlanLayoutEllipsis(t *testing.T) {
+	t.Run("wrapping text truncates to one line", func(t *testing.T) {
+		p := NewParagraph("This is a very long text that should be truncated with an ellipsis", font.Helvetica, 12)
+		p.SetEllipsis(true)
+
+		plan := p.PlanLayout(LayoutArea{Width: 100, Height: 1000})
+		if plan.Status != LayoutFull {
+			t.Fatalf("status = %v, want LayoutFull", plan.Status)
+		}
+		if plan.Overflow != nil {
+			t.Fatalf("expected no overflow for an ellipsis paragraph, got %v", plan.Overflow)
+		}
+		if len(plan.Blocks) != 1 {
+			t.Fatalf("expected a single truncated line block, got %d", len(plan.Blocks))
+		}
+		if plan.Blocks[0].Width > 100 {
+			t.Errorf("block width %v exceeds maxWidth 100", plan.Blocks[0].Width)
+		}
+	})
+
+	t.Run("text that fits is unchanged", func(t *testing.T) {
+		p := NewParagraph("short", font.Helvetica, 12)
+		p.SetEllipsis(true)
+
+		plan := p.PlanLayout(LayoutArea{Width: 1000, Height: 1000})
+		if plan.Status != LayoutFull {
+			t.Fatalf("status = %v, want LayoutFull", plan.Status)
+		}
+		if len(plan.Blocks) != 1 {
+			t.Fatalf("expected a single line block, got %d", len(plan.Blocks))
+		}
+	})
+
+	t.Run("SplitAfterLine does not double-truncate", func(t *testing.T) {
+		p := NewParagraph("This is a very long text that should be truncated with an ellipsis", font.Helvetica, 12)
+		p.SetEllipsis(true)
+
+		head, tail := p.SplitAfterLine(1, 100)
+		if head == nil {
+			t.Fatal("expected non-nil head")
+		}
+		// head was produced by Layout (via SplitAfterLine), which already
+		// truncated with an ellipsis. Re-running it through PlanLayout must
+		// not truncate again: the already-truncated line fits maxWidth, so
+		// the len(wordLines) > 1 firing condition never trips a second time.
+		headLines := head.Layout(100)
+		if len(headLines) != 1 {
+			t.Fatalf("expected head to be a single line, got %d", len(headLines))
+		}
+		lastWord := headLines[0].Words[len(headLines[0].Words)-1]
+		if strings.Count(lastWord.Text, "...") > 1 {
+			t.Errorf("doubled ellipsis suffix in head text %q", lastWord.Text)
+		}
+		plan := head.PlanLayout(LayoutArea{Width: 100, Height: 1000})
+		if len(plan.Blocks) != 1 {
+			t.Fatalf("expected a single line block, got %d", len(plan.Blocks))
+		}
+		if tail != nil {
+			tailPlan := tail.PlanLayout(LayoutArea{Width: 100, Height: 1000})
+			_ = tailPlan
+		}
+	})
+}
+
+// TestLayoutMatchesMeasureWords asserts that Paragraph.Layout and
+// Paragraph.measureWords agree on the flattened word stream, including the
+// leading-punctuation merge across a style-boundary run. Regression for the
+// duplication between the two flattening loops.
+func TestLayoutMatchesMeasureWords(t *testing.T) {
+	build := func() *Paragraph {
+		p := NewParagraph("", font.Helvetica, 12)
+		p.AddRun(NewRun("see here", font.Helvetica, 12))
+		p.AddRun(NewRun(". Then more", font.Helvetica, 12))
+		return p
+	}
+
+	measured, _ := build().measureWords(1000)
+	lines := build().Layout(1000)
+
+	var layoutWords []Word
+	for _, l := range lines {
+		layoutWords = append(layoutWords, l.Words...)
+	}
+
+	textsOf := func(words []Word) []string {
+		out := make([]string, len(words))
+		for i, w := range words {
+			out[i] = w.Text
+		}
+		return out
+	}
+
+	if len(measured) != len(layoutWords) {
+		t.Fatalf("word count mismatch: measureWords=%d Layout=%d\nmeasureWords=%v\nLayout=%v",
+			len(measured), len(layoutWords), textsOf(measured), textsOf(layoutWords))
+	}
+	for i := range measured {
+		if measured[i].Text != layoutWords[i].Text {
+			t.Errorf("word %d text mismatch: measureWords=%q Layout=%q", i, measured[i].Text, layoutWords[i].Text)
+		}
+	}
+}
+
 func TestParagraphWidowsOrphans(t *testing.T) {
 	// Long paragraph that overflows a short page.
 	text := ""

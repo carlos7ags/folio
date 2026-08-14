@@ -122,6 +122,22 @@ func (p *Paragraph) PlanLayout(area LayoutArea) LayoutPlan {
 		resolvedDir = p.direction
 	}
 
+	// Apply ellipsis truncation: mirrors Paragraph.Layout so the render
+	// path (PlanLayout) and the measure/height path (Layout) truncate
+	// identically. Firing this collapses wordLines to a single line, so
+	// an ellipsis paragraph can never produce Overflow below.
+	// applyEllipsisWords decides whether truncation actually applies — it
+	// fires for multi-line overflow *and* for a single line wider than the
+	// area (the white-space:nowrap case, which always yields one line, so
+	// this cannot be gated on line count here).
+	if p.ellipsis && len(wordLines) > 0 {
+		widths := make([]float64, len(wordLines))
+		for i, wl := range wordLines {
+			widths[i] = lineWidth(wl)
+		}
+		wordLines, _, _ = applyEllipsisWords(wordLines, widths, area.Width)
+	}
+
 	// Compute heights and split at available height.
 	type lineInfo struct {
 		words       []Word

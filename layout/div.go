@@ -632,6 +632,9 @@ func (d *Div) PlanLayout(area LayoutArea) LayoutPlan {
 		effectiveWidth = minW
 	}
 	innerWidth := effectiveWidth - d.padding.Left - d.padding.Right
+	if innerWidth < 0 {
+		innerWidth = 0
+	}
 	innerHeight := area.Height - d.padding.Top - d.padding.Bottom
 	if innerHeight < 0 {
 		innerHeight = 0
@@ -700,7 +703,7 @@ func (d *Div) PlanLayout(area LayoutArea) LayoutPlan {
 		// In-flow child.
 		if hasFloat {
 			// CSS clear: advance past matching active floats first.
-			if cl, ok := elem.(Clearable); ok {
+			if cl, ok := baseElement(elem).(Clearable); ok {
 				cv := cl.ClearValue()
 				if cv == "left" || cv == "right" || cv == "both" {
 					if ny := fc.clear(cv, curY); ny > curY {

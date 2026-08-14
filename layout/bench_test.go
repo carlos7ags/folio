@@ -65,6 +65,50 @@ func BenchmarkParagraphWrapArabic(b *testing.B) {
 	}
 }
 
+// BenchmarkTableMultiPagePlan covers Table.PlanLayout for a table that
+// spans many pages: ~200 rows x 4 columns of auto-sized text, walked
+// through the full overflow chain the way the renderer consumes
+// LayoutPlan (PlanLayout, then re-PlanLayout the Overflow table on the
+// next page, etc). Before column-width memoization, each continuation
+// table re-measured every remaining row's cell text via resolveColWidths,
+// giving O(rows^2) text measurement overall for a table this size.
+func BenchmarkTableMultiPagePlan(b *testing.B) {
+	buildTable := func() *Table {
+		t := NewTable()
+		t.SetAutoColumnWidths()
+		for range 200 {
+			row := t.AddRow()
+			row.AddCell("Widget Name Example", font.Helvetica, 10)
+			row.AddCell("Quantity 42", font.Helvetica, 10)
+			row.AddCell("Unit Price $19.99", font.Helvetica, 10)
+			row.AddCell("Extended Total $839.58", font.Helvetica, 10)
+		}
+		return t
+	}
+
+	b.ResetTimer()
+	for range b.N {
+		tbl := buildTable()
+		area := LayoutArea{Width: 500, Height: 60}
+		pages := 0
+		for {
+			plan := tbl.PlanLayout(area)
+			pages++
+			if plan.Status != LayoutPartial || plan.Overflow == nil {
+				break
+			}
+			var ok bool
+			tbl, ok = plan.Overflow.(*Table)
+			if !ok {
+				b.Fatalf("overflow is %T, want *Table", plan.Overflow)
+			}
+			if pages > 500 {
+				b.Fatal("too many pages — overflow chain not terminating")
+			}
+		}
+	}
+}
+
 // BenchmarkBreakLongWordsUnshaped drives the prefix re-measurement loop in
 // breakLongWords on a single long unbreakable ASCII token.
 func BenchmarkBreakLongWordsUnshaped(b *testing.B) {

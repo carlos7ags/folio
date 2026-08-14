@@ -240,14 +240,22 @@ func (inv *Invoice) Validate(p Profile) error {
 			if tt.RatePercent == "" {
 				return &ValidationError{p, "TaxTotals[].RatePercent", "required"}
 			}
-			taxSum = taxSum.Add(tt.TaxAmount)
+			sum, ok := taxSum.AddChecked(tt.TaxAmount)
+			if !ok {
+				return &ValidationError{p, "TaxTotals", "sum of TaxAmount overflows"}
+			}
+			taxSum = sum
 		}
 		if taxSum != inv.Totals.TaxTotal {
 			return &ValidationError{p, "TaxTotals", "sum of TaxAmount must equal Totals.TaxTotal"}
 		}
 	}
 
-	if inv.Totals.TaxBasisTotal.Add(inv.Totals.TaxTotal) != inv.Totals.GrandTotal {
+	sum, ok := inv.Totals.TaxBasisTotal.AddChecked(inv.Totals.TaxTotal)
+	if !ok {
+		return &ValidationError{p, "Totals", "TaxBasisTotal + TaxTotal overflows"}
+	}
+	if sum != inv.Totals.GrandTotal {
 		return &ValidationError{p, "Totals", "TaxBasisTotal + TaxTotal must equal GrandTotal"}
 	}
 

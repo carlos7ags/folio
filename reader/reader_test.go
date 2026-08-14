@@ -938,3 +938,52 @@ func TestMemoryLimitsDefaults(t *testing.T) {
 
 // Use core import to avoid unused import error.
 var _ = core.NewPdfNull
+
+// TestRepairXrefSkipsIndirectReferences ensures the tolerant xref repair
+// scan only records genuine "N G obj" headers, not "N G R" indirect
+// references (e.g. inside a trailer dictionary), which happen to share the
+// same "N G <keyword>" token shape.
+func TestRepairXrefSkipsIndirectReferences(t *testing.T) {
+	// Object 1's real header is written first. A "1 0 R" indirect
+	// reference to it (inside the trailer, which is scanned afterwards)
+	// must NOT overwrite the entry recorded for the real header.
+	pdf := "%PDF-1.4\n" +
+		"1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n" +
+		"2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n" +
+		"3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] >>\nendobj\n" +
+		"trailer\n<< /Root 1 0 R /Size 4 >>\n"
+	data := []byte(pdf)
+
+	wantOffset := int64(bytes.Index(data, []byte("1 0 obj")))
+	if wantOffset < 0 {
+		t.Fatalf("test setup: could not locate real object 1 header")
+	}
+	badOffset := int64(bytes.Index(data, []byte("1 0 R")))
+	if badOffset < 0 {
+		t.Fatalf("test setup: could not locate '1 0 R' reference in trailer")
+	}
+	if badOffset <= wantOffset {
+		t.Fatalf("test setup: expected the '1 0 R' reference to appear after the real header")
+	}
+
+	table, err := repairXref(data)
+	if err != nil {
+		t.Fatalf("repairXref: %v", err)
+	}
+	entry, ok := table.entries[1]
+	if !ok {
+		t.Fatalf("repairXref: object 1 missing from reconstructed xref")
+	}
+	// The recorded offset should land near the real "1 0 obj" header, not
+	// near the "1 0 R" reference inside the trailer (which appears much
+	// later in the file). A small tolerance absorbs repairXref's own
+	// (pre-existing, unrelated) token-boundary rounding of the recorded
+	// offset; it must not be anywhere close to badOffset.
+	const tolerance = 16
+	if entry.offset < wantOffset-tolerance || entry.offset > wantOffset+tolerance {
+		t.Errorf("repairXref: object 1 offset = %d (want near %d, the real 'obj' header); "+
+			"got something near the '1 0 R' reference (offset %d) instead, meaning the scan "+
+			"misidentified an indirect reference as an object header",
+			entry.offset, wantOffset, badOffset)
+	}
+}

@@ -121,6 +121,29 @@ func lineWidth(words []Word) float64 {
 	return w
 }
 
+// applyEllipsisWords collapses multiple word-lines into a single truncated
+// line when ellipsis is enabled and the text wraps to more than one line.
+// It mirrors the firing condition in Paragraph.Layout (len(lines) > 1) and
+// reuses truncateWithEllipsis so both the Layout and PlanLayout render
+// paths share the exact same truncation logic. Returns the (possibly
+// collapsed) word-lines, their widths, and whether truncation fired.
+func applyEllipsisWords(wordLines [][]Word, widths []float64, maxWidth float64) ([][]Word, []float64, bool) {
+	// Truncation fires when wrapping produced more than one line, or when a
+	// single line is itself wider than maxWidth. The latter is the
+	// white-space:nowrap case — nowrap always yields exactly one line, so
+	// truncation cannot be gated on line count alone. An already-truncated
+	// line fits maxWidth, so re-running this never doubles the ellipsis.
+	if len(wordLines) == 0 || len(widths) == 0 {
+		return wordLines, widths, false
+	}
+	if len(wordLines) == 1 && widths[0] <= maxWidth {
+		return wordLines, widths, false
+	}
+	first := Line{Words: wordLines[0], Width: widths[0]}
+	truncated := truncateWithEllipsis(first, maxWidth)
+	return [][]Word{truncated.Words}, []float64{truncated.Width}, true
+}
+
 // truncateWithEllipsis truncates a line's words so the total width plus "..."
 // fits within maxWidth. The ellipsis is appended to the last visible word's text.
 func truncateWithEllipsis(line Line, maxWidth float64) Line {
