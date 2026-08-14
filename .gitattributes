@@ -1,0 +1,29 @@
+# Normalize line endings so the test suite passes on Windows.
+#
+# Without this, Git for Windows (and the windows-latest CI runner, which sets
+# core.autocrlf=true) rewrites LF to CRLF on checkout. Two things break:
+#
+#   1. Byte-exact comparisons against checked-in fixtures — the CSS support
+#      doc (TestCSSDocsInSync) and the style/paragraph .golden corpora — see a
+#      stray \r on every line and report every case as stale.
+#   2. Binary fixtures that happen to contain no NUL byte in their first 8000
+#      bytes, which is all Git inspects to guess text-vs-binary. Several of the
+#      small qpdf-generated encrypted PDFs land on the wrong side of that
+#      heuristic, so CRLF expansion corrupts their encrypted streams and
+#      decryption fails with "ciphertext length N is not block-aligned".
+#
+# Checking text in as LF everywhere and pinning the working-tree ending to LF
+# keeps both honest on every platform.
+* text=auto eol=lf
+
+# Fixtures that must survive byte-for-byte. Being explicit matters on the *add*
+# side too: under `text=auto` alone, a binary file Git mistakes for text has its
+# CRLF runs normalized to LF in the index, i.e. corrupted at commit time. This
+# also stops Git from trying to diff or merge them.
+#
+# .afm is deliberately absent — Adobe Font Metrics really is a text format, so
+# it is left diffable and covered by the eol=lf rule above.
+*.pdf  binary
+*.png  binary
+*.ttf  binary
+*.otf  binary
