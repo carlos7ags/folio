@@ -4,6 +4,7 @@
 package layout
 
 import (
+	"slices"
 	"strings"
 
 	"github.com/carlos7ags/folio/content"
@@ -303,6 +304,19 @@ type Table struct {
 	cellSpacingH   float64     // horizontal spacing between cells (CSS border-spacing)
 	cellSpacingV   float64     // vertical spacing between cells (CSS border-spacing)
 	direction      Direction   // text direction; RTL reverses column order
+
+	// resolveColWidths memo, keyed by the maxWidth it was computed at.
+	// A table spanning N pages would otherwise re-measure every cell's
+	// text on every continuation page (each continuation table contains
+	// ALL remaining rows), giving O(rows²) text measurement overall.
+	// cloneForOverflow copies these fields (via whole-struct copy) so a
+	// continuation table reuses the original's resolved widths — which is
+	// also the correct behavior: columns must not shift between pages of
+	// the same table. Invalidated by any mutator that can change sizing
+	// (AddRow and friends, column-width/min-width setters).
+	cachedColWidths   []float64
+	cachedColWidthsAt float64
+	colWidthsValid    bool
 }
 
 // NewTable creates a new empty table.
@@ -323,6 +337,7 @@ func (t *Table) SetColumnWidths(widths []float64) *Table {
 	t.colWidths = widths
 	t.colUnitWidths = nil
 	t.autoWidths = false
+	t.colWidthsValid = false
 	return t
 }
 
@@ -413,6 +428,7 @@ func (t *Table) totalSpacingH(nCols int) float64 {
 // expanded proportionally to fill the minimum width.
 func (t *Table) SetMinWidth(pts float64) *Table {
 	t.minWidth = pts
+	t.colWidthsValid = false
 	return t
 }
 
@@ -420,6 +436,7 @@ func (t *Table) SetMinWidth(pts float64) *Table {
 // lazily at layout time. Use Pct(100) for width:100%.
 func (t *Table) SetMinWidthUnit(u UnitValue) *Table {
 	t.minWidthUnit = &u
+	t.colWidthsValid = false
 	return t
 }
 
@@ -432,6 +449,7 @@ func (t *Table) SetAutoColumnWidths() *Table {
 	t.autoWidths = true
 	t.colWidths = nil
 	t.colUnitWidths = nil
+	t.colWidthsValid = false
 	return t
 }
 
@@ -446,6 +464,7 @@ func (t *Table) SetColumnUnitWidths(widths []UnitValue) *Table {
 	t.colUnitWidths = widths
 	t.colWidths = nil
 	t.autoWidths = false
+	t.colWidthsValid = false
 	return t
 }
 
@@ -453,6 +472,7 @@ func (t *Table) SetColumnUnitWidths(widths []UnitValue) *Table {
 func (t *Table) AddRow() *Row {
 	r := &Row{}
 	t.rows = append(t.rows, r)
+	t.colWidthsValid = false
 	return r
 }
 
@@ -461,6 +481,7 @@ func (t *Table) AddRow() *Row {
 func (t *Table) AddHeaderRow() *Row {
 	r := &Row{isHeader: true}
 	t.rows = append(t.rows, r)
+	t.colWidthsValid = false
 	return r
 }
 
@@ -469,6 +490,7 @@ func (t *Table) AddHeaderRow() *Row {
 func (t *Table) AddFooterRow() *Row {
 	r := &Row{isFooter: true}
 	t.rows = append(t.rows, r)
+	t.colWidthsValid = false
 	return r
 }
 
@@ -491,6 +513,23 @@ func (t *Table) numCols() int {
 // resolveColWidths computes column widths.
 // Priority: auto > UnitValue > point widths > equal distribution.
 func (t *Table) resolveColWidths(maxWidth float64) []float64 {
+	if t.colWidthsValid && t.cachedColWidthsAt == maxWidth {
+		// Return a copy: callers must not be able to mutate the memo
+		// through the returned slice.
+		return slices.Clone(t.cachedColWidths)
+	}
+
+	widths := t.resolveColWidthsUncached(maxWidth)
+
+	t.cachedColWidths = slices.Clone(widths)
+	t.cachedColWidthsAt = maxWidth
+	t.colWidthsValid = true
+	return widths
+}
+
+// resolveColWidthsUncached does the actual width-resolution work; see
+// resolveColWidths for the memoization wrapper.
+func (t *Table) resolveColWidthsUncached(maxWidth float64) []float64 {
 	nCols := t.numCols()
 	if nCols == 0 {
 		return nil
@@ -725,11 +764,22 @@ func cellIntrinsicWidths(cell *Cell, availWidth float64) (minW, maxW float64) {
 type gridCell struct {
 	cell         *Cell
 	col          int         // starting column index
+	row          int         // starting row index (used by resolveBorders to index segment slices of a neighbor across a span)
 	spanWidth    float64     // total width across spanned columns
 	spanHeight   float64     // total height across spanned rows (0 = single row)
 	colSpanCount int         // occupied columns, clipped to table width
 	rowSpanCount int         // occupied rows, clipped to table row count (1 = single row)
 	resolved     CellBorders // per-render resolved borders under border-collapse; never copied back into cell.borders
+
+	// Per-segment resolved borders under border-collapse, populated by
+	// resolveBorders alongside the whole-edge `resolved` fields above.
+	// segTop/segBottom have length colSpanCount (one winner per spanned
+	// column); segLeft/segRight have length rowSpanCount (one winner per
+	// spanned row). For a single-row/single-column cell each slice has
+	// exactly one element and mirrors `resolved`. Never copied into
+	// cell.borders; recomputed fresh on every resolveBorders call.
+	segTop, segBottom []Border
+	segLeft, segRight []Border
 }
 
 // gridRow is a row in the flat grid with computed height.
@@ -790,6 +840,7 @@ func (t *Table) buildGrid(colWidths []float64) []gridRow {
 			gr.cells = append(gr.cells, gridCell{
 				cell:         cell,
 				col:          col,
+				row:          rIdx,
 				spanWidth:    spanW,
 				colSpanCount: colspan,
 				rowSpanCount: rowSpanCount,
@@ -1049,6 +1100,17 @@ func (t *Table) PlanLayout(area LayoutArea) LayoutPlan {
 	curY := 0.0
 	splitIdx := len(grid)
 
+	// oversizeGroupEnd tracks the (exclusive) grid end index of a rowspan
+	// group that cannot fit even on a fresh, otherwise-empty page. While a
+	// row index is inside [leader, oversizeGroupEnd) the #362 keep-together
+	// check below is bypassed in favor of the pre-#362 per-row check, so
+	// the group is split like plain rows instead of overflowing every
+	// page. oversizeGroupLeader records the leader's row index so its
+	// Draw closure can cap the spanning cell's rendered height to what
+	// this page actually shows (see drawTableRowDirect's capRows param).
+	oversizeGroupEnd := -1
+	oversizeGroupLeader := -1
+
 	for i, gr := range grid {
 		// Skip footer rows in the main loop; they'll be appended at the end.
 		if gr.isFooter {
@@ -1058,22 +1120,46 @@ func (t *Table) PlanLayout(area LayoutArea) LayoutPlan {
 		// Add vertical spacing before this row.
 		curY += sv
 
+		needsFooter := footerRowCount > 0 && i > headerRowCount
+		reserveH := 0.0
+		if needsFooter {
+			reserveH = footerHeight
+		}
+
 		// Check if this row's span group fits (reserve space for footer if
 		// splitting). A row that isn't its group's leader never triggers a
 		// split — the group's space was reserved when the leader was
 		// checked. For a span-free row the group is just the row itself,
 		// so this reduces to the plain per-row check.
 		if groupStarts[i] == i {
-			needsFooter := footerRowCount > 0 && i > headerRowCount
-			reserveH := 0.0
-			if needsFooter {
-				reserveH = footerHeight
-			}
 			groupH := gr.height
+			groupEnd := i + 1
 			for k := i + 1; k < len(grid) && groupStarts[k] == i; k++ {
 				groupH += sv + grid[k].height
+				groupEnd = k + 1
 			}
-			if curY+groupH+reserveH > area.Height && area.Height > 0 && i > headerRowCount {
+			groupOverflows := curY+groupH+reserveH > area.Height && area.Height > 0
+			if groupOverflows && i == headerRowCount {
+				// The group's leader is the first body row of this
+				// layout pass — i.e. this pass is starting fresh — and
+				// the group still doesn't fit. It can never fit on any
+				// page; fall back to per-row splitting inside it rather
+				// than overflowing every page forever (issue: rowspan
+				// group taller than a page).
+				oversizeGroupEnd = groupEnd
+				oversizeGroupLeader = i
+			} else if groupOverflows && i > headerRowCount {
+				splitIdx = i
+				break
+			}
+		}
+
+		// Per-row split check (the pre-#362 behavior), applied only to
+		// rows strictly after an oversize group's leader — the leader
+		// itself always renders (guaranteeing progress even if its own
+		// natural row height alone were to exceed the page).
+		if i < oversizeGroupEnd && i > headerRowCount {
+			if curY+gr.height+reserveH > area.Height && area.Height > 0 {
 				splitIdx = i
 				break
 			}
@@ -1084,12 +1170,27 @@ func (t *Table) PlanLayout(area LayoutArea) LayoutPlan {
 		capturedColWidths := colWidths
 		capturedMaxW := area.Width
 		capturedTable := t
+		capturedCapRows := 0
+		if i == oversizeGroupLeader {
+			// This leader's group will be split before oversizeGroupEnd
+			// is reached (guaranteed: a group whose total height exceeds
+			// the page eventually exceeds it row by row too). Cap the
+			// spanning cell's rendered height to what actually renders on
+			// this page; the real split point (splitIdx) isn't known yet
+			// at capture time, so the closure recomputes it against the
+			// grid rows actually captured below.
+			capturedCapRows = -1 // resolved to (splitIdx-i) lazily below
+		}
 
 		blocks = append(blocks, PlacedBlock{
 			X: 0, Y: curY, Width: area.Width, Height: gr.height,
 			Tag: "TR",
 			Draw: func(ctx DrawContext, absX, absTopY float64) {
-				drawTableRowDirect(ctx, capturedTable, capturedGrid, capturedRowIdx, capturedColWidths, capturedMaxW, absX, absTopY)
+				capRows := 0
+				if capturedCapRows == -1 {
+					capRows = splitIdx - capturedRowIdx
+				}
+				drawTableRowDirect(ctx, capturedTable, capturedGrid, capturedRowIdx, capturedColWidths, capturedMaxW, absX, absTopY, capRows)
 			},
 		})
 		curY += gr.height
@@ -1112,7 +1213,7 @@ func (t *Table) PlanLayout(area LayoutArea) LayoutPlan {
 				X: 0, Y: curY, Width: area.Width, Height: gr.height,
 				Tag: "TR",
 				Draw: func(ctx DrawContext, absX, absTopY float64) {
-					drawTableRowDirect(ctx, capturedTable, capturedGrid, capturedRowIdx, capturedColWidths, capturedMaxW, absX, absTopY)
+					drawTableRowDirect(ctx, capturedTable, capturedGrid, capturedRowIdx, capturedColWidths, capturedMaxW, absX, absTopY, 0)
 				},
 			})
 			curY += gr.height
@@ -1146,13 +1247,21 @@ func (t *Table) PlanLayout(area LayoutArea) LayoutPlan {
 		}
 	}
 	// Add remaining data rows (skip headers/footers + already-rendered rows).
+	// When the split landed strictly inside an oversize rowspan group, the
+	// first remaining row must re-carry a continuation of the spanning
+	// cell(s) (reduced rowspan) instead of the plain original row, or the
+	// occupied column would be lost and buildGrid would shift the row's
+	// own cell(s) left on the overflow table.
+	splitInsideOversizeGroup := oversizeGroupLeader >= 0 && splitIdx > oversizeGroupLeader && splitIdx < oversizeGroupEnd
 	dataRowIdx := 0
 	for _, row := range t.rows {
 		if row.isHeader || row.isFooter {
 			continue
 		}
 		renderedDataRows := splitIdx - headerRowCount
-		if dataRowIdx >= renderedDataRows {
+		if dataRowIdx == renderedDataRows && splitInsideOversizeGroup {
+			overflowTable.rows = append(overflowTable.rows, buildContinuationRow(grid, len(colWidths), splitIdx, row))
+		} else if dataRowIdx >= renderedDataRows {
 			overflowTable.rows = append(overflowTable.rows, row)
 		}
 		dataRowIdx++
@@ -1202,6 +1311,49 @@ func buildOwnership(grid []gridRow, nCols int) [][]*gridCell {
 		}
 	}
 	return owner
+}
+
+// buildContinuationRow reconstructs the API-level *Row at grid index
+// splitIdx for an overflow table, splicing in a continuation cell (empty
+// content, reduced rowspan) for every rowspan that started on an EARLIER
+// row and still covers splitIdx. Without this, the occupied column(s)
+// would simply be missing from the row's cell list and buildGrid would
+// shift the row's own remaining cells left on the fresh overflow table
+// (which has no memory of the original span).
+//
+// The continuation cell is a styled placeholder — it carries the
+// spanning cell's borders/background/sizing but not its text/content, to
+// avoid duplicating content across the page break. Only geometry
+// (nothing painted past the page bottom) and span continuation (no
+// column shift) are guaranteed; true content-flow continuation of the
+// spanning cell's own content across the split is a follow-up.
+func buildContinuationRow(grid []gridRow, nCols int, splitIdx int, orig *Row) *Row {
+	owner := buildOwnership(grid, nCols)
+	newRow := &Row{isHeader: orig.isHeader, isFooter: orig.isFooter}
+	origIdx := 0
+	for col := 0; col < nCols; {
+		if gc := owner[splitIdx][col]; gc != nil && gc.row < splitIdx {
+			if col == gc.col {
+				remaining := gc.row + gc.rowSpanCount - splitIdx
+				clone := *gc.cell
+				clone.text = ""
+				clone.content = nil
+				clone.rowspan = remaining
+				newRow.cells = append(newRow.cells, &clone)
+			}
+			col = gc.col + gc.colSpanCount
+			continue
+		}
+		if origIdx < len(orig.cells) {
+			c := orig.cells[origIdx]
+			newRow.cells = append(newRow.cells, c)
+			col += c.colspan
+			origIdx++
+			continue
+		}
+		col++
+	}
+	return newRow
 }
 
 // borderPriority ranks a border's style for CSS2.1 §17.6.2 conflict
@@ -1267,39 +1419,99 @@ func resolveEdge(near, far Border) Border {
 func resolveBorders(grid []gridRow, nCols int) {
 	owner := buildOwnership(grid, nCols)
 
+	// Pass 1: initialize whole-edge and per-segment fields from each cell's
+	// own declaration. Segment slices are read from gc.cell.borders (the
+	// DECLARED side) throughout pass 2 below, never from a possibly-cleared
+	// gc.resolved / prior segment value — so each segment's result never
+	// depends on the iteration order of other segments or cells.
 	for r := range grid {
 		for i := range grid[r].cells {
 			gc := &grid[r].cells[i]
 			gc.resolved = gc.cell.borders       // start from the cell's own declaration
 			gc.cell.borderRadius = [4]float64{} // border-radius has no effect under collapse (CSS Backgrounds L3 §5.3)
+
+			gc.segTop = make([]Border, gc.colSpanCount)
+			gc.segBottom = make([]Border, gc.colSpanCount)
+			for dc := range gc.colSpanCount {
+				gc.segTop[dc] = gc.cell.borders.Top
+				gc.segBottom[dc] = gc.cell.borders.Bottom
+			}
+			gc.segLeft = make([]Border, gc.rowSpanCount)
+			gc.segRight = make([]Border, gc.rowSpanCount)
+			for dr := range gc.rowSpanCount {
+				gc.segLeft[dr] = gc.cell.borders.Left
+				gc.segRight[dr] = gc.cell.borders.Right
+			}
 		}
 	}
 
+	// Pass 2: resolve every interior segment along each cell's right and
+	// bottom edges by walking the FULL span extent, not just the starting
+	// row/column. Each interior segment is visited exactly once — from the
+	// "near" (above/left) cell's side — since every interior edge has
+	// exactly one near/far pair for the row (or column) it sits on.
 	for r := range grid {
 		for i := range grid[r].cells {
 			near := &grid[r].cells[i]
 
-			// Vertical edge: near's right side vs. the cell starting at
-			// its right-adjacent column, same starting row.
+			// Vertical edge: near's right side vs. the cell(s) starting at
+			// its right-adjacent column, for every row the span covers.
 			rightCol := near.col + near.colSpanCount
 			if rightCol < nCols {
-				if far := owner[r][rightCol]; far != nil && far != near {
-					winner := resolveEdge(near.resolved.Right, far.resolved.Left)
-					near.resolved.Right = Border{}
-					far.resolved.Left = winner
+				for dr := range near.rowSpanCount {
+					if r+dr >= len(grid) {
+						break
+					}
+					far := owner[r+dr][rightCol]
+					if far == nil || far == near {
+						continue
+					}
+					winner := resolveEdge(near.cell.borders.Right, far.cell.borders.Left)
+					near.segRight[dr] = Border{}
+					far.segLeft[r+dr-far.row] = winner
 				}
-			} // else: table's right perimeter — near's own Right stands, untouched.
+			} // else: table's right perimeter — near's own Right segments stand, untouched.
 
-			// Horizontal edge: near's bottom side vs. the cell starting at
-			// its row-below-adjacent row, same starting column.
+			// Horizontal edge: near's bottom side vs. the cell(s) starting
+			// at its row-below-adjacent row, for every column the span
+			// covers.
 			belowRow := r + near.rowSpanCount
 			if belowRow < len(grid) {
-				if far := owner[belowRow][near.col]; far != nil && far != near {
-					winner := resolveEdge(near.resolved.Bottom, far.resolved.Top)
-					near.resolved.Bottom = Border{}
-					far.resolved.Top = winner
+				for dc := range near.colSpanCount {
+					col := near.col + dc
+					if col >= nCols {
+						break
+					}
+					far := owner[belowRow][col]
+					if far == nil || far == near {
+						continue
+					}
+					winner := resolveEdge(near.cell.borders.Bottom, far.cell.borders.Top)
+					near.segBottom[dc] = Border{}
+					far.segTop[col-far.col] = winner
 				}
-			} // else: table's bottom perimeter — near's own Bottom stands, untouched.
+			} // else: table's bottom perimeter — near's own Bottom segments stand, untouched.
+		}
+	}
+
+	// Keep the whole-edge `resolved` fields in sync for the common
+	// (unspanned) case and for any remaining perimeter-only consumers:
+	// mirror segment 0's outcome onto the aggregate field.
+	for r := range grid {
+		for i := range grid[r].cells {
+			gc := &grid[r].cells[i]
+			if len(gc.segTop) > 0 {
+				gc.resolved.Top = gc.segTop[0]
+			}
+			if len(gc.segBottom) > 0 {
+				gc.resolved.Bottom = gc.segBottom[len(gc.segBottom)-1]
+			}
+			if len(gc.segLeft) > 0 {
+				gc.resolved.Left = gc.segLeft[0]
+			}
+			if len(gc.segRight) > 0 {
+				gc.resolved.Right = gc.segRight[len(gc.segRight)-1]
+			}
 		}
 	}
 }
@@ -1314,6 +1526,83 @@ func drawCellBorders(stream *content.Stream, borders CellBorders, x, y, w, h flo
 	drawStyledBorder(stream, borders.Left, x, y, x, y+h)
 	// Right border: from bottom-right to top-right
 	drawStyledBorder(stream, borders.Right, x+w, y, x+w, y+h)
+}
+
+// drawCellBordersCollapsed draws a cell's borders under border-collapse,
+// one segment per grid unit the cell spans, using the per-segment winners
+// resolveBorders computed (gc.segTop/segBottom/segLeft/segRight). This is
+// the collapse-mode counterpart to drawCellBorders, which draws each side
+// as a single full-length line and is used for the (non-collapse) default
+// and by div/flex/grid callers — its signature is intentionally left
+// unchanged.
+//
+// Convention: an interior segment is drawn exactly once, by whichever cell
+// holds the non-zero winner after resolveBorders — the loser side was
+// zeroed to Border{}, and drawStyledBorder is a no-op for a zero-width
+// border, so no segment is ever double-drawn.
+func drawCellBordersCollapsed(stream *content.Stream, tbl *Table, grid []gridRow, colWidths []float64, gc gridCell, rowIndex int, cellX, cellBottomY, topY float64, rowLimit int) {
+	// rowLimit caps the vertical (left/right) segment loop below to the
+	// rows actually rendered on this page (mirrors the cellH capping in
+	// drawTableRowDirect for an oversize rowspan group split mid-span). 0
+	// means "no cap" — draw every spanned row's segment as usual.
+	rowSpanDrawn := gc.rowSpanCount
+	if rowLimit > 0 && rowLimit < rowSpanDrawn {
+		rowSpanDrawn = rowLimit
+	}
+	// Column (horizontal) segment geometry: x-start and width of each
+	// spanned column, in logical order (index 0 = gc.col). RTL lays out
+	// higher logical columns further left, so the accumulation direction
+	// flips; LTR accumulates left to right from cellX.
+	segColX := make([]float64, gc.colSpanCount)
+	segColW := make([]float64, gc.colSpanCount)
+	if tbl.direction == DirectionRTL {
+		curX := cellX
+		for dc := gc.colSpanCount - 1; dc >= 0; dc-- {
+			w := colWidths[gc.col+dc]
+			segColX[dc] = curX
+			segColW[dc] = w
+			curX += w
+		}
+	} else {
+		curX := cellX
+		for dc := 0; dc < gc.colSpanCount; dc++ {
+			w := colWidths[gc.col+dc]
+			segColX[dc] = curX
+			segColW[dc] = w
+			curX += w
+		}
+	}
+
+	// Row (vertical) segment geometry: bottom-y and height of each spanned
+	// row. Rows always flow top to bottom regardless of direction.
+	segRowY := make([]float64, rowSpanDrawn)
+	segRowH := make([]float64, rowSpanDrawn)
+	sv := tbl.effectiveSpacingV()
+	curY := topY
+	for dr := 0; dr < rowSpanDrawn; dr++ {
+		h := grid[rowIndex+dr].height
+		segRowY[dr] = curY - h
+		segRowH[dr] = h
+		curY -= h + sv
+	}
+
+	// Top edge always covers the cell's own row(s); bottom edge only draws
+	// at the true (uncapped) bottom of the span — a capped/split cell has
+	// no declared border at its artificial page-bottom split, so drawing
+	// nothing there is intentional (documented limitation: no border at
+	// an oversize-group's mid-span page split).
+	for dc := 0; dc < gc.colSpanCount; dc++ {
+		drawStyledBorder(stream, gc.segTop[dc], segColX[dc], topY, segColX[dc]+segColW[dc], topY)
+		if rowSpanDrawn == gc.rowSpanCount {
+			drawStyledBorder(stream, gc.segBottom[dc], segColX[dc], cellBottomY, segColX[dc]+segColW[dc], cellBottomY)
+		}
+	}
+	// Left and right edges: one vertical line per rendered spanned row.
+	rightX := cellX + gc.spanWidth
+	for dr := 0; dr < rowSpanDrawn; dr++ {
+		drawStyledBorder(stream, gc.segLeft[dr], cellX, segRowY[dr], cellX, segRowY[dr]+segRowH[dr])
+		drawStyledBorder(stream, gc.segRight[dr], rightX, segRowY[dr], rightX, segRowY[dr]+segRowH[dr])
+	}
 }
 
 // drawBackgroundRounded fills a rounded rectangle background for a cell.
@@ -1513,7 +1802,17 @@ func (l *Line) IsTable() bool {
 
 // drawTableRowDirect renders a table row directly using draw.go functions,
 // without going through the old Renderer emit methods.
-func drawTableRowDirect(ctx DrawContext, tbl *Table, grid []gridRow, rowIndex int, colWidths []float64, maxWidth, x, topY float64) {
+//
+// capRows is normally 0 (draw every spanning cell at its full natural
+// spanHeight). When positive, it caps any cell starting at rowIndex whose
+// span extends beyond capRows rows to the height actually covered by those
+// capRows rows (natural row heights plus the vertical spacing gaps between
+// them) — used when an oversize rowspan group is split mid-group across a
+// page break, so the spanning cell's border/background box closes at the
+// page bottom on this page instead of painting the whole (mostly
+// off-page) span. The continuation of the cell is drawn separately by the
+// overflow table (see PlanLayout's oversize-group handling).
+func drawTableRowDirect(ctx DrawContext, tbl *Table, grid []gridRow, rowIndex int, colWidths []float64, maxWidth, x, topY float64, capRows int) {
 	gr := grid[rowIndex]
 
 	sh := tbl.effectiveSpacingH()
@@ -1546,6 +1845,22 @@ func drawTableRowDirect(ctx DrawContext, tbl *Table, grid []gridRow, rowIndex in
 		if gc.spanHeight > 0 {
 			cellH = gc.spanHeight
 		}
+		if capRows > 0 && gc.rowSpanCount > capRows {
+			// This page only shows capRows rows of the span (the rest
+			// splits to the overflow table) — close the cell's box at
+			// what's actually rendered here instead of the full span.
+			renderedH := 0.0
+			for k := range capRows {
+				if rowIndex+k >= len(grid) {
+					break
+				}
+				if k > 0 {
+					renderedH += tbl.effectiveSpacingV()
+				}
+				renderedH += grid[rowIndex+k].height
+			}
+			cellH = renderedH
+		}
 		cellBottomY := topY - cellH
 
 		// Background fill (with optional rounded corners).
@@ -1561,16 +1876,16 @@ func drawTableRowDirect(ctx DrawContext, tbl *Table, grid []gridRow, rowIndex in
 
 		// Borders (with optional rounded corners). Under border-collapse,
 		// gc.cell.borders holds each cell's own untouched declaration —
-		// the resolved, deduplicated borders live in gc.resolved instead
-		// (see resolveBorders).
-		borders := gc.cell.borders
+		// the resolved, deduplicated borders are drawn per grid segment
+		// from gc.segTop/segBottom/segLeft/segRight instead (see
+		// resolveBorders). borderRadius is zeroed under collapse
+		// (resolveBorders), so hasRadius can never be true here.
 		if tbl.borderCollapse {
-			borders = gc.resolved
-		}
-		if hasRadius {
-			drawCellBordersRounded(ctx.Stream, borders, cellX, cellBottomY, gc.spanWidth, cellH, r)
+			drawCellBordersCollapsed(ctx.Stream, tbl, grid, colWidths, gc, rowIndex, cellX, cellBottomY, topY, capRows)
+		} else if hasRadius {
+			drawCellBordersRounded(ctx.Stream, gc.cell.borders, cellX, cellBottomY, gc.spanWidth, cellH, r)
 		} else {
-			drawCellBorders(ctx.Stream, borders, cellX, cellBottomY, gc.spanWidth, cellH)
+			drawCellBorders(ctx.Stream, gc.cell.borders, cellX, cellBottomY, gc.spanWidth, cellH)
 		}
 
 		// Cell content.

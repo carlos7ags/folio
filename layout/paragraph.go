@@ -31,6 +31,23 @@ type Paragraph struct {
 	textAlignLast    Align             // alignment for the last line (0 = use default)
 	textAlignLastSet bool              // true if textAlignLast was explicitly set
 	stringSets       map[string]string // CSS string-set values to capture
+
+	// Intrinsic-width memo (MinWidth/MaxWidth). Valid only while the
+	// corresponding *Valid flag is true; any mutator that can change the
+	// measured result must call invalidateMeasureCache. Cheap to recompute
+	// per-call, but MinWidth/MaxWidth are invoked repeatedly during table
+	// column-width resolution, so caching removes redundant re-measurement.
+	cachedMinW, cachedMaxW float64
+	minWValid, maxWValid   bool
+}
+
+// invalidateMeasureCache clears the memoized MinWidth/MaxWidth results.
+// Must be called by every mutator that can change what MinWidth/MaxWidth
+// measure: appending or altering runs, font/size/spacing changes, or
+// anything else that affects intrinsic width.
+func (p *Paragraph) invalidateMeasureCache() {
+	p.minWValid = false
+	p.maxWValid = false
 }
 
 // NewParagraph creates a paragraph with a single run using a standard PDF font.
@@ -100,6 +117,7 @@ func (p *Paragraph) AddRun(r TextRun) *Paragraph {
 	}
 	r.Text = normalizeText(r.Text)
 	p.runs = append(p.runs, r)
+	p.invalidateMeasureCache()
 	return p
 }
 
@@ -296,98 +314,10 @@ func (p *Paragraph) SetWidows(n int) *Paragraph {
 // Layout implements Element. It splits the paragraph text into wrapped lines
 // that fit within maxWidth. Words from different runs carry their own styling.
 func (p *Paragraph) Layout(maxWidth float64) []Line {
-	// Flatten all runs into a single word list, each word carrying
-	// the styling of the run it came from.
-	var measured []Word
-	var maxFontSize float64
-
-	nextLineBreakFromBr := false // tracks <br> line breaks across runs
-	for i, run := range p.runs {
-		if run.InlineElement != nil {
-			glueAdjacentRuns(measured, p.runs, i)
-			measured = append(measured, measureInlineElement(run, maxWidth, measured, p.runs, i))
-			continue
-		}
-		if run.IsLineBreak {
-			// <br> marker: the next word on the next run gets LineBreak=true.
-			nextLineBreakFromBr = true
-			continue
-		}
-
-		// Zero the previous word's SpaceAfter when this run abuts it
-		// with no whitespace (e.g. "C" + "<sub>8</sub>").
-		glueAdjacentRuns(measured, p.runs, i)
-
-		measurer := runMeasurer(run)
-		// Letter-spacing applies between every pair of adjacent characters,
-		// including across the space separating two words (per CSS Text §8.2
-		// there are two such boundaries around a single space), so widen the
-		// inter-word gap by 2× the spacing.
-		spaceW := measurer.MeasureString(" ", run.FontSize) + run.WordSpacing + 2*run.LetterSpacing
-		words := splitWords(run.Text)
-
-		nextLineBreak := nextLineBreakFromBr
-		nextLineBreakFromBr = false
-		for _, w := range words {
-			if w == lineBreakMarker {
-				if nextLineBreak {
-					// Consecutive line breaks (\n\n): insert a blank word
-					// to produce an empty line in the output.
-					measured = append(measured, Word{
-						Font:      run.Font,
-						Embedded:  run.Embedded,
-						FontSize:  run.FontSize,
-						LineBreak: true,
-					})
-				}
-				nextLineBreak = true
-				continue
-			}
-			// Build the word from the unshaped text first so that
-			// splitMixedBidiWord can split on the original codepoints.
-			// Each piece is then shaped independently and its pre-shape
-			// text is captured into OriginalText so the renderer can
-			// emit ISO 32000-2 §14.9.4 /Span /ActualText markers.
-			word := Word{
-				Text:            w,
-				Font:            run.Font,
-				Embedded:        run.Embedded,
-				FontSize:        run.FontSize,
-				Color:           run.Color,
-				Decoration:      run.Decoration,
-				LineBreak:       nextLineBreak,
-				DecorationColor: run.DecorationColor,
-				DecorationStyle: run.DecorationStyle,
-				SpaceAfter:      spaceW,
-				LetterSpacing:   run.LetterSpacing,
-				WordSpacing:     run.WordSpacing,
-				BaselineShift:   run.BaselineShift,
-				LinkURI:         run.LinkURI,
-				TextShadow:      run.TextShadow,
-				BackgroundColor: run.BackgroundColor,
-			}
-			// Split words with mixed bidi levels into sub-words so
-			// each piece can be independently reordered by the bidi
-			// algorithm. E.g. "מחיר:₪42" splits at the transition
-			// between Hebrew and digit characters.
-			if subs := splitMixedBidiWord(word); subs != nil {
-				for si, sub := range subs {
-					shapeAndMeasureWord(&sub, run, measurer)
-					if si == 0 {
-						sub.LineBreak = nextLineBreak
-					}
-					measured = append(measured, sub)
-				}
-			} else {
-				shapeAndMeasureWord(&word, run, measurer)
-				measured = append(measured, word)
-			}
-			nextLineBreak = false
-		}
-		if run.FontSize > maxFontSize {
-			maxFontSize = run.FontSize
-		}
-	}
+	// the styling of the run it came from. Delegated to measureWords so
+	// the render path (PlanLayout, which calls measureWords directly) and
+	// this measure/height path agree on the word stream.
+	measured, maxFontSize := p.measureWords(maxWidth)
 
 	if len(measured) == 0 {
 		// Empty paragraph: still emit spacing if spaceBefore/spaceAfter is set.
@@ -402,20 +332,8 @@ func (p *Paragraph) Layout(maxWidth float64) []Line {
 		return nil
 	}
 
-	// CJK break: split words containing CJK characters at character
-	// boundaries so the wrap algorithm can break between them. Skipped
-	// for keep-all (CJK words stay intact, break only at spaces).
-	if p.wordBreak != "keep-all" {
-		measured = breakCJKWords(measured)
-	}
-
-	// Break words that don't fit. With word-break:break-all, break ALL words
-	// at character boundaries to fill lines maximally.
-	if p.wordBreak == "break-all" {
-		measured = breakAllWords(measured, maxWidth)
-	} else {
-		measured = breakLongWords(measured, maxWidth)
-	}
+	// CJK break, break-all/long-word breaking already applied by
+	// measureWords above; do not repeat them here.
 
 	lineHeight := maxFontSize * p.leading
 
@@ -501,10 +419,17 @@ func (p *Paragraph) Layout(maxWidth float64) []Line {
 	// Apply ellipsis truncation: if enabled, keep only the first line
 	// and replace trailing text with "..." if it overflows.
 	if p.ellipsis && len(lines) > 1 {
+		widths := make([]float64, len(lines))
+		wordLines := make([][]Word, len(lines))
+		for i, l := range lines {
+			wordLines[i] = l.Words
+			widths[i] = l.Width
+		}
+		wordLines, widths, _ = applyEllipsisWords(wordLines, widths, maxWidth)
 		lines = lines[:1]
 		lines[0].IsLast = true
-		// Truncate words to fit within maxWidth and append ellipsis.
-		lines[0] = truncateWithEllipsis(lines[0], maxWidth)
+		lines[0].Words = wordLines[0]
+		lines[0].Width = widths[0]
 	}
 
 	// Apply text-align-last: override alignment on the last line.

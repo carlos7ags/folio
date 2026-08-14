@@ -55,3 +55,5 @@ Thumbs.db
 # rule anchored to the root so it does not accidentally hide files
 # under examples/template/ or anywhere else nested.
 /template
+
+links

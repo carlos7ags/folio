@@ -3,7 +3,10 @@
 
 package zugferd
 
-import "testing"
+import (
+	"math"
+	"testing"
+)
 
 func TestAmountString(t *testing.T) {
 	tests := []struct {
@@ -72,4 +75,67 @@ func TestAmountAdd(t *testing.T) {
 	if got, want := a.Add(b), NewAmount(401, 63); got != want {
 		t.Errorf("Add = %v, want %v", got, want)
 	}
+}
+
+func TestParseAmountOverflow(t *testing.T) {
+	tests := []string{
+		"4611686018427387903.99",
+		"92233720368547758.08",
+		"99999999999999999999.00",
+		"-92233720368547758.08",
+	}
+	for _, in := range tests {
+		got, err := ParseAmount(in)
+		if err == nil {
+			t.Errorf("ParseAmount(%q) = %d, nil, want error", in, got)
+		}
+		if got != 0 {
+			t.Errorf("ParseAmount(%q) amount = %d, want 0 on error", in, got)
+		}
+	}
+}
+
+func TestParseAmountBoundary(t *testing.T) {
+	got, err := ParseAmount("92233720368547758.07")
+	if err != nil {
+		t.Fatalf("ParseAmount(max) error: %v", err)
+	}
+	if got != Amount(math.MaxInt64) {
+		t.Errorf("ParseAmount(max) = %d, want %d", got, int64(math.MaxInt64))
+	}
+}
+
+func TestAmountStringMinInt64(t *testing.T) {
+	got := Amount(math.MinInt64).String()
+	want := "-92233720368547758.08"
+	if got != want {
+		t.Errorf("Amount(MinInt64).String() = %q, want %q", got, want)
+	}
+}
+
+func TestAddChecked(t *testing.T) {
+	if sum, ok := Amount(1).AddChecked(Amount(2)); !ok || sum != 3 {
+		t.Errorf("AddChecked(1,2) = %d, %v, want 3, true", sum, ok)
+	}
+	if _, ok := Amount(math.MaxInt64).AddChecked(Amount(1)); ok {
+		t.Errorf("AddChecked(MaxInt64, 1) ok = true, want false")
+	}
+	if _, ok := Amount(math.MinInt64).AddChecked(Amount(-1)); ok {
+		t.Errorf("AddChecked(MinInt64, -1) ok = true, want false")
+	}
+}
+
+func TestNewAmountChecked(t *testing.T) {
+	if _, err := NewAmountChecked(math.MaxInt64/100+1, 0); err == nil {
+		t.Errorf("NewAmountChecked overflow = nil error, want error")
+	}
+}
+
+func TestNewAmountPanicsOnOverflow(t *testing.T) {
+	defer func() {
+		if recover() == nil {
+			t.Errorf("NewAmount overflow did not panic")
+		}
+	}()
+	NewAmount(math.MaxInt64/100+1, 0)
 }
