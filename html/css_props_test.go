@@ -1256,3 +1256,102 @@ func TestSelectorsDocCoverage(t *testing.T) {
 	check("pseudo-class", pseudoClasses)
 	check("pseudo-element", pseudoElements)
 }
+
+// TestGlossaryDriftGuard verifies that every angle-bracket placeholder
+// used in cssProperties[].Values (e.g. "<length>", "<color>") is defined
+// in the Value-form glossary section of CSS_SUPPORT.md. If a contributor
+// adds a new property whose Values reference an undefined placeholder,
+// this test fails.
+func TestGlossaryDriftGuard(t *testing.T) {
+	// Self-explanatory placeholders that don't need glossary entries.
+	// They map 1:1 onto a sibling property name or are obvious from context.
+	allowlist := map[string]bool{
+		"<font-family>":      true, // maps to font-family property
+		"<font-size>":        true, // maps to font-size property
+		"<font-weight>":      true, // maps to font-weight property
+		"<font-style>":       true, // maps to font-style property
+		"<line-height>":      true, // maps to line-height property
+		"<flex-direction>":   true, // maps to flex-direction property
+		"<flex-wrap>":        true, // maps to flex-wrap property
+		"<flex-grow>":        true, // maps to flex-grow property
+		"<flex-shrink>":      true, // maps to flex-shrink property
+		"<flex-basis>":       true, // maps to flex-basis property
+		"<column-gap>":       true, // maps to gap property
+		"<row-gap>":          true, // maps to gap property
+		"<column-width>":     true, // maps to column-width property
+		"<column-count>":     true, // maps to column-count property
+		"<generic-family>":   true, // serif, sans-serif, monospace
+		"<absolute-size>":    true, // small, medium, large, etc.
+		"<relative-size>":    true, // smaller, larger
+		"<family-name>":      true, // font family name
+		"<content-list>":     true, // CSS content property values
+		"<number 0..1>":      true, // range-qualified number
+		"<integer 100..900>": true, // range-qualified integer (font-weight)
+		"<1-4 of these>":     true, // descriptive text, not a placeholder
+	}
+
+	// 1. Extract all <...> placeholders used in cssProperties[].Values.
+	used := map[string]bool{}
+	for _, p := range cssProperties {
+		for _, v := range p.Values {
+			for _, tok := range extractPlaceholders(v) {
+				if !allowlist[tok] {
+					used[tok] = true
+				}
+			}
+		}
+	}
+
+	// 2. Extract placeholders defined in the glossary.
+	doc := RenderCSSPropertiesMarkdown()
+	defined := extractGlossaryPlaceholders(doc)
+
+	// 3. Check each used placeholder is defined.
+	for ph := range used {
+		if !defined[ph] {
+			t.Errorf("placeholder %q used in cssProperties[].Values but not defined in Value-form glossary — add it to html/css_props_doc.go or the allowlist in this test", ph)
+		}
+	}
+}
+
+// extractPlaceholders returns all <...> tokens in s.
+func extractPlaceholders(s string) []string {
+	var result []string
+	for {
+		start := strings.Index(s, "<")
+		if start < 0 {
+			break
+		}
+		end := strings.Index(s[start:], ">")
+		if end < 0 {
+			break
+		}
+		result = append(result, s[start:start+end+1])
+		s = s[start+end+1:]
+	}
+	return result
+}
+
+// extractGlossaryPlaceholders parses the glossary section of the doc
+// and returns the set of defined placeholders.
+func extractGlossaryPlaceholders(doc string) map[string]bool {
+	defined := map[string]bool{}
+	inGlossary := false
+	for _, line := range strings.Split(doc, "\n") {
+		if strings.Contains(line, "## Value-form glossary") {
+			inGlossary = true
+			continue
+		}
+		if inGlossary && strings.HasPrefix(line, "## ") {
+			break // next section
+		}
+		if inGlossary && strings.HasPrefix(line, "| `") {
+			// Extract all <...> placeholders from the first column
+			// (may be multiple, comma-separated)
+			for _, ph := range extractPlaceholders(line) {
+				defined[ph] = true
+			}
+		}
+	}
+	return defined
+}
