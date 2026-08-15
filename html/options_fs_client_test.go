@@ -659,7 +659,14 @@ func TestFallbackFontAbsoluteSkipsBaseFS(t *testing.T) {
 	}
 	// Use a path that is absolute on the host. On a non-existent file the
 	// font loader will error; we only care that BaseFS sees zero opens.
-	abs := string(filepath.Separator) + filepath.Join("does", "not", "exist", "x.ttf")
+	//
+	// filepath.Abs rather than a leading separator: on Windows "\does\not\..."
+	// is rooted but NOT absolute (filepath.IsAbs wants a volume, e.g. C:\), so
+	// the loader treated it as relative and consulted BaseFS after all.
+	abs, err := filepath.Abs(filepath.Join("does", "not", "exist", "x.ttf"))
+	if err != nil {
+		t.Fatalf("filepath.Abs: %v", err)
+	}
 	_, _ = c.loadFallbackFont(abs, "")
 	if got := fsys.count(strings.TrimPrefix(filepath.ToSlash(abs), "/")); got != 0 {
 		t.Errorf("absolute path should bypass BaseFS, but it was opened %d times", got)

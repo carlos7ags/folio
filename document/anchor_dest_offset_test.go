@@ -61,7 +61,7 @@ func TestNamedDestPageIndexOffsetByManualPages(t *testing.T) {
 		t.Fatalf("dest page target is %T, want *core.PdfIndirectReference", arr.At(0))
 	}
 
-	if idx := pageIndexInKids(t, r, pageRef.ObjectNumber); idx != 2 {
+	if idx := pageIndexInKids(t, r, pageRef.Num()); idx != 2 {
 		t.Errorf("anchor destination page index = %d, want 2 (offset past the 2 manual pages)", idx)
 	}
 }
@@ -108,7 +108,7 @@ func TestNamedDestDuplicateNameFirstWins(t *testing.T) {
 	if !ok {
 		t.Fatalf("dest page target is %T, want *core.PdfIndirectReference", arr.At(0))
 	}
-	if idx := pageIndexInKids(t, r, pageRef.ObjectNumber); idx != 0 {
+	if idx := pageIndexInKids(t, r, pageRef.Num()); idx != 0 {
 		t.Errorf("duplicate name resolved to page %d, want 0 (first registration must win)", idx)
 	}
 }
@@ -130,7 +130,7 @@ func pageIndexInKids(t *testing.T, r *reader.PdfReader, objNum int) int {
 		t.Fatal("/Pages has no /Kids array")
 	}
 	for i := 0; i < kids.Len(); i++ {
-		if ref, ok := kids.At(i).(*core.PdfIndirectReference); ok && ref.ObjectNumber == objNum {
+		if ref, ok := kids.At(i).(*core.PdfIndirectReference); ok && ref.Num() == objNum {
 			return i
 		}
 	}
