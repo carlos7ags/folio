@@ -133,6 +133,13 @@ jobs:
           rm -rf "$work"
 
       - name: ZUGFeRD XSD validation
+        # This block is bash, and on windows-latest the default shell is
+        # PowerShell, which rejects it with "Missing '(' after 'if'". The step
+        # is deliberately not Linux-only — the schema dir is wired up only on
+        # Linux, while the test itself runs everywhere and skips when
+        # FOLIO_FACTURX_XSD_DIR is unset — so pin the shell instead of guarding
+        # the step.
+        shell: bash
         run: |
           if [ "$RUNNER_OS" = "Linux" ] && [ -d "$HOME/xsd-schemas" ]; then
             export FOLIO_FACTURX_XSD_DIR="$HOME/xsd-schemas"
