@@ -301,3 +301,72 @@ func TestBreakInsideAvoidAbsentUnchanged(t *testing.T) {
 		t.Error("a bare block without break-inside:avoid should not produce a keep-together Div")
 	}
 }
+
+// TestBreakInsideAvoidDecoratedBlockMovesWhole is the regression test for
+// keep-together being silently disabled by the wrappers this package applies on
+// the way out of the converter: an element carrying an HTML id is wrapped in an
+// anchor marker (layout/anchor.go) and one carrying bookmark-level in a bookmark
+// anchor (layout/bookmark.go), and neither wrapper reproduces KeepTogether.
+// Div.PlanLayout asserted that interface on the child element directly, so a
+// keep-together block with an id nested in a container was fragmented after all
+// — its leading content stranded in the page's bottom margin while the rest
+// moved to the next page. Decorated and undecorated blocks must paginate
+// identically.
+func TestBreakInsideAvoidDecoratedBlockMovesWhole(t *testing.T) {
+	spacerPx := (biUsable - 40) / 0.75
+	// %s carries the block's extra attributes/properties; the block itself sits
+	// inside a wrapper so the nested (Div.PlanLayout) path is the one exercised.
+	tmpl := `
+<div style="padding:1px">
+  <div style="height:%.0fpx">spacer</div>
+  <div %s>
+    <span style="display:inline-block; width:20px; height:20px; background:#333">4</span>
+    <table>
+      <tr><td>Row one cell content</td></tr>
+      <tr><td>Row two cell content</td></tr>
+      <tr><td>Row three cell content</td></tr>
+    </table>
+  </div>
+</div>`
+	const keep = `style="position:relative; break-inside:avoid"`
+
+	perPage := func(pages []layout.PageResult) []int {
+		counts := make([]int, len(pages))
+		for i, pg := range pages {
+			counts[i] = countTextSegments(string(pg.Stream.Bytes()))
+		}
+		return counts
+	}
+
+	_, plainPages := biRender(t, fmt.Sprintf(tmpl, spacerPx, keep))
+	plain := perPage(plainPages)
+
+	decorated := []struct {
+		name  string
+		attrs string
+	}{
+		{"id (anchor marker)", `id="section-3" ` + keep},
+		{"bookmark-level (bookmark anchor)", `style="position:relative; break-inside:avoid; bookmark-level:2"`},
+	}
+	for _, d := range decorated {
+		_, pages := biRender(t, fmt.Sprintf(tmpl, spacerPx, d.attrs))
+		got := perPage(pages)
+
+		biAssertNoOverflow(t, pages)
+		if len(got) != len(plain) {
+			t.Errorf("%s paginates differently: %d pages vs %d undecorated", d.name, len(got), len(plain))
+			continue
+		}
+		for i := range got {
+			if got[i] != plain[i] {
+				t.Errorf("%s split the keep-together block: page %d has %d words, undecorated has %d (per-page %v vs %v)",
+					d.name, i, got[i], plain[i], got, plain)
+			}
+		}
+		// Page 1 must hold only the spacer word; the whole block follows.
+		if got[0] != 1 {
+			t.Errorf("%s: page 1 should show only the spacer (1 word), got %d — the block was fragmented instead of moved whole",
+				d.name, got[0])
+		}
+	}
+}

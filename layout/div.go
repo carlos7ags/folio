@@ -821,14 +821,16 @@ func (d *Div) PlanLayout(area LayoutArea) LayoutPlan {
 			// a definite/clipping box keeps its contain semantics. Mirrors the
 			// renderer's top-level keep-together handling (render_plans.go) for
 			// the case where the box is nested inside another container.
-			// NOTE: this asserts on elem directly, which is correct here. If a
-			// decorator that wraps an element without reproducing its optional
-			// interfaces (e.g. an anchor/bookmark marker around an element with
-			// an id) is ever introduced into this package, this assert must
-			// unwrap first — mirror render_plans.go's KeepTogether check — or a
-			// decorated keep-together child would be silently fragmented.
+			// The assert goes through baseElement so the decorators this
+			// package already applies do not mask it: an element carrying an
+			// HTML id is wrapped in an anchor marker (anchor.go) and one
+			// carrying bookmark-level in a bookmark anchor (bookmark.go), and
+			// neither reproduces KeepTogether. Asserting on elem directly
+			// silently fragmented any keep-together block with an id — its
+			// leading content stranded in the page's bottom margin while the
+			// rest moved on. Mirrors render_plans.go's KeepTogether check.
 			if paginateOverflow && fittedInFlow > 0 {
-				if kt, ok := elem.(interface{ KeepTogether() bool }); ok && kt.KeepTogether() {
+				if kt, ok := baseElement(elem).(interface{ KeepTogether() bool }); ok && kt.KeepTogether() {
 					allFit = false
 					overflowStartIdx = idx
 					overflowElements = append(overflowElements, elem)
