@@ -447,6 +447,41 @@ func (f *Flex) planRow(area LayoutArea) LayoutPlan {
 			}
 		}
 
+		// An item that placed nothing at all (LayoutNothing) reports no
+		// blocks and no overflow: its content exists only in the element
+		// itself. Laying the line out here would draw the other columns and
+		// silently drop that column entirely — the line has to be laid out
+		// somewhere it can make progress instead. This is reachable whenever
+		// a column's first unbreakable unit does not fit the space left on
+		// the page: a table whose header+first row must move as a group, or
+		// a nested auto-height box that could not place its first child.
+		lineHasNothing := false
+		if paginateOverflow {
+			for j := range line.items {
+				if itemPlans[j].Status == LayoutNothing {
+					lineHasNothing = true
+					break
+				}
+			}
+		}
+
+		// A line with a column that placed nothing must move as a whole: if
+		// earlier lines fit, defer this line and the rest to the next page;
+		// if nothing has been placed at all, report LayoutNothing so the
+		// renderer relocates this container to a fresh page. At the top of a
+		// page the renderer force-places a LayoutNothing element (with an
+		// effectively unbounded height), so this cannot loop. Mirrors the
+		// flex column's fittedCount == 0 handling and the Div zero-progress
+		// guard. Checked before the fits/atomic fall-through below, which
+		// would otherwise place the line and drop that column's content.
+		if lineHasNothing {
+			if fittedLineCount == 0 {
+				return LayoutPlan{Status: LayoutNothing}
+			}
+			allFit = false
+			break
+		}
+
 		// A line that does not fit is deferred whole to the next page, as long
 		// as something already fit here. This takes precedence over in-place
 		// fragmentation so a later line is never left straddling the page

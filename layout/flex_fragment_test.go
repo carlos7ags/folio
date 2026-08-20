@@ -170,3 +170,162 @@ func TestFlexConstrainedHeightDoesNotFragment(t *testing.T) {
 		t.Errorf("definite-cross-size flex must not fragment, got status %d overflow=%v", dp.Status, dp.Overflow != nil)
 	}
 }
+
+// unitStack models a flex column made of unbreakable units — stacked tables,
+// table row groups, fixed-height boxes. It places whole units only: it reports
+// LayoutNothing when not even the first unit fits the space left, LayoutPartial
+// (with the rest as overflow) when some fit, and LayoutFull when all do. That
+// LayoutNothing is the case a real column hits at a page boundary, e.g. a table
+// whose header and first body row have to move to the next page as a group.
+type unitStack struct {
+	units      int
+	unitHeight float64
+}
+
+func (u *unitStack) PlanLayout(area LayoutArea) LayoutPlan {
+	fit := int((area.Height + 0.01) / u.unitHeight)
+	if fit <= 0 {
+		return LayoutPlan{Status: LayoutNothing}
+	}
+	if fit > u.units {
+		fit = u.units
+	}
+	blocks := make([]PlacedBlock, 0, fit)
+	for i := 0; i < fit; i++ {
+		blocks = append(blocks, PlacedBlock{
+			Y:      float64(i) * u.unitHeight,
+			Width:  area.Width,
+			Height: u.unitHeight,
+		})
+	}
+	plan := LayoutPlan{
+		Status:   LayoutFull,
+		Consumed: float64(fit) * u.unitHeight,
+		Blocks:   blocks,
+	}
+	if fit < u.units {
+		plan.Status = LayoutPartial
+		plan.Overflow = &unitStack{units: u.units - fit, unitHeight: u.unitHeight}
+	}
+	return plan
+}
+
+// rowWrapper builds the shape that loses content: a flex row used as a row
+// wrapper — a short fixed-width marker plus a tall column of unbreakable
+// units. align-self start on both items keeps the cross-axis stretch pass out
+// of it, matching a row wrapper that pins its items to the top.
+func rowWrapper(units int, unitHeight float64) *Flex {
+	start := CrossAlignStart
+	return NewFlex().
+		AddItem(NewFlexItem(&fakeElement{width: 20, height: 12}).SetBasis(20).SetAlignSelf(start)).
+		AddItem(NewFlexItem(&unitStack{units: units, unitHeight: unitHeight}).SetBasis(300).SetAlignSelf(start))
+}
+
+// TestFlexRowColumnPlacingNothingIsNotDropped is the regression test for the
+// content-loss half of flex row fragmentation: when a column reports
+// LayoutNothing (it could not place even its first unbreakable unit in the
+// space left on the page) it hands back no blocks AND no overflow — its content
+// lives on only in the element itself. planRow used to ignore that status, lay
+// the line out with the other columns' blocks and report LayoutFull, so the
+// whole column was silently dropped: a well-formed PDF, every page complete
+// looking, the tail content simply gone (and the document SHORTER, because the
+// dropped content never asked for pages of its own).
+//
+// The line must instead report LayoutNothing so the renderer relocates it to a
+// fresh page where the column can make progress.
+func TestFlexRowColumnPlacingNothingIsNotDropped(t *testing.T) {
+	f := rowWrapper(6, 40)
+
+	// 30pt left on the page — room for the 12pt marker, but not for the
+	// column's first 40pt unit.
+	plan := f.PlanLayout(LayoutArea{Width: 340, Height: 30})
+
+	if plan.Status != LayoutNothing {
+		t.Errorf("status = %d, want LayoutNothing (%d): a line whose column placed nothing must move to the next page, not be laid out with that column dropped",
+			plan.Status, LayoutNothing)
+	}
+	if n := countLeafBlocks(plan.Blocks); n != 0 {
+		t.Errorf("plan carries %d leaf block(s) — a deferred line must place nothing here", n)
+	}
+}
+
+// TestFlexRowAtomicColumnPreservesAllContent walks the whole page chain the way
+// the renderer does — including its LayoutNothing handling (relocate to a fresh
+// page, and at the top of a page force-place with an unbounded height) — and
+// asserts on surviving CONTENT rather than page count. Page count is a
+// misleading signal here: dropping the column makes the document shorter, so
+// the bug looks like an improvement.
+func TestFlexRowAtomicColumnPreservesAllContent(t *testing.T) {
+	const (
+		pageHeight = 100.0 // usable height per page
+		remaining  = 30.0  // space left on the page the row starts on
+	)
+
+	wantLeaves := countLeafBlocks(rowWrapper(6, 40).PlanLayout(LayoutArea{Width: 340, Height: 100000}).Blocks)
+	if wantLeaves == 0 {
+		t.Fatal("unlimited-height layout produced no blocks — fixture is broken")
+	}
+
+	var elem Element = rowWrapper(6, 40)
+	avail := remaining
+	gotLeaves := 0
+	atPageTop := false
+	for page := 0; page < 100 && elem != nil; page++ {
+		plan := elem.PlanLayout(LayoutArea{Width: 340, Height: avail})
+		if plan.Status == LayoutNothing {
+			if atPageTop {
+				// Renderer's page-top fallback: force-place with an
+				// effectively unbounded height so pagination cannot loop.
+				plan = elem.PlanLayout(LayoutArea{Width: 340, Height: 1e9})
+			} else {
+				avail, atPageTop = pageHeight, true
+				continue
+			}
+		}
+		gotLeaves += countLeafBlocks(plan.Blocks)
+		if plan.Status != LayoutPartial {
+			elem = nil
+			break
+		}
+		if plan.Overflow == nil {
+			t.Fatal("partial layout without overflow — pagination cannot continue")
+		}
+		elem = plan.Overflow
+		avail, atPageTop = pageHeight, true
+	}
+	if elem != nil {
+		t.Fatal("fragmentation did not terminate within 100 pages (possible pagination loop)")
+	}
+	if gotLeaves != wantLeaves {
+		t.Errorf("fragmented layout placed %d leaf blocks, unlimited-height layout places %d — content lost or duplicated",
+			gotLeaves, wantLeaves)
+	}
+}
+
+// TestFlexWrappedLaterLineWithNothingDeferredWhole covers the same fault on a
+// later line of a wrapped container: line 1 fits, line 2's column cannot place
+// even its first unit. The fitted line must be kept and line 2 deferred whole
+// as overflow — never laid out here with its column dropped.
+func TestFlexWrappedLaterLineWithNothingDeferredWhole(t *testing.T) {
+	start := CrossAlignStart
+	f := NewFlex().SetWrap(FlexWrapOn).
+		AddItem(NewFlexItem(flexParagraph("Line one")).SetBasis(400).SetAlignSelf(start)).
+		AddItem(NewFlexItem(&unitStack{units: 4, unitHeight: 40}).SetBasis(400).SetAlignSelf(start))
+
+	const areaH = 20.0
+	plan := f.PlanLayout(LayoutArea{Width: 420, Height: areaH})
+
+	if plan.Status != LayoutPartial {
+		t.Fatalf("status = %d, want LayoutPartial: line 1 fits and line 2 must be deferred", plan.Status)
+	}
+	if plan.Overflow == nil {
+		t.Fatal("deferral must carry the un-placed line as overflow")
+	}
+	if plan.Consumed > areaH+0.01 {
+		t.Errorf("fitted portion consumed %.2f, must not exceed the %.1fpt area", plan.Consumed, areaH)
+	}
+	cont := plan.Overflow.PlanLayout(LayoutArea{Width: 420, Height: 4000})
+	if countLeafBlocks(cont.Blocks) == 0 {
+		t.Error("overflow produced no content — the deferred line's column was dropped")
+	}
+}
