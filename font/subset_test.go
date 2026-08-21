@@ -198,7 +198,7 @@ func TestSubsetIntegrationBuildObjects(t *testing.T) {
 
 	var objects []core.PdfObject
 	addObject := func(obj core.PdfObject) *core.PdfIndirectReference {
-		ref := &core.PdfIndirectReference{ObjectNumber: len(objects) + 1, GenerationNumber: 0}
+		ref := core.NewPdfIndirectReference(len(objects)+1, 0)
 		objects = append(objects, obj)
 		return ref
 	}
@@ -238,7 +238,7 @@ func TestSubsetFontStreamSmaller(t *testing.T) {
 				fontStreamData = stream.Data
 			}
 		}
-		return &core.PdfIndirectReference{ObjectNumber: 1, GenerationNumber: 0}
+		return core.NewPdfIndirectReference(1, 0)
 	}
 	ef.BuildObjects(addObject)
 
