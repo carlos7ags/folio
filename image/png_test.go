@@ -5,12 +5,14 @@ package image
 
 import (
 	"bytes"
+	"compress/zlib"
 	"encoding/binary"
 	"errors"
 	"hash/crc32"
 	goimage "image"
 	"image/color"
 	"image/png"
+	"io"
 	"os"
 	"path/filepath"
 	"testing"
@@ -448,5 +450,317 @@ func TestNewFromGoImageInvalidStride(t *testing.T) {
 	img := NewFromGoImage(rgba)
 	if img != nil {
 		t.Error("expected nil for invalid stride")
+	}
+}
+
+// varyingGrayPNG builds an opaque grayscale PNG whose pixel values vary
+// enough (gradient plus noise) that the encoder is likely to choose more
+// than one row filter.
+func varyingGrayPNG(t *testing.T, w, h int) []byte {
+	t.Helper()
+	src := goimage.NewGray(goimage.Rect(0, 0, w, h))
+	for y := range h {
+		for x := range w {
+			v := byte((x*7 + y*13) % 256)
+			src.SetGray(x, y, color.Gray{Y: v})
+		}
+	}
+	var buf bytes.Buffer
+	if err := png.Encode(&buf, src); err != nil {
+		t.Fatalf("png.Encode: %v", err)
+	}
+	return buf.Bytes()
+}
+
+// varyingRGBPNG builds an opaque truecolor PNG whose pixel values vary
+// enough (gradient plus noise) that the encoder is likely to choose more
+// than one row filter.
+func varyingRGBPNG(t *testing.T, w, h int) []byte {
+	t.Helper()
+	src := goimage.NewRGBA(goimage.Rect(0, 0, w, h))
+	for y := range h {
+		for x := range w {
+			src.Set(x, y, color.RGBA{
+				R: byte((x*7 + y*3) % 256),
+				G: byte((x*11 + y*17) % 256),
+				B: byte((x*5 + y*23) % 256),
+				A: 255,
+			})
+		}
+	}
+	var buf bytes.Buffer
+	if err := png.Encode(&buf, src); err != nil {
+		t.Fatalf("png.Encode: %v", err)
+	}
+	return buf.Bytes()
+}
+
+// findIDATOffset returns the file offset of the first byte of the first
+// IDAT chunk's payload.
+func findIDATOffset(t *testing.T, data []byte) int {
+	t.Helper()
+	off := 8
+	for off+8 <= len(data) {
+		length := binary.BigEndian.Uint32(data[off : off+4])
+		typeStart := off + 4
+		payloadStart := typeStart + 4
+		chunkType := string(data[typeStart:payloadStart])
+		if chunkType == "IDAT" {
+			return payloadStart
+		}
+		off = payloadStart + int(length) + 4
+	}
+	t.Fatal("no IDAT chunk found")
+	return -1
+}
+
+// spliceChunk inserts a well-formed chunk of the given type and payload
+// immediately before the first occurrence of beforeType in data.
+func spliceChunk(t *testing.T, data []byte, chunkType string, payload []byte, beforeType string) []byte {
+	t.Helper()
+	off := 8
+	for off+8 <= len(data) {
+		length := binary.BigEndian.Uint32(data[off : off+4])
+		typeStart := off + 4
+		payloadStart := typeStart + 4
+		ct := string(data[typeStart:payloadStart])
+		if ct == beforeType {
+			lenBuf := make([]byte, 4)
+			binary.BigEndian.PutUint32(lenBuf, uint32(len(payload)))
+			chunk := append([]byte(chunkType), payload...)
+			crc := crc32.ChecksumIEEE(chunk)
+			crcBuf := make([]byte, 4)
+			binary.BigEndian.PutUint32(crcBuf, crc)
+			out := append([]byte{}, data[:off]...)
+			out = append(out, lenBuf...)
+			out = append(out, chunk...)
+			out = append(out, crcBuf...)
+			out = append(out, data[off:]...)
+			return out
+		}
+		off = payloadStart + int(length) + 4
+	}
+	t.Fatalf("chunk type %s not found", beforeType)
+	return nil
+}
+
+func TestPNGPassthroughEligibleGray(t *testing.T) {
+	data := varyingGrayPNG(t, 12, 9)
+	img, err := NewPNG(data)
+	if err != nil {
+		t.Fatalf("NewPNG: %v", err)
+	}
+	if !img.preCompressed {
+		t.Fatal("expected preCompressed for eligible grayscale PNG")
+	}
+	if img.predictorColors != 1 {
+		t.Errorf("expected predictorColors 1, got %d", img.predictorColors)
+	}
+	zr, err := zlib.NewReader(bytes.NewReader(img.data))
+	if err != nil {
+		t.Fatalf("zlib.NewReader: %v", err)
+	}
+	inflated, err := io.ReadAll(zr)
+	if err != nil {
+		t.Fatalf("inflate: %v", err)
+	}
+	rowBytes := img.width * 1
+	if len(inflated) != img.height*(1+rowBytes) {
+		t.Fatalf("expected %d inflated bytes, got %d", img.height*(1+rowBytes), len(inflated))
+	}
+	for y := range img.height {
+		f := inflated[y*(1+rowBytes)]
+		if f > 4 {
+			t.Errorf("row %d: filter byte %d out of range 0..4", y, f)
+		}
+	}
+}
+
+func TestPNGPassthroughEligibleRGB(t *testing.T) {
+	data := varyingRGBPNG(t, 12, 9)
+	img, err := NewPNG(data)
+	if err != nil {
+		t.Fatalf("NewPNG: %v", err)
+	}
+	if !img.preCompressed {
+		t.Fatal("expected preCompressed for eligible truecolor PNG")
+	}
+	if img.predictorColors != 3 {
+		t.Errorf("expected predictorColors 3, got %d", img.predictorColors)
+	}
+	zr, err := zlib.NewReader(bytes.NewReader(img.data))
+	if err != nil {
+		t.Fatalf("zlib.NewReader: %v", err)
+	}
+	inflated, err := io.ReadAll(zr)
+	if err != nil {
+		t.Fatalf("inflate: %v", err)
+	}
+	rowBytes := img.width * 3
+	if len(inflated) != img.height*(1+rowBytes) {
+		t.Fatalf("expected %d inflated bytes, got %d", img.height*(1+rowBytes), len(inflated))
+	}
+	for y := range img.height {
+		f := inflated[y*(1+rowBytes)]
+		if f > 4 {
+			t.Errorf("row %d: filter byte %d out of range 0..4", y, f)
+		}
+	}
+}
+
+func TestPNGPassthroughXObjectDict(t *testing.T) {
+	data := varyingRGBPNG(t, 6, 5)
+	img, err := NewPNG(data)
+	if err != nil {
+		t.Fatalf("NewPNG: %v", err)
+	}
+	if !img.preCompressed {
+		t.Fatal("expected preCompressed image")
+	}
+
+	addObject := func(obj core.PdfObject) *core.PdfIndirectReference {
+		return core.NewPdfIndirectReference(1, 0)
+	}
+	imgRef, _ := img.BuildXObject(addObject)
+	if imgRef == nil {
+		t.Fatal("expected non-nil image reference")
+	}
+}
+
+func TestPNGPassthroughFallbackTable(t *testing.T) {
+	t.Run("RGBA", func(t *testing.T) {
+		src := goimage.NewNRGBA(goimage.Rect(0, 0, 4, 4))
+		for y := range 4 {
+			for x := range 4 {
+				src.SetNRGBA(x, y, color.NRGBA{R: 10, G: 20, B: 30, A: 200})
+			}
+		}
+		var buf bytes.Buffer
+		if err := png.Encode(&buf, src); err != nil {
+			t.Fatalf("png.Encode: %v", err)
+		}
+		img, err := NewPNG(buf.Bytes())
+		if err != nil {
+			t.Fatalf("NewPNG: %v", err)
+		}
+		if img.preCompressed {
+			t.Error("expected fallback for RGBA (colour type 6)")
+		}
+	})
+
+	t.Run("GrayAlpha", func(t *testing.T) {
+		grayAlpha := goimage.NewNRGBA(goimage.Rect(0, 0, 4, 4))
+		for y := range 4 {
+			for x := range 4 {
+				grayAlpha.SetNRGBA(x, y, color.NRGBA{R: 50, G: 50, B: 50, A: 100})
+			}
+		}
+		var buf bytes.Buffer
+		if err := png.Encode(&buf, grayAlpha); err != nil {
+			t.Fatalf("png.Encode: %v", err)
+		}
+		img, err := NewPNG(buf.Bytes())
+		if err != nil {
+			t.Fatalf("NewPNG: %v", err)
+		}
+		if img.preCompressed {
+			t.Error("expected fallback for non-opaque image")
+		}
+	})
+
+	t.Run("Palette", func(t *testing.T) {
+		pal := color.Palette{
+			color.RGBA{R: 255, G: 0, B: 0, A: 255},
+			color.RGBA{R: 0, G: 255, B: 0, A: 255},
+		}
+		src := goimage.NewPaletted(goimage.Rect(0, 0, 4, 4), pal)
+		for y := range 4 {
+			for x := range 4 {
+				src.SetColorIndex(x, y, uint8((x+y)%2))
+			}
+		}
+		var buf bytes.Buffer
+		if err := png.Encode(&buf, src); err != nil {
+			t.Fatalf("png.Encode: %v", err)
+		}
+		img, err := NewPNG(buf.Bytes())
+		if err != nil {
+			t.Fatalf("NewPNG: %v", err)
+		}
+		if img.preCompressed {
+			t.Error("expected fallback for paletted PNG (colour type 3)")
+		}
+	})
+
+	t.Run("SixteenBit", func(t *testing.T) {
+		src := goimage.NewGray16(goimage.Rect(0, 0, 4, 4))
+		for y := range 4 {
+			for x := range 4 {
+				src.SetGray16(x, y, color.Gray16{Y: uint16((x + y) * 1000)})
+			}
+		}
+		var buf bytes.Buffer
+		if err := png.Encode(&buf, src); err != nil {
+			t.Fatalf("png.Encode: %v", err)
+		}
+		img, err := NewPNG(buf.Bytes())
+		if err != nil {
+			t.Fatalf("NewPNG: %v", err)
+		}
+		if img.preCompressed {
+			t.Error("expected fallback for 16-bit PNG")
+		}
+	})
+
+	t.Run("Interlaced", func(t *testing.T) {
+		data := varyingRGBPNG(t, 4, 4)
+		off := 8
+		length := binary.BigEndian.Uint32(data[off : off+4])
+		payloadStart := off + 8
+		if string(data[off+4:payloadStart]) != "IHDR" {
+			t.Fatal("expected IHDR as first chunk")
+		}
+		payload := append([]byte{}, data[payloadStart:payloadStart+int(length)]...)
+		payload[12] = 1 // interlace method: Adam7
+		chunk := append([]byte("IHDR"), payload...)
+		crc := crc32.ChecksumIEEE(chunk)
+		crcBuf := make([]byte, 4)
+		binary.BigEndian.PutUint32(crcBuf, crc)
+		out := append([]byte{}, data[:payloadStart]...)
+		out = append(out, payload...)
+		out = append(out, crcBuf...)
+		out = append(out, data[payloadStart+int(length)+4:]...)
+
+		img := pngPassthrough(out)
+		if img != nil {
+			t.Error("expected nil for interlaced PNG")
+		}
+	})
+
+	t.Run("TRNS", func(t *testing.T) {
+		data := varyingRGBPNG(t, 4, 4)
+		spliced := spliceChunk(t, data, "tRNS", []byte{0, 0, 0, 0, 0, 0}, "IDAT")
+		img, err := NewPNG(spliced)
+		if err != nil {
+			t.Fatalf("NewPNG: %v", err)
+		}
+		if img.preCompressed {
+			t.Error("expected fallback for truecolor PNG carrying tRNS")
+		}
+	})
+}
+
+func TestPNGPassthroughCorruptIDATFallsBackToError(t *testing.T) {
+	data := varyingRGBPNG(t, 8, 8)
+	idatOff := findIDATOffset(t, data)
+	corrupt := append([]byte{}, data...)
+	corrupt[idatOff+3] ^= 0xFF // flip a bit inside the IDAT payload; CRC now stale
+
+	if _, decodeErr := png.Decode(bytes.NewReader(corrupt)); decodeErr == nil {
+		t.Fatal("test setup invalid: expected stdlib decode to fail on corrupted IDAT")
+	}
+
+	if _, err := NewPNG(corrupt); err == nil {
+		t.Fatal("expected NewPNG to return an error on corrupted IDAT, not a silent passthrough")
 	}
 }
