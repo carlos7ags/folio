@@ -11,7 +11,6 @@ import (
 	"crypto/x509"
 	"errors"
 	"fmt"
-	"io"
 )
 
 // Signer performs the cryptographic signing operation.
@@ -110,27 +109,11 @@ func (s *ExternalSigner) Algorithm() Algorithm { return s.algo }
 func (s *ExternalSigner) CertificateChain() []*x509.Certificate { return s.certs }
 
 // ParsePKCS12 parses a PKCS#12 (.p12/.pfx) archive from bytes and returns a LocalSigner.
+//
+// PKCS#12 decoding is not implemented: it would require
+// golang.org/x/crypto/pkcs12. Callers should parse the archive themselves
+// and use NewLocalSigner with the pre-parsed key and certificate.
 func ParsePKCS12(data []byte, password string) (*LocalSigner, error) {
-	key, cert, err := decodePKCS12(data, password)
-	if err != nil {
-		return nil, fmt.Errorf("sign: load PKCS12: %w", err)
-	}
-	signer, ok := key.(crypto.Signer)
-	if !ok {
-		return nil, errors.New("sign: private key does not implement crypto.Signer")
-	}
-	return NewLocalSigner(signer, []*x509.Certificate{cert})
-}
-
-// decodePKCS12 is a minimal PKCS#12 decoder for the common case of
-// one private key + one certificate. Uses the Go standard library.
-func decodePKCS12(data []byte, password string) (crypto.PrivateKey, *x509.Certificate, error) {
-	// Go 1.24+ has crypto/x509.ParsePKCS12 but for broader compatibility
-	// we use the x/crypto/pkcs12 package pattern. For now, use a simple
-	// implementation that works with the standard PKCS#12 format.
-	//
-	// This is a placeholder — in production, use golang.org/x/crypto/pkcs12.
-	// For the initial implementation, users can provide pre-parsed keys.
-	_, _, _ = data, password, io.Discard
-	return nil, nil, errors.New("sign: PKCS12 loading requires golang.org/x/crypto/pkcs12; use NewLocalSigner with pre-parsed key and certificate")
+	_, _ = data, password
+	return nil, errors.New("sign: load PKCS12: PKCS12 loading requires golang.org/x/crypto/pkcs12; use NewLocalSigner with pre-parsed key and certificate")
 }
