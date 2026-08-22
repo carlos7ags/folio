@@ -142,6 +142,13 @@ type WriteOptions struct {
 	// file identifier and derives the encryption key from it (§7.6.3.3), so
 	// their output is never byte-stable; the /ID is left to the handler.
 	Deterministic bool
+
+	// CompressionLevel selects the zlib level for streams the writer
+	// compresses at serialization time (zlib constants; e.g.
+	// zlib.BestSpeed). Zero value keeps the default, zlib.BestCompression.
+	// Does not affect RecompressStreams, which is BestCompression by
+	// definition. Determinism is preserved at any fixed level.
+	CompressionLevel int
 }
 
 // WriteToWithOptions is the option-aware variant of WriteTo. WriteTo is
@@ -210,6 +217,18 @@ func (w *Writer) WriteToWithOptions(out io.Writer, opts WriteOptions) (int64, er
 	}
 	if opts.RecompressStreams {
 		w.recompressStreams()
+	}
+
+	// Apply the requested compression level to every stream the writer
+	// will compress at serialization time. Runs after the optimizer
+	// passes above (which may register or recompress streams) and before
+	// encryption, so it never touches ciphertext.
+	if opts.CompressionLevel != 0 {
+		for _, obj := range w.objects {
+			if s, ok := obj.Object.(*core.PdfStream); ok && s.WillCompress() {
+				s.SetCompressLevel(opts.CompressionLevel)
+			}
+		}
 	}
 
 	// Encrypt all user objects in place. Done before serialization so
