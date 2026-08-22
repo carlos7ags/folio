@@ -11,7 +11,6 @@ import (
 	"crypto/x509"
 	"errors"
 	"fmt"
-	"io"
 )
 
 // Signer performs the cryptographic signing operation.
@@ -111,37 +110,10 @@ func (s *ExternalSigner) CertificateChain() []*x509.Certificate { return s.certs
 
 // ParsePKCS12 parses a PKCS#12 (.p12/.pfx) archive from bytes and returns a LocalSigner.
 //
-//nolint:staticcheck // SA4023 — see the comment in the body
+// PKCS#12 decoding is not implemented: it would require
+// golang.org/x/crypto/pkcs12. Callers should parse the archive themselves
+// and use NewLocalSigner with the pre-parsed key and certificate.
 func ParsePKCS12(data []byte, password string) (*LocalSigner, error) {
-	// decodePKCS12 is a placeholder that always returns an error, so
-	// staticcheck can prove the err != nil check below always fires (SA4023).
-	// The check stays: it is the contract callers depend on and it starts
-	// discriminating the moment a real decoder replaces the placeholder.
-	// Suppressed on this function rather than by collapsing the check, which
-	// would make ParsePKCS12 itself provably always-failing and move the same
-	// finding onto every caller's error check (e.g. export/cabi_v062.go).
-	key, cert, err := decodePKCS12(data, password)
-	if err != nil {
-		return nil, fmt.Errorf("sign: load PKCS12: %w", err)
-	}
-	signer, ok := key.(crypto.Signer)
-	if !ok {
-		return nil, errors.New("sign: private key does not implement crypto.Signer")
-	}
-	return NewLocalSigner(signer, []*x509.Certificate{cert})
-}
-
-// decodePKCS12 is a minimal PKCS#12 decoder for the common case of
-// one private key + one certificate. Uses the Go standard library.
-//
-//nolint:staticcheck // SA4023 — placeholder, always errors; see ParsePKCS12
-func decodePKCS12(data []byte, password string) (crypto.PrivateKey, *x509.Certificate, error) {
-	// Go 1.24+ has crypto/x509.ParsePKCS12 but for broader compatibility
-	// we use the x/crypto/pkcs12 package pattern. For now, use a simple
-	// implementation that works with the standard PKCS#12 format.
-	//
-	// This is a placeholder — in production, use golang.org/x/crypto/pkcs12.
-	// For the initial implementation, users can provide pre-parsed keys.
-	_, _, _ = data, password, io.Discard
-	return nil, nil, errors.New("sign: PKCS12 loading requires golang.org/x/crypto/pkcs12; use NewLocalSigner with pre-parsed key and certificate")
+	_, _ = data, password
+	return nil, errors.New("sign: load PKCS12: PKCS12 loading requires golang.org/x/crypto/pkcs12; use NewLocalSigner with pre-parsed key and certificate")
 }
