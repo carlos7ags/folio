@@ -1120,7 +1120,11 @@ func (t *Table) PlanLayout(area LayoutArea) LayoutPlan {
 		// Add vertical spacing before this row.
 		curY += sv
 
-		needsFooter := footerRowCount > 0 && i > headerRowCount
+		// Reserve footer space from the first body row on (i >= headerRowCount):
+		// the first body row must be fit-checked against the footer too, or a
+		// table whose header + first row + footer don't fit together spills
+		// past the page's bottom margin.
+		needsFooter := footerRowCount > 0 && i >= headerRowCount
 		reserveH := 0.0
 		if needsFooter {
 			reserveH = footerHeight
@@ -1139,16 +1143,28 @@ func (t *Table) PlanLayout(area LayoutArea) LayoutPlan {
 				groupEnd = k + 1
 			}
 			groupOverflows := curY+groupH+reserveH > area.Height && area.Height > 0
-			if groupOverflows && i == headerRowCount {
+			if groupOverflows && i == headerRowCount && groupEnd > i+1 {
 				// The group's leader is the first body row of this
 				// layout pass — i.e. this pass is starting fresh — and
-				// the group still doesn't fit. It can never fit on any
-				// page; fall back to per-row splitting inside it rather
-				// than overflowing every page forever (issue: rowspan
-				// group taller than a page).
+				// the multi-row group still doesn't fit. It can never fit
+				// on any page; fall back to per-row splitting inside it
+				// rather than overflowing every page forever (issue:
+				// rowspan group taller than a page). Restricted to genuine
+				// multi-row groups: for a span-free first body row this
+				// path would render the leader unconditionally, which is
+				// exactly the header-stranding the branch below prevents.
 				oversizeGroupEnd = groupEnd
 				oversizeGroupLeader = i
-			} else if groupOverflows && i > headerRowCount {
+			} else if groupOverflows && i >= headerRowCount {
+				// Fit-check body rows including the FIRST one
+				// (i == headerRowCount): header rows are always placed
+				// here, but the first body row must still fit alongside
+				// them or the header is left stranded at the page bottom
+				// with its row spilling into the bottom margin. When the
+				// first body row doesn't fit, splitIdx lands on it and the
+				// header-stranding guard after the loop defers the whole
+				// table to the next page. Header rows themselves
+				// (i < headerRowCount) never trigger a split.
 				splitIdx = i
 				break
 			}
@@ -1230,6 +1246,19 @@ func (t *Table) PlanLayout(area LayoutArea) LayoutPlan {
 			Tag:      "Table",
 			Children: rowBlocks,
 		}}
+	}
+
+	// Orphan guard: if the split landed on the first body row, not even one
+	// body row fit alongside the header in the available height. Placing the
+	// header alone would strand it at the page bottom (and the overflow table
+	// re-adds the header, duplicating it), so defer the WHOLE table — header
+	// included — to the next page by reporting LayoutNothing. The renderer
+	// relocates it to a fresh page where the full page height is available;
+	// and when already at the top of a page (a header+row taller than a whole
+	// page), the renderer force-places it, so pagination cannot loop. Guarded
+	// on there being body rows so a header/footer-only table still lays out.
+	if splitIdx <= headerRowCount && headerRowCount < bodyEnd {
+		return LayoutPlan{Status: LayoutNothing}
 	}
 
 	if splitIdx >= bodyEnd {
