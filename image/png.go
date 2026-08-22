@@ -5,10 +5,17 @@ package image
 
 import (
 	"bytes"
+	"compress/zlib"
+	"encoding/binary"
 	"fmt"
+	"hash/crc32"
 	goimage "image"
 	"image/color"
 	"image/png"
+	"io"
+	"math"
+
+	"github.com/carlos7ags/folio/core"
 )
 
 // NewPNG creates an Image from raw PNG data. It decodes the PNG and
@@ -22,6 +29,10 @@ func NewPNG(data []byte) (*Image, error) {
 	}
 	if err := checkDimensions(cfg.Width, cfg.Height); err != nil {
 		return nil, fmt.Errorf("image: png: %w", err)
+	}
+
+	if img := pngPassthrough(data); img != nil {
+		return img, nil
 	}
 
 	img, err := png.Decode(bytes.NewReader(data))
@@ -179,6 +190,181 @@ func buildRGBOnly(img goimage.Image, w, h int) (*Image, error) {
 		bpc:        8,
 		filter:     "FlateDecode",
 	}, nil
+}
+
+var pngSignature = [8]byte{0x89, 'P', 'N', 'G', '\r', '\n', 0x1a, '\n'}
+
+// pngPassthrough attempts to reuse a PNG's IDAT stream verbatim as a
+// FlateDecode image payload with a PNG predictor (ISO 32000-1 §7.4.4.4).
+// It returns nil when the file is not eligible; ineligibility is never an
+// error, the caller falls back to a full decode.
+func pngPassthrough(data []byte) *Image {
+	if len(data) < 8 || !bytes.Equal(data[:8], pngSignature[:]) {
+		return nil
+	}
+
+	var (
+		width, height                      int
+		bitDepth, colorType                byte
+		compression, filterMethod, interlc byte
+		sawIHDR, sawPLTE                   bool
+		idat                               []byte
+		palette                            []byte
+	)
+
+	off := 8
+	for {
+		if off+8 > len(data) {
+			return nil
+		}
+		length := binary.BigEndian.Uint32(data[off : off+4])
+		if length > math.MaxInt32 {
+			return nil
+		}
+		typeStart := off + 4
+		payloadStart := typeStart + 4
+		payloadEnd := payloadStart + int(length)
+		crcEnd := payloadEnd + 4
+		if payloadEnd < 0 || crcEnd < 0 || crcEnd > len(data) {
+			return nil
+		}
+		chunkType := string(data[typeStart:payloadStart])
+		payload := data[payloadStart:payloadEnd]
+		storedCRC := binary.BigEndian.Uint32(data[payloadEnd:crcEnd])
+		if crc32.ChecksumIEEE(data[typeStart:payloadEnd]) != storedCRC {
+			return nil
+		}
+
+		switch chunkType {
+		case "IHDR":
+			if sawIHDR || len(payload) != 13 {
+				return nil
+			}
+			sawIHDR = true
+			width = int(binary.BigEndian.Uint32(payload[0:4]))
+			height = int(binary.BigEndian.Uint32(payload[4:8]))
+			bitDepth = payload[8]
+			colorType = payload[9]
+			compression = payload[10]
+			filterMethod = payload[11]
+			interlc = payload[12]
+
+			switch colorType {
+			case 0, 2:
+				if bitDepth != 8 {
+					return nil
+				}
+			case 3:
+				switch bitDepth {
+				case 1, 2, 4, 8:
+				default:
+					return nil
+				}
+			default:
+				return nil
+			}
+			if compression != 0 || filterMethod != 0 {
+				return nil
+			}
+			if interlc != 0 {
+				return nil
+			}
+		case "PLTE":
+			if !sawIHDR || colorType != 3 || sawPLTE || len(idat) > 0 {
+				return nil
+			}
+			if len(payload) == 0 || len(payload)%3 != 0 {
+				return nil
+			}
+			n := len(payload) / 3
+			if n > 256 || n > (1<<bitDepth) {
+				return nil
+			}
+			sawPLTE = true
+			palette = append([]byte{}, payload...)
+		case "tRNS":
+			return nil
+		case "IDAT":
+			if !sawIHDR {
+				return nil
+			}
+			if colorType == 3 && !sawPLTE {
+				return nil
+			}
+			idat = append(idat, payload...)
+		case "IEND":
+			goto walked
+		default:
+			if !sawIHDR {
+				return nil
+			}
+		}
+
+		off = crcEnd
+	}
+
+walked:
+	if !sawIHDR || len(idat) == 0 {
+		return nil
+	}
+	if colorType == 3 && !sawPLTE {
+		return nil
+	}
+	if err := checkDimensions(width, height); err != nil {
+		return nil
+	}
+
+	channels := 1
+	colorSpace := "DeviceGray"
+	switch colorType {
+	case 2:
+		channels = 3
+		colorSpace = "DeviceRGB"
+	case 3:
+		colorSpace = "Indexed"
+	}
+	rowBytes := (width*channels*int(bitDepth) + 7) / 8
+	wantLen := int64(height) * int64(1+rowBytes)
+
+	zr, err := zlib.NewReader(bytes.NewReader(idat))
+	if err != nil {
+		return nil
+	}
+	n, err := io.Copy(io.Discard, zr)
+	if err != nil {
+		_ = zr.Close()
+		return nil
+	}
+	if err := zr.Close(); err != nil {
+		return nil
+	}
+	if n != wantLen {
+		return nil
+	}
+
+	img := &Image{
+		data:            idat,
+		width:           width,
+		height:          height,
+		colorSpace:      colorSpace,
+		bpc:             int(bitDepth),
+		filter:          "FlateDecode",
+		preCompressed:   true,
+		predictorColors: 1,
+	}
+	if colorType == 0 || colorType == 2 {
+		img.predictorColors = channels
+	}
+	if colorType == 3 {
+		n := len(palette) / 3
+		img.colorSpaceObj = core.NewPdfArray(
+			core.NewPdfName("Indexed"),
+			core.NewPdfName("DeviceRGB"),
+			core.NewPdfInteger(n-1),
+			core.NewPdfHexString(string(palette)),
+		)
+	}
+	return img
 }
 
 // isGrayscale reports whether the image uses a grayscale color model.

@@ -150,3 +150,58 @@ func TestDeterministicNonPdfAGainsID(t *testing.T) {
 		t.Fatal("expected deterministic plain-document output to be reproducible")
 	}
 }
+
+// TestDeterministicTeeAcrossOptionSets verifies the /ID tee produces
+// byte-stable output for Deterministic with and without UseXRefStream —
+// the two code paths that call finishID from different trailer writers.
+func TestDeterministicTeeAcrossOptionSets(t *testing.T) {
+	cases := []struct {
+		name string
+		opts WriteOptions
+	}{
+		{"traditional trailer", WriteOptions{Deterministic: true}},
+		{"xref stream trailer", WriteOptions{Deterministic: true, UseXRefStream: true}},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			a := writeOpts(t, newPdfADoc, c.opts)
+			b := writeOpts(t, newPdfADoc, c.opts)
+			if !bytes.Equal(a, b) {
+				t.Fatalf("expected byte-identical output for %s", c.name)
+			}
+		})
+	}
+}
+
+// TestDeterministicTeeObjectStreamsPath verifies the /ID tee also covers
+// the object-stream writer path (writeXRefStreamWithObjStms), which has
+// its own finishID call site.
+func TestDeterministicTeeObjectStreamsPath(t *testing.T) {
+	opts := WriteOptions{Deterministic: true, UseXRefStream: true, UseObjectStreams: true}
+	a := writeOpts(t, newPdfADoc, opts)
+	b := writeOpts(t, newPdfADoc, opts)
+	if !bytes.Equal(a, b) {
+		t.Fatal("expected byte-identical output on the object-stream path")
+	}
+	if !bytes.Contains(a, []byte("/ID")) {
+		t.Fatal("expected trailer to contain /ID on the object-stream path")
+	}
+}
+
+// TestSetFileIDOverridesDeterministicObjectStreamsPath is
+// TestSetFileIDOverridesDeterministic's counterpart for the object-stream
+// writer path: an explicit /ID must still win over the tee-derived digest.
+func TestSetFileIDOverridesDeterministicObjectStreamsPath(t *testing.T) {
+	id := bytes.Repeat([]byte{0xCD}, 16)
+	build := func() *Document {
+		doc := newPdfADoc()
+		doc.SetFileID(id)
+		return doc
+	}
+	out := writeOpts(t, build, WriteOptions{Deterministic: true, UseXRefStream: true, UseObjectStreams: true})
+
+	wantHex := fmt.Sprintf("<%X>", id)
+	if !bytes.Contains(out, []byte("/ID ["+wantHex+" "+wantHex+"]")) {
+		t.Fatalf("expected explicit /ID %s to override the derived digest on the object-stream path", wantHex)
+	}
+}

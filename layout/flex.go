@@ -353,6 +353,14 @@ func (f *Flex) planRow(area LayoutArea) LayoutPlan {
 		definiteCrossSize = innerHeight
 	}
 
+	// paginateOverflow is true when this flex is an auto-height container
+	// whose overflowing content should continue on the next page. A flex with
+	// a definite height (its own, or imposed by a parent that constrains its
+	// cross-axis) is meant to contain or clip its content, not fragment it, so
+	// the line-fragmentation path below stays off for those — mirroring the
+	// Div fit guard.
+	paginateOverflow := f.heightUnit == nil && !f.hasDefiniteCrossSize
+
 	// Step 3-7: Lay out each line.
 	var allChildren []PlacedBlock
 	curY := f.padding.Top
@@ -422,8 +430,66 @@ func (f *Flex) planRow(area LayoutArea) LayoutPlan {
 			hs.ClearHeightUnit()
 		}
 
-		// Check if this line fits.
-		if curY-f.padding.Top+lineCrossSize > innerHeight+0.01 && fittedLineCount > 0 {
+		// A line fits when its cross-size is within the space still left on
+		// this page. It has fragmentable overflow when any of its items
+		// reported unfinished content (LayoutPartial) that must continue on
+		// the next page.
+		available := innerHeight - (curY - f.padding.Top)
+		lineFits := lineCrossSize <= available+0.01
+
+		lineHasOverflow := false
+		if paginateOverflow {
+			for j := range line.items {
+				if itemPlans[j].Status == LayoutPartial && itemPlans[j].Overflow != nil {
+					lineHasOverflow = true
+					break
+				}
+			}
+		}
+
+		// An item that placed nothing at all (LayoutNothing) reports no
+		// blocks and no overflow: its content exists only in the element
+		// itself. Laying the line out here would draw the other columns and
+		// silently drop that column entirely — the line has to be laid out
+		// somewhere it can make progress instead. This is reachable whenever
+		// a column's first unbreakable unit does not fit the space left on
+		// the page: a table whose header+first row must move as a group, or
+		// a nested auto-height box that could not place its first child.
+		lineHasNothing := false
+		if paginateOverflow {
+			for j := range line.items {
+				if itemPlans[j].Status == LayoutNothing {
+					lineHasNothing = true
+					break
+				}
+			}
+		}
+
+		// A line with a column that placed nothing must move as a whole: if
+		// earlier lines fit, defer this line and the rest to the next page;
+		// if nothing has been placed at all, report LayoutNothing so the
+		// renderer relocates this container to a fresh page. At the top of a
+		// page the renderer force-places a LayoutNothing element (with an
+		// effectively unbounded height), so this cannot loop. Mirrors the
+		// flex column's fittedCount == 0 handling and the Div zero-progress
+		// guard. Checked before the fits/atomic fall-through below, which
+		// would otherwise place the line and drop that column's content.
+		if lineHasNothing {
+			if fittedLineCount == 0 {
+				return LayoutPlan{Status: LayoutNothing}
+			}
+			allFit = false
+			break
+		}
+
+		// A line that does not fit is deferred whole to the next page, as long
+		// as something already fit here. This takes precedence over in-place
+		// fragmentation so a later line is never left straddling the page
+		// bottom: it moves to the next page and fragments there, where it
+		// starts at the top (fittedLineCount == 0). An atomic line taller than
+		// the page at the very top instead falls through and is placed (letting
+		// it clip) rather than looping forever trying to defer it.
+		if !lineFits && fittedLineCount > 0 {
 			allFit = false
 			break
 		}
@@ -470,6 +536,23 @@ func (f *Flex) planRow(area LayoutArea) LayoutPlan {
 
 		curY += lineCrossSize
 		fittedLineCount++
+
+		// If any column in this line still has content to place, fragment the
+		// line here: the fitted portions were positioned above; build an
+		// overflow container that continues the unfinished columns on the next
+		// page. Without this the tail is silently dropped when a single flex
+		// line is taller than the page.
+		if lineHasOverflow {
+			overflow := f.overflowFromPartialLine(line, itemPlans, resolvedWidths, lines, i)
+			totalH := curY + f.padding.Bottom
+			containerBlock := f.makeContainerBlock(allChildren, totalH, area.Width)
+			return LayoutPlan{
+				Status:   LayoutPartial,
+				Consumed: f.spaceBefore + totalH + f.spaceAfter,
+				Blocks:   []PlacedBlock{containerBlock},
+				Overflow: overflow,
+			}
+		}
 	}
 
 	// Apply align-content redistribution for multi-line wrapped containers.
@@ -794,6 +877,59 @@ func (f *Flex) applyAlignContent(children []PlacedBlock, lineY, lineH []float64,
 
 	// Update lineY for the caller to recalculate curY.
 	copy(lineY, newY)
+}
+
+// blankSpacer is a zero-content element used to reserve a flex column's
+// width in an overflow line when that column already finished on the
+// previous page. It keeps the still-continuing columns in their original
+// horizontal positions while drawing nothing.
+type blankSpacer struct{}
+
+func (blankSpacer) PlanLayout(_ LayoutArea) LayoutPlan {
+	return LayoutPlan{Status: LayoutFull}
+}
+
+// overflowFromPartialLine builds the continuation Flex when a single flex
+// line is fragmented across a page boundary. Each column that still has
+// unfinished content contributes its Overflow element pinned to the width it
+// occupied on the first page (fixed basis, no grow/shrink), so its geometry
+// is preserved; columns that already finished become same-width blank
+// spacers so the continuing columns keep their positions. Any lines after
+// the fragmented one are appended unchanged.
+func (f *Flex) overflowFromPartialLine(line flexLine, itemPlans []LayoutPlan, widths []float64, lines []flexLine, lineIdx int) *Flex {
+	items := make([]*FlexItem, 0, len(line.items))
+	for j, item := range line.items {
+		if itemPlans[j].Status == LayoutPartial && itemPlans[j].Overflow != nil {
+			items = append(items, &FlexItem{
+				element:      itemPlans[j].Overflow,
+				basis:        widths[j],
+				alignSelf:    item.alignSelf,
+				marginLeft:   item.marginLeft,
+				marginRight:  item.marginRight,
+				marginTop:    item.marginTop,
+				marginBottom: item.marginBottom,
+			})
+			continue
+		}
+		items = append(items, &FlexItem{element: blankSpacer{}, basis: widths[j]})
+	}
+	for k := lineIdx + 1; k < len(lines); k++ {
+		items = append(items, lines[k].items...)
+	}
+	return &Flex{
+		items:        items,
+		direction:    f.direction,
+		justify:      f.justify,
+		alignItems:   f.alignItems,
+		alignContent: f.alignContent,
+		wrap:         f.wrap,
+		rowGap:       f.rowGap,
+		columnGap:    f.columnGap,
+		padding:      f.padding,
+		borders:      f.borders,
+		background:   f.background,
+		spaceAfter:   f.spaceAfter,
+	}
 }
 
 // overflowFrom creates a new Flex containing the items from unfitted lines.

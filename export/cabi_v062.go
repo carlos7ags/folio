@@ -367,8 +367,11 @@ func folio_signer_new_pkcs12(data unsafe.Pointer, length C.int32_t, password *C.
 		return 0
 	}
 	bytes := C.GoBytes(data, C.int(length))
-	signer, err := sign.ParsePKCS12(bytes, C.GoString(password))
-	if err != nil {
+	// SA4023: ParsePKCS12 currently always errors (PKCS#12 decoding needs an
+	// external dependency the project refuses); the C ABI contract stays
+	// error-driven so this check is correct once decoding lands.
+	signer, err := sign.ParsePKCS12(bytes, C.GoString(password)) //nolint:staticcheck
+	if err != nil {                                              //nolint:staticcheck
 		setLastError(err.Error())
 		return 0
 	}

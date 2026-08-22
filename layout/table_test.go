@@ -1442,26 +1442,55 @@ func TestTableRowspanChainedGroupsSplitTogether(t *testing.T) {
 	}
 }
 
-// TestTableRowspanTallerThanPageFallsBack pins the documented fallback for
-// a span group taller than a full page: PlanLayout must still terminate
-// with progress rather than looping forever trying to push the group to a
-// page it will never fit on.
+// TestTableRowspanTallerThanPageFallsBack pins the fallback for a span group
+// taller than a full page: rendering must terminate and still place the group
+// rather than dropping it or looping forever.
+//
+// A multi-row span group that cannot fit even a fresh page falls back to
+// per-row splitting inside the group (continuing the spanning cell as a styled
+// placeholder), so it makes progress while each placed row still respects the
+// page bottom. That is distinct from a span-free first body row that doesn't
+// fit, which defers the whole table so its header isn't stranded in the bottom
+// margin — see TestTableHeaderNotStrandedWithoutFirstRow.
 func TestTableRowspanTallerThanPageFallsBack(t *testing.T) {
-	tbl := NewTable()
-	tbl.SetColumnWidths([]float64{100, 100})
-	r := tbl.AddRow()
-	r.AddCell("Span", font.Helvetica, 10).SetRowspan(20)
-	r.AddCell("Row1", font.Helvetica, 10)
-	for i := 2; i <= 20; i++ {
-		tbl.AddRow().AddCell(fmt.Sprintf("Row%d", i), font.Helvetica, 10)
+	build := func() *Table {
+		tbl := NewTable()
+		tbl.SetColumnWidths([]float64{100, 100})
+		r := tbl.AddRow()
+		r.AddCell("Span", font.Helvetica, 10).SetRowspan(120) // taller than a full page
+		r.AddCell("Row1", font.Helvetica, 10)
+		for i := 2; i <= 120; i++ {
+			tbl.AddRow().AddCell(fmt.Sprintf("Row%d", i), font.Helvetica, 10)
+		}
+		return tbl
 	}
 
-	plan := tbl.PlanLayout(LayoutArea{Width: 400, Height: 50})
-	if plan.Status == LayoutNothing {
-		t.Fatal("expected progress (LayoutFull or LayoutPartial), got LayoutNothing")
+	// End-to-end: rendering must terminate (no infinite relocation loop) and
+	// emit at least one page carrying the group. Reaching this assertion at
+	// all is the anti-loop guarantee.
+	r := NewRenderer(300, 200, Margins{Top: 20, Right: 20, Bottom: 20, Left: 20})
+	r.Add(build())
+	pages := r.Render()
+	if len(pages) == 0 {
+		t.Fatal("oversized rowspan group produced no pages — content dropped or pagination looped")
 	}
-	if len(plan.Blocks) == 0 || len(plan.Blocks[0].Children) == 0 {
-		t.Fatal("expected at least one row placed despite the oversized group")
+
+	// Direct contract: given a slot smaller than the oversized first row group
+	// the table must still make progress by splitting inside the group, and the
+	// rows it does place must stay within the slot it was given.
+	small := build().PlanLayout(LayoutArea{Width: 400, Height: 50})
+	if small.Status == LayoutNothing {
+		t.Errorf("oversized group in a small slot: expected progress, got LayoutNothing")
+	}
+	if len(small.Blocks) == 0 || len(small.Blocks[0].Children) == 0 {
+		t.Error("expected at least one row placed despite the oversized group")
+	}
+	if small.Consumed > 50 {
+		t.Errorf("placed rows overran the slot: consumed %.2f, slot height 50", small.Consumed)
+	}
+	big := build().PlanLayout(LayoutArea{Width: 400, Height: 1e6})
+	if big.Status == LayoutNothing || len(big.Blocks) == 0 || len(big.Blocks[0].Children) == 0 {
+		t.Error("given ample height the oversized group must be placed, not deferred")
 	}
 }
 

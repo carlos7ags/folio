@@ -154,6 +154,14 @@ func (c *converter) convertBlock(n *html.Node, style computedStyle) []layout.Ele
 	// the floats; otherwise the clearing element silently disappears.
 	hasClear := style.Clear != "" && style.Clear != "none"
 
+	// A break-inside:avoid div (CSS page-break-inside/break-inside) must survive
+	// as a Div even with no box-model properties: the keep-together behavior is
+	// carried by the Div (SetKeepTogether), and flattening it into its children
+	// would scatter them into independent siblings that the renderer paginates
+	// separately — stranding leading content at the page bottom instead of
+	// moving the whole box to the next page.
+	keepTogether := style.PageBreakInside == "avoid"
+
 	// Allow empty divs that have visual properties (height, background, border).
 	hasVisualBox := style.Height != nil || style.BackgroundColor != nil ||
 		style.hasBorder() || style.hasPadding()
@@ -169,7 +177,7 @@ func (c *converter) convertBlock(n *html.Node, style computedStyle) []layout.Ele
 	hasOutline := style.OutlineWidth > 0
 	hasTransform := style.Transform != "" && strings.ToLower(strings.TrimSpace(style.Transform)) != "none"
 	hasBgImage := style.BackgroundImage != ""
-	if !style.hasPadding() && !style.hasBorder() && !style.hasMargin() && style.BackgroundColor == nil && !hasWidthConstraints && !hasHeightConstraints && !hasVisualEffects && !hasBoxShadow && !hasOutline && !hasTransform && !hasBgImage && !hasClear {
+	if !style.hasPadding() && !style.hasBorder() && !style.hasMargin() && style.BackgroundColor == nil && !hasWidthConstraints && !hasHeightConstraints && !hasVisualEffects && !hasBoxShadow && !hasOutline && !hasTransform && !hasBgImage && !hasClear && !keepTogether {
 		return children
 	}
 

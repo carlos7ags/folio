@@ -185,6 +185,64 @@ func TestImageLayoutElementQpdfCheck(t *testing.T) {
 	runQpdfCheck(t, buf.Bytes())
 }
 
+func TestImageXObjectReusedAcrossPages(t *testing.T) {
+	src := goimage.NewRGBA(goimage.Rect(0, 0, 10, 10))
+	for y := range 10 {
+		for x := range 10 {
+			a := uint8(255)
+			if x == 0 && y == 0 {
+				a = 128 // one non-opaque pixel forces an SMask.
+			}
+			src.Set(x, y, color.RGBA{R: 0, G: 128, B: 255, A: a})
+		}
+	}
+	img := folioimage.NewFromGoImage(src)
+
+	doc := NewDocument(PageSizeLetter)
+	for range 3 {
+		p := doc.AddPage()
+		p.AddImage(img, 72, 600, 100, 100)
+	}
+
+	var buf bytes.Buffer
+	if _, err := doc.WriteTo(&buf); err != nil {
+		t.Fatalf("WriteTo: %v", err)
+	}
+
+	got := strings.Count(buf.String(), "/Subtype /Image")
+	if got != 2 {
+		t.Errorf("/Subtype /Image count = %d, want 2 (one image + one SMask)", got)
+	}
+}
+
+func TestImageXObjectDistinctImagesNotShared(t *testing.T) {
+	src1 := goimage.NewRGBA(goimage.Rect(0, 0, 10, 10))
+	src2 := goimage.NewRGBA(goimage.Rect(0, 0, 10, 10))
+	for y := range 10 {
+		for x := range 10 {
+			src1.Set(x, y, color.RGBA{R: 255, G: 0, B: 0, A: 255})
+			src2.Set(x, y, color.RGBA{R: 0, G: 255, B: 0, A: 255})
+		}
+	}
+	img1 := folioimage.NewFromGoImage(src1)
+	img2 := folioimage.NewFromGoImage(src2)
+
+	doc := NewDocument(PageSizeLetter)
+	p := doc.AddPage()
+	p.AddImage(img1, 72, 600, 100, 100)
+	p.AddImage(img2, 72, 400, 100, 100)
+
+	var buf bytes.Buffer
+	if _, err := doc.WriteTo(&buf); err != nil {
+		t.Fatalf("WriteTo: %v", err)
+	}
+
+	got := strings.Count(buf.String(), "/Subtype /Image")
+	if got != 2 {
+		t.Errorf("/Subtype /Image count = %d, want 2 (two distinct opaque images)", got)
+	}
+}
+
 func TestMixedContentQpdfCheck(t *testing.T) {
 	jpegData := createTestJPEG(t, 150, 100)
 	jpegImg, err := folioimage.NewJPEG(jpegData)
