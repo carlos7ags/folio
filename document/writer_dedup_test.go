@@ -661,3 +661,88 @@ func TestDeduplicateObjects_DropsObjectShrinksSerializedOutput(t *testing.T) {
 			withDedup.Len(), noDedup.Len())
 	}
 }
+
+func TestDeduplicateObjects_SameDataDifferentDictNotMerged(t *testing.T) {
+	// Two streams with identical raw Data but different Dict entries
+	// (e.g. different /Subtype) must not be merged: their WriteTo
+	// output would differ.
+	w := minimalCatalogWriter(t)
+	payload := bytes.Repeat([]byte("shared "), 100)
+
+	s1 := core.NewPdfStream(payload)
+	s1.Dict.Set("Subtype", core.NewPdfName("Image"))
+	r1 := w.AddObject(s1)
+
+	s2 := core.NewPdfStream(payload)
+	s2.Dict.Set("Subtype", core.NewPdfName("Form"))
+	r2 := w.AddObject(s2)
+
+	root := w.objects[0].Object.(*core.PdfDictionary)
+	root.Set("A", r1)
+	root.Set("B", r2)
+
+	preCount := len(w.objects)
+	w.deduplicateObjects()
+
+	if len(w.objects) != preCount {
+		t.Errorf("dedup merged streams with different dicts: %d → %d", preCount, len(w.objects))
+	}
+	if r1.Num() == r2.Num() {
+		t.Error("streams with different dicts share an object number after dedup")
+	}
+}
+
+func TestDeduplicateObjects_SameDataAndDictDifferentCompressNotMerged(t *testing.T) {
+	// Same Data and same Dict entries, but one stream compresses
+	// (NewPdfStreamCompressed) and the other does not (NewPdfStream).
+	// Their WriteTo output differs (/Filter presence and payload
+	// bytes), so they must not be merged.
+	w := minimalCatalogWriter(t)
+	payload := bytes.Repeat([]byte("compressible payload "), 100)
+
+	s1 := core.NewPdfStream(payload)
+	r1 := w.AddObject(s1)
+
+	s2 := core.NewPdfStreamCompressed(payload)
+	r2 := w.AddObject(s2)
+
+	root := w.objects[0].Object.(*core.PdfDictionary)
+	root.Set("A", r1)
+	root.Set("B", r2)
+
+	preCount := len(w.objects)
+	w.deduplicateObjects()
+
+	if len(w.objects) != preCount {
+		t.Errorf("dedup merged streams with different compress flags: %d → %d", preCount, len(w.objects))
+	}
+	if r1.Num() == r2.Num() {
+		t.Error("streams with different compress flags share an object number after dedup")
+	}
+}
+
+func TestDeduplicateObjects_EqualCompressedStreamsMerge(t *testing.T) {
+	// Two NewPdfStreamCompressed streams with equal data and equal
+	// dicts must still merge under the new identity scheme.
+	w := minimalCatalogWriter(t)
+	payload := bytes.Repeat([]byte("compressible payload "), 100)
+
+	s1 := core.NewPdfStreamCompressed(payload)
+	r1 := w.AddObject(s1)
+	s2 := core.NewPdfStreamCompressed(payload)
+	r2 := w.AddObject(s2)
+
+	root := w.objects[0].Object.(*core.PdfDictionary)
+	root.Set("A", r1)
+	root.Set("B", r2)
+
+	preCount := len(w.objects)
+	w.deduplicateObjects()
+
+	if len(w.objects) != preCount-1 {
+		t.Errorf("expected 1 object dropped, pre=%d post=%d", preCount, len(w.objects))
+	}
+	if r1.Num() != r2.Num() {
+		t.Errorf("equal compressed streams not merged: A=%d B=%d", r1.Num(), r2.Num())
+	}
+}
