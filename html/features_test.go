@@ -4,7 +4,9 @@
 package html
 
 import (
+	"encoding/base64"
 	"math"
+	"os"
 	"strings"
 	"testing"
 
@@ -602,6 +604,373 @@ func TestWordBreakBreakAll(t *testing.T) {
 	plan := elems[0].PlanLayout(layout.LayoutArea{Width: 50, Height: 1000})
 	if plan.Consumed <= 0 {
 		t.Error("word-break:break-all should render text")
+	}
+}
+
+// --- white-space: nowrap ---
+
+// TestWhiteSpaceNowrapDoesNotBreakLongWord is the regression test asserting
+// that an unbreakable word under white-space:nowrap renders as a single
+// overflowing line, not character-broken across multiple lines the way a
+// normal (wrapping) long word would be.
+func TestWhiteSpaceNowrapDoesNotBreakLongWord(t *testing.T) {
+	html := `<style>p { white-space: nowrap; }</style>
+	<p>Superlongwordthatwouldnormallyneverbreak</p>`
+	elems, err := Convert(html, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(elems) == 0 {
+		t.Fatal("expected elements")
+	}
+	plan := elems[0].PlanLayout(layout.LayoutArea{Width: 50, Height: 1000})
+	if len(plan.Blocks) != 1 {
+		t.Errorf("white-space:nowrap should keep the word on one overflowing line, got %d blocks", len(plan.Blocks))
+	}
+}
+
+// TestWhiteSpaceNowrapDoesNotSoftWrapAtSpaces asserts nowrap also suppresses
+// ordinary space-boundary wrapping, not just character-breaking of a single
+// unbreakable token — a multi-word nowrap run must stay on one line.
+func TestWhiteSpaceNowrapDoesNotSoftWrapAtSpaces(t *testing.T) {
+	html := `<style>p { white-space: nowrap; }</style>
+	<p>hello world this is nowrap text</p>`
+	elems, err := Convert(html, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(elems) == 0 {
+		t.Fatal("expected elements")
+	}
+	plan := elems[0].PlanLayout(layout.LayoutArea{Width: 50, Height: 1000})
+	if len(plan.Blocks) != 1 {
+		t.Errorf("white-space:nowrap should keep the whole run on one overflowing line, got %d blocks", len(plan.Blocks))
+	}
+}
+
+// firstParagraph returns the first *layout.Paragraph found by a depth-first
+// walk of el (descending into Div children), or nil.
+func firstParagraph(el layout.Element) *layout.Paragraph {
+	switch v := el.(type) {
+	case *layout.Paragraph:
+		return v
+	case *layout.Div:
+		for _, ch := range v.Children() {
+			if p := firstParagraph(ch); p != nil {
+				return p
+			}
+		}
+	}
+	return nil
+}
+
+// TestWhiteSpaceNowrapInlineElementOverWideToken is the regression test for a
+// nowrap set on an *inline* element (not the block) failing to suppress the
+// break of an unbreakable token wider than its container. white-space is an
+// inherited property, so `<div><b style="white-space:nowrap">TOKEN</b></div>`
+// must keep TOKEN on one overflowing line — previously the flag was read only
+// from the block style, so the inline nowrap was lost and the over-wide token
+// was force-broken to a second line.
+func TestWhiteSpaceNowrapInlineElementOverWideToken(t *testing.T) {
+	// A 35-char unbreakable token, bold, in a fixed 220px (=165pt) column;
+	// the token is far wider than the column so a wrapping engine would
+	// break it.
+	const token = "CHK9a98fd4bd13a03b7f1f9b878c7695281"
+	html := `<style>
+		.col { width: 220px; }
+		.check-id { white-space: nowrap; font-weight: bold; font-size: 17px; }
+	</style>
+	<div class="col"><b class="check-id">` + token + `</b></div>`
+
+	elems, err := Convert(html, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(elems) == 0 {
+		t.Fatal("expected elements")
+	}
+	p := firstParagraph(elems[0])
+	if p == nil {
+		t.Fatal("expected a paragraph inside the column div")
+	}
+
+	// Lay out at the column's inner width (165pt). The token overflows it,
+	// but nowrap must keep it on a single line.
+	lines := p.Layout(165)
+	if len(lines) != 1 {
+		t.Fatalf("nowrap inline token should stay on one overflowing line, got %d lines", len(lines))
+	}
+	if len(lines[0].Words) != 1 || lines[0].Words[0].Text != token {
+		t.Errorf("token was broken: got %d words, first = %q; want the whole %q intact", len(lines[0].Words), firstWordText(lines[0]), token)
+	}
+	if lines[0].Width <= 165 {
+		t.Errorf("expected the single line to overflow the 165pt column (width %.1f); test fixture may be too narrow to exercise the bug", lines[0].Width)
+	}
+}
+
+func firstWordText(l layout.Line) string {
+	if len(l.Words) == 0 {
+		return ""
+	}
+	return l.Words[0].Text
+}
+
+// TestWhiteSpaceNowrapInlineVariants locks in that inline-element nowrap keeps
+// content on a single overflowing line across the markup shapes that reach the
+// paragraph builder differently: pretty-printed whitespace siblings inside a
+// <p> (the collapsible boundary spaces must not veto the nowrap verdict),
+// nested inline elements (white-space inherits through them), an <a href>
+// (whose LinkURI propagation must not clobber nowrap), and a multi-word nowrap
+// run (must not soft-wrap at its internal spaces).
+func TestWhiteSpaceNowrapInlineVariants(t *testing.T) {
+	const token = "CHK9a98fd4bd13a03b7f1f9b878c7695281"
+	head := `<style>
+		.col { width: 220px; }
+		.check-id { white-space: nowrap; font-weight: bold; font-size: 17px; }
+	</style>`
+
+	cases := []struct {
+		name string
+		body string
+	}{
+		{
+			// Pretty-printed: newlines/tabs around the <b> become collapsible
+			// " " runs. In a <p> (unlike a <div>) these reach the run list.
+			name: "pretty-printed whitespace siblings in <p>",
+			body: "<p class=\"col\">\n\t<b class=\"check-id\">" + token + "</b>\n</p>",
+		},
+		{
+			name: "nested inline elements",
+			body: `<div class="col"><span class="check-id"><b>` + token + `</b></span></div>`,
+		},
+		{
+			name: "anchor link with nowrap",
+			body: `<div class="col"><a href="#x" class="check-id">` + token + `</a></div>`,
+		},
+		{
+			name: "multi-word nowrap run stays one line",
+			body: `<div class="col"><b class="check-id">one two three four five six seven eight</b></div>`,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			elems, err := Convert(head+tc.body, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(elems) == 0 {
+				t.Fatal("expected elements")
+			}
+			p := firstParagraph(elems[0])
+			if p == nil {
+				t.Fatal("expected a paragraph")
+			}
+			lines := p.Layout(165)
+			if len(lines) != 1 {
+				t.Fatalf("nowrap content should stay on one line, got %d", len(lines))
+			}
+		})
+	}
+}
+
+// TestWhiteSpaceNowrapMixedContentStillWraps pins the documented limitation:
+// folio's nowrap is a paragraph-level flag, so a paragraph mixing a nowrap
+// inline run with surrounding normal (wrapping) text is NOT treated as nowrap
+// — the whole paragraph keeps wrapping. This guards against a future change to
+// allRunsNoWrap that flips to an "any run nowrap" policy (which would wrongly
+// suppress wrapping of the normal text).
+func TestWhiteSpaceNowrapMixedContentStillWraps(t *testing.T) {
+	html := `<style>
+		.col { width: 220px; }
+		.nw { white-space: nowrap; }
+	</style>
+	<div class="col">Some ordinary wrapping text before <b class="nw">a-nowrap-span</b> and plenty more ordinary wrapping words after it to force a wrap</div>`
+
+	elems, err := Convert(html, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p := firstParagraph(elems[0])
+	if p == nil {
+		t.Fatal("expected a paragraph")
+	}
+	lines := p.Layout(165)
+	if len(lines) < 2 {
+		t.Errorf("mixed nowrap+normal paragraph should still wrap the normal text, got %d line(s)", len(lines))
+	}
+}
+
+// TestWhiteSpaceNowrapAcrossFonts is a fast (no Chrome/poppler needed)
+// regression guard across multiple font families and both TTF/glyf and
+// OTF/CFF outlines, so the nowrap fix isn't accidentally coupled to Poppins
+// specifically. No box-model properties are set on the element (no width,
+// no background) so it stays a bare Paragraph rather than being wrapped in
+// a Div — a Div's PlanLayout reports 1 top-level block regardless of how
+// many lines its inner paragraph wrapped into, which would make this
+// assertion pass even without the fix.
+func TestWhiteSpaceNowrapAcrossFonts(t *testing.T) {
+	files := []string{
+		"NimbusSans-Bold.otf",
+		"Inter-Bold.otf",
+		"NotoSans-Bold.ttf",
+		"OpenSans-Bold.ttf",
+		"Roboto-Bold.ttf",
+	}
+	for _, name := range files {
+		t.Run(name, func(t *testing.T) {
+			ttfData, err := os.ReadFile("../font/testdata/" + name)
+			if err != nil {
+				t.Fatal(err)
+			}
+			b64 := base64.StdEncoding.EncodeToString(ttfData)
+
+			src := `<html><head><style>
+			@font-face {
+				font-family: 'TestFont';
+				src: url(data:font/truetype;base64,` + b64 + `) format('truetype');
+				font-weight: bold;
+			}
+			p { font-family: 'TestFont'; font-weight: bold; font-size: 16px; white-space: nowrap; }
+		</style></head><body>
+			<p>ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789</p>
+		</body></html>`
+
+			elems, err := Convert(src, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(elems) == 0 {
+				t.Fatal("expected elements")
+			}
+			// The unbroken token measures ~270-295pt across these fonts at
+			// this font-size; constrain to well below that so it must
+			// genuinely overflow (not just fit) to exercise the nowrap
+			// guard — a wider area would pass even with nowrap reverted.
+			plan := elems[0].PlanLayout(layout.LayoutArea{Width: 150, Height: 1000})
+			if len(plan.Blocks) != 1 {
+				t.Errorf("white-space:nowrap should keep the token on one overflowing line, got %d blocks", len(plan.Blocks))
+			}
+		})
+	}
+}
+
+// --- line-height: normal ---
+
+// TestLineHeightNormalUsesFontMetrics asserts that `line-height: normal` on
+// an element using an embedded @font-face resolves from that font's own
+// vertical metrics, not a flat fontSize*1.2. Poppins declares an unusually
+// large line-gap, so its resolved leading is well above the old flat
+// default.
+func TestLineHeightNormalUsesFontMetrics(t *testing.T) {
+	ttfData, err := os.ReadFile("../font/testdata/Poppins-Bold.ttf")
+	if err != nil {
+		t.Fatal(err)
+	}
+	b64 := base64.StdEncoding.EncodeToString(ttfData)
+
+	src := `<html><head><style>
+		@font-face {
+			font-family: 'Poppins';
+			src: url(data:font/truetype;base64,` + b64 + `) format('truetype');
+		}
+		p { font-family: 'Poppins'; font-size: 11pt; line-height: normal; }
+	</style></head><body>
+		<p>Hello Poppins</p>
+	</body></html>`
+
+	elems, err := Convert(src, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(elems) == 0 {
+		t.Fatal("expected elements")
+	}
+	p, ok := elems[0].(*layout.Paragraph)
+	if !ok {
+		t.Fatalf("expected *Paragraph, got %T", elems[0])
+	}
+	lines := p.Layout(500)
+	if len(lines) == 0 || len(lines[0].Words) == 0 {
+		t.Fatal("no words")
+	}
+	ef := lines[0].Words[0].Embedded
+	if ef == nil {
+		t.Fatal("expected embedded font (Poppins @font-face was not loaded)")
+	}
+
+	const fontSize = 11.0
+	want := ef.NormalLineHeight(fontSize)
+	flatDefault := fontSize * 1.2
+	if want <= flatDefault {
+		t.Fatalf("test fixture assumption broken: Poppins's normal leading (%v) should exceed the flat default (%v)", want, flatDefault)
+	}
+	if math.Abs(lines[0].Height-want) > 0.001 {
+		t.Errorf("expected font-metric-derived height %.3f, got %.3f (flat 1.2 default would be %.3f)", want, lines[0].Height, flatDefault)
+	}
+}
+
+// innermostLineBoxHeight returns the height of the deepest paragraph line box
+// in the block tree produced by el (used to inspect an inline-block's inner
+// content line box).
+func innermostLineBoxHeight(el layout.Element) float64 {
+	plan := el.PlanLayout(layout.LayoutArea{Width: 400, Height: 1000})
+	var h float64
+	var walk func(bs []layout.PlacedBlock)
+	walk = func(bs []layout.PlacedBlock) {
+		for _, b := range bs {
+			if b.Tag == "P" && b.Height > 0 {
+				h = b.Height
+			}
+			walk(b.Children)
+		}
+	}
+	walk(plan.Blocks)
+	return h
+}
+
+// TestLineHeightLengthResolvesAgainstFinalFontSize is the regression test for
+// the step-circle vertical-centering bug: a length `line-height` must resolve
+// against the element's own final font-size regardless of declaration order.
+// `line-height: 20px; font-size: 11px` and `font-size: 11px; line-height: 20px`
+// must both yield a 20px (15pt) line box; previously the first order divided
+// 20px by the default 16px font-size, producing a too-short line box in which
+// the glyph rode high instead of centering.
+func TestLineHeightLengthResolvesAgainstFinalFontSize(t *testing.T) {
+	// 20px == 15pt line box; 11px == 8.25pt font. The used line box must be
+	// 15pt whichever order the two properties appear in.
+	const wantLineBox = 15.0
+
+	lhFirst := `<span style="display:inline-block;line-height:20px;font-size:11px">1</span>`
+	fsFirst := `<span style="display:inline-block;font-size:11px;line-height:20px">1</span>`
+
+	for _, tc := range []struct{ name, html string }{
+		{"line-height before font-size (report order)", lhFirst},
+		{"font-size before line-height", fsFirst},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			elems, err := Convert(tc.html, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(elems) == 0 {
+				t.Fatal("expected elements")
+			}
+			got := innermostLineBoxHeight(elems[0])
+			if math.Abs(got-wantLineBox) > 0.1 {
+				t.Errorf("inner line box = %.2f, want %.2f (line-height:20px must resolve to 15pt against the 11px font, not the default)", got, wantLineBox)
+			}
+		})
+	}
+
+	// Control: a number line-height stays font-size-relative and is unaffected
+	// by the fix (1.5 * 8.25pt = 12.375pt), regardless of order.
+	elems, err := Convert(`<span style="display:inline-block;line-height:1.5;font-size:11px">1</span>`, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := innermostLineBoxHeight(elems[0]); math.Abs(got-8.25*1.5) > 0.1 {
+		t.Errorf("number line-height 1.5: inner line box = %.2f, want %.2f", got, 8.25*1.5)
 	}
 }
 

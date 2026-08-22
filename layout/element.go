@@ -148,6 +148,11 @@ type TextRun struct {
 	LinkURI         string      // if non-empty, this run is part of a hyperlink
 	TextShadow      *TextShadow // if non-nil, draws a shadow behind the text
 	BackgroundColor *Color      // if non-nil, a highlight rectangle is drawn behind the text
+	// NoWrap marks this run as coming from a CSS white-space:nowrap context
+	// (which is an inherited property, so it can be set on an inline element
+	// rather than the block). The converter uses it to decide whether a
+	// whole paragraph should be laid out nowrap; see Paragraph.SetNoWrap.
+	NoWrap bool
 	// InlineElement holds a layout element (e.g. ImageElement, SVGElement,
 	// Div) that should flow inline within the paragraph. When set, text
 	// fields are ignored and the element is measured and rendered as an

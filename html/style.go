@@ -23,11 +23,18 @@ type computedStyle struct {
 	TextTransform        string // "none", "uppercase", "lowercase", "capitalize"
 	WhiteSpace           string // "normal", "nowrap", "pre", "pre-wrap", "pre-line"
 	LineHeight           float64
-	LetterSpacing        float64 // extra space between characters (points)
-	WordSpacing          float64 // extra space between words (points)
-	TextIndent           float64 // first-line indent (points)
-	WordBreak            string  // "normal", "break-all"
-	Hyphens              string  // "none", "manual", "auto"
+	// lineHeightRaw holds the raw CSS value of a standalone `line-height`
+	// declaration on THIS element (not inherited), so it can be re-resolved
+	// against the element's final font-size after the whole rule is applied.
+	// A length line-height (e.g. 20px) is otherwise eagerly divided by
+	// whatever font-size was current when the declaration ran, which is wrong
+	// when `font-size` is declared after `line-height` in the same rule.
+	lineHeightRaw string
+	LetterSpacing float64 // extra space between characters (points)
+	WordSpacing   float64 // extra space between words (points)
+	TextIndent    float64 // first-line indent (points)
+	WordBreak     string  // "normal", "break-all"
+	Hyphens       string  // "none", "manual", "auto"
 
 	// Box model
 	MarginTopAuto   bool // true if margin-top: auto (for flex layout)
@@ -467,7 +474,7 @@ func defaultStyle() computedStyle {
 		Color:          layout.ColorBlack,
 		TextAlign:      layout.AlignLeft,
 		TextDecoration: layout.DecorationNone,
-		LineHeight:     1.2,
+		LineHeight:     layout.LeadingNormal,
 		Display:        "block",
 		FlexDirection:  "row",
 		JustifyContent: "flex-start",

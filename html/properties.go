@@ -877,10 +877,13 @@ func parseFontShorthand(value string, parentSize float64) (style string, weight 
 	return style, weight, size, lineHeight, family
 }
 
-// parseLineHeight parses CSS line-height into a multiplier.
+// parseLineHeight parses CSS line-height into a multiplier, or
+// [layout.LeadingNormal] for the `normal` keyword (and any unparseable
+// value, which browsers treat as if the property were never set).
 //
 // Per CSS Inline Layout Module Level 3 §4.3, line-height accepts:
-//   - `normal` keyword (multiplier 1.2)
+//   - `normal` keyword (resolved from the font's own vertical metrics —
+//     see [layout.LeadingNormal] — not a flat multiplier)
 //   - a unitless `<number>` used directly as a multiplier
 //   - a `<length>` whose multiplier is length/fontSize
 //   - a `<percentage>` resolved against fontSize (so 150% → 1.5)
@@ -897,7 +900,7 @@ func parseFontShorthand(value string, parentSize float64) (style string, weight 
 func parseLineHeight(value string, fontSize float64) float64 {
 	value = strings.TrimSpace(strings.ToLower(value))
 	if value == "normal" || value == "" {
-		return 1.2
+		return layout.LeadingNormal
 	}
 
 	// Unitless number — direct multiplier.
@@ -919,7 +922,7 @@ func parseLineHeight(value string, fontSize float64) float64 {
 			return pts / fontSize
 		}
 	}
-	return 1.2
+	return layout.LeadingNormal
 }
 
 // parseFlexShorthand parses the CSS flex shorthand property.

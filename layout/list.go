@@ -157,6 +157,13 @@ func (l *List) SetLeading(leading float64) *List {
 	return l
 }
 
+// lineHeight resolves the list's own line height (fontSize/embedded font,
+// not any specific item), for call sites that need a line-height fallback
+// without an item's own measured run at hand.
+func (l *List) lineHeight() float64 {
+	return resolveLineHeight(l.leading, l.fontSize, []TextRun{{Font: l.font, Embedded: l.embedded, FontSize: l.fontSize}})
+}
+
 // SetDirection sets the text direction for list items. When RTL, markers
 // are positioned on the right side and item text is indented from the
 // right margin. Item paragraphs inherit this direction for bidi reordering.
@@ -373,7 +380,7 @@ func (l *List) layoutElementItem(item listItem, index int, maxWidth, totalIndent
 	if ok {
 		markerOffsetY = firstY + computeBaseline(markerWords, firstH)
 	} else {
-		markerOffsetY = computeBaseline(markerWords, l.fontSize*l.leading)
+		markerOffsetY = computeBaseline(markerWords, l.lineHeight())
 	}
 
 	line := Line{
@@ -699,7 +706,7 @@ func (l *List) planAt(area LayoutArea, baseIndent float64) LayoutPlan {
 			textPara.SetFirstLineIndent(markerW)
 		}
 		textWords, maxFS := textPara.measureWords(itemWidth)
-		lineHeight := maxFS * l.leading
+		lineHeight := resolveLineHeight(l.leading, maxFS, textPara.runs)
 		wordLines := textPara.wrapWords(textWords, itemWidth)
 
 		// Build PlacedBlocks for each text line. fitCount tracks how many of
@@ -912,7 +919,7 @@ func (l *List) planElementItem(item listItem, index int, area LayoutArea, totalI
 	if ok {
 		markerBaseline = firstY + computeBaseline(markerWords, firstH)
 	} else {
-		markerBaseline = computeBaseline(markerWords, l.fontSize*l.leading)
+		markerBaseline = computeBaseline(markerWords, l.lineHeight())
 	}
 
 	// Shift the element's blocks into the content column at curY.

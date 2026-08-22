@@ -53,6 +53,41 @@ func computeBaseline(words []Word, lineH float64) float64 {
 	return baseline
 }
 
+// resolveLineHeight computes a paragraph's (uniform, whole-paragraph) line
+// box height. When leading is [LeadingNormal], the height is the max over
+// every run's own resolved normal leading — matching how browsers size a
+// line box from every inline box on it, not "whichever run happens to carry
+// the largest font-size." font.Standard (the base-14 PDF fonts) has no
+// embedded vertical metrics to consult, so each such run contributes the
+// same fontSize*1.2 approximation used before this existed, rather than
+// being excluded from the max outright — otherwise a large plain-font run
+// sharing a line with a small embedded-font run would resolve to a line
+// height shorter than the plain font actually needs.
+func resolveLineHeight(leading, maxFontSize float64, runs []TextRun) float64 {
+	if leading != LeadingNormal {
+		return maxFontSize * leading
+	}
+	var maxHeight float64
+	for _, run := range runs {
+		var h float64
+		switch {
+		case run.Embedded != nil:
+			h = run.Embedded.NormalLineHeight(run.FontSize)
+		case run.Font != nil:
+			h = run.FontSize * 1.2
+		default:
+			continue // inline elements / line-break markers carry no font metrics
+		}
+		if h > maxHeight {
+			maxHeight = h
+		}
+	}
+	if maxHeight > 0 {
+		return maxHeight
+	}
+	return maxFontSize * 1.2
+}
+
 // runsAdjacent returns true when run at index i directly abuts the previous
 // run with no whitespace between them. This happens with inline elements like
 // <sub>/<sup> where "C<sub>8</sub>" produces runs ["C", "8"] with no space.
@@ -140,8 +175,18 @@ func inlineSpaceAfter(measured []Word, runs []TextRun, currentIdx int) float64 {
 }
 
 // MinWidth implements Measurable. Returns the width of the longest word
-// (the narrowest the paragraph can be without clipping).
+// (the narrowest the paragraph can be without clipping). Under
+// white-space:nowrap there is no wrap opportunity at all, so the paragraph
+// can't shrink below its full single-line width — a shrink-to-fit/auto-width
+// container sized to the longest *word* would be too narrow and the nowrap
+// text would overflow it.
 func (p *Paragraph) MinWidth() float64 {
+	// Checked before the longest-word cache: MaxWidth() maintains its own
+	// cache, and cachedMinW holds the longest-word width, which is not what
+	// nowrap should report.
+	if p.noWrap {
+		return p.MaxWidth()
+	}
 	if p.minWValid {
 		return p.cachedMinW
 	}
@@ -403,8 +448,13 @@ func (p *Paragraph) measureWords(maxWidth float64) ([]Word, float64) {
 	// requires every word be split at character boundaries, not just the
 	// over-long ones. Calling only breakLongWords here let break-all
 	// silently degrade to default break behavior whenever re-measurement
-	// was performed by this code path.
-	if p.wordBreak == "break-all" {
+	// was performed by this code path. white-space:nowrap leaves an
+	// overlong word intact so it overflows instead of wrapping.
+	if p.noWrap {
+		// nowrap forbids taking any break opportunity, including the ones
+		// break-all would otherwise add — matches browser behavior where
+		// white-space:nowrap overrides word-break within the same element.
+	} else if p.wordBreak == "break-all" {
 		measured = breakAllWords(measured, maxWidth)
 	} else {
 		measured = breakLongWords(measured, maxWidth)

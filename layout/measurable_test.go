@@ -49,6 +49,20 @@ func TestParagraphMinWidthLongWord(t *testing.T) {
 	}
 }
 
+// TestParagraphMinWidthNoWrap asserts that under white-space:nowrap,
+// MinWidth equals MaxWidth (the full single-line width) rather than the
+// longest individual word — nowrap has no wrap opportunity, so a
+// shrink-to-fit container sized to the longest word alone would be
+// narrower than the nowrap text actually needs and force it to overflow.
+func TestParagraphMinWidthNoWrap(t *testing.T) {
+	p := NewParagraph("Hello World", font.Helvetica, 12).SetNoWrap(true)
+	minW := p.MinWidth()
+	maxW := p.MaxWidth()
+	if math.Abs(minW-maxW) > 0.001 {
+		t.Errorf("MinWidth = %.2f, want %.2f (== MaxWidth under nowrap)", minW, maxW)
+	}
+}
+
 func TestHeadingMeasurable(t *testing.T) {
 	h := NewHeading("Chapter One", H1)
 	minW := h.MinWidth()

@@ -96,7 +96,7 @@ func (tl *TabbedLine) Layout(maxWidth float64) []Line {
 	return []Line{{
 		Words:  words,
 		Width:  totalWidth,
-		Height: tl.fontSize * tl.leading,
+		Height: tl.lineHeight(),
 		SpaceW: measurer.MeasureString(" ", tl.fontSize),
 		Align:  AlignLeft,
 		IsLast: true,
@@ -236,6 +236,12 @@ func (tl *TabbedLine) measurer() font.TextMeasurer {
 	return resolveMeasurer(tl.embedded, tl.font, tl.font)
 }
 
+// lineHeight resolves the tabbed line's line height, honoring
+// line-height:normal (LeadingNormal) via the line's own font metrics.
+func (tl *TabbedLine) lineHeight() float64 {
+	return resolveLineHeight(tl.leading, tl.fontSize, []TextRun{{Font: tl.font, Embedded: tl.embedded, FontSize: tl.fontSize}})
+}
+
 // MinWidth implements Measurable. Returns the rightmost tab stop position
 // (the narrowest width that shows all tab-positioned content).
 func (tl *TabbedLine) MinWidth() float64 {
@@ -258,7 +264,7 @@ func (tl *TabbedLine) PlanLayout(area LayoutArea) LayoutPlan {
 	}
 
 	measurer := tl.measurer()
-	lineHeight := tl.fontSize * tl.leading
+	lineHeight := tl.lineHeight()
 	words, totalWidth := tl.computeWords(measurer)
 
 	if lineHeight > area.Height && area.Height > 0 {

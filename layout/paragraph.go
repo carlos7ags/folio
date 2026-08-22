@@ -10,12 +10,21 @@ import (
 	"github.com/carlos7ags/folio/font"
 )
 
+// LeadingNormal is the sentinel [Paragraph.SetLeading] value for CSS
+// `line-height: normal`. Unlike a literal multiplier, it defers resolution
+// to layout time, where it's derived from the actual font's vertical
+// metrics (see [resolveLineHeight]) instead of a flat fontSize*1.2 — fonts
+// that declare a larger line-gap get proportionally more leading, matching
+// how browsers resolve `normal`.
+const LeadingNormal = -1
+
 // Paragraph is a block of text that word-wraps within the available width.
 // It is composed of one or more TextRuns, each with its own font, size,
 // and color. All runs flow together as a single word-wrapped unit.
 type Paragraph struct {
 	runs             []TextRun
 	leading          float64 // line height multiplier (e.g. 1.2 means 120% of fontSize)
+	noWrap           bool    // true for CSS white-space:nowrap — a word wider than maxWidth overflows instead of being character-broken
 	align            Align
 	alignSet         bool              // true if SetAlign was called explicitly
 	direction        Direction         // base text direction for bidi layout
@@ -267,6 +276,14 @@ func (p *Paragraph) SetWordBreak(wb string) *Paragraph {
 	return p
 }
 
+// SetNoWrap sets CSS white-space:nowrap behavior. When true, a word wider
+// than the available width overflows rather than being character-broken —
+// matching how browsers treat an unbreakable nowrap run. Default is false.
+func (p *Paragraph) SetNoWrap(noWrap bool) *Paragraph {
+	p.noWrap = noWrap
+	return p
+}
+
 // SetHyphens sets the hyphenation mode. "auto" enables automatic hyphenation
 // at syllable boundaries. "none" disables all hyphenation. "manual" (default)
 // only breaks at soft hyphens (&shy;).
@@ -333,9 +350,11 @@ func (p *Paragraph) Layout(maxWidth float64) []Line {
 	}
 
 	// CJK break, break-all/long-word breaking already applied by
-	// measureWords above; do not repeat them here.
+	// measureWords above (including the white-space:nowrap exemption that
+	// leaves an overlong word intact so it overflows instead of wrapping);
+	// do not repeat them here.
 
-	lineHeight := maxFontSize * p.leading
+	lineHeight := resolveLineHeight(p.leading, maxFontSize, p.runs)
 
 	// Greedy word-wrap.
 	// Space between words uses the preceding word's SpaceAfter.
@@ -361,7 +380,7 @@ func (p *Paragraph) Layout(maxWidth float64) []Line {
 		}
 		spaceW := measured[i-1].SpaceAfter
 		candidate := lineWidth + spaceW + measured[i].Width
-		if candidate > effectiveMax && lineStart < i {
+		if !p.noWrap && candidate > effectiveMax && lineStart < i {
 			// Try hyphenation: if enabled, attempt to break the next word
 			// and fit part of it on this line with a hyphen.
 			if p.hyphens == "auto" {
@@ -416,9 +435,12 @@ func (p *Paragraph) Layout(maxWidth float64) []Line {
 		}
 	}
 
-	// Apply ellipsis truncation: if enabled, keep only the first line
-	// and replace trailing text with "..." if it overflows.
-	if p.ellipsis && len(lines) > 1 {
+	// Apply ellipsis truncation: if enabled, keep only the first line and
+	// replace trailing text with "..." if it overflows — either because
+	// wrapping produced more than one line, or (under white-space:nowrap,
+	// which always yields a single line) because that single line is
+	// itself wider than maxWidth.
+	if p.ellipsis && len(lines) > 0 && (len(lines) > 1 || lines[0].Width > maxWidth) {
 		widths := make([]float64, len(lines))
 		wordLines := make([][]Word, len(lines))
 		for i, l := range lines {

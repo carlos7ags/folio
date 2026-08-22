@@ -10,6 +10,18 @@ import (
 	"github.com/carlos7ags/folio/layout"
 )
 
+// approxLineHeight resolves s.LineHeight to a point value for callers (like
+// baseline-shift percentage resolution) that need a plain number and don't
+// have a font face in scope to resolve [layout.LeadingNormal] properly —
+// falls back to the same 1.2 approximation used before normal line-height
+// became font-metric-derived.
+func approxLineHeight(s *computedStyle) float64 {
+	if s.LineHeight == layout.LeadingNormal {
+		return s.FontSize * 1.2
+	}
+	return s.FontSize * s.LineHeight
+}
+
 // cssProperty is a declarative descriptor for a single CSS property
 // the parser knows about. The parser dispatches via cssPropByName when
 // applying a declaration; the same registry is the source of truth for
@@ -253,7 +265,13 @@ var cssProperties = []cssProperty{
 		Name: "line-height", Category: "Typography",
 		Values: []string{"<number>", "<length>", "<percentage>", "normal"},
 		Apply: func(s *computedStyle, value string) {
+			// Resolve eagerly as a sensible default, and remember the raw
+			// value so computeElementStyle can re-resolve it against the
+			// element's final font-size (a length line-height declared before
+			// font-size would otherwise use a stale font-size — see the field
+			// doc on computedStyle.lineHeightRaw).
 			s.LineHeight = parseLineHeight(value, s.FontSize)
+			s.lineHeightRaw = value
 		},
 	},
 	{
@@ -1404,8 +1422,7 @@ var cssProperties = []cssProperty{
 				s.VerticalAlign = v
 				s.BaselineShiftSet = false
 			} else if l := parseCSSLengthWithUnit(v); l != nil {
-				lineH := s.FontSize * s.LineHeight
-				s.BaselineShiftValue = l.toPoints(lineH, s.FontSize)
+				s.BaselineShiftValue = l.toPoints(approxLineHeight(s), s.FontSize)
 				s.BaselineShiftSet = true
 			}
 		},
@@ -1428,8 +1445,7 @@ var cssProperties = []cssProperty{
 				s.BaselineShiftSet = false
 			default:
 				if l := parseCSSLengthWithUnit(v); l != nil {
-					lineH := s.FontSize * s.LineHeight
-					s.BaselineShiftValue = l.toPoints(lineH, s.FontSize)
+					s.BaselineShiftValue = l.toPoints(approxLineHeight(s), s.FontSize)
 					s.BaselineShiftSet = true
 				}
 			}
@@ -1452,8 +1468,13 @@ var cssProperties = []cssProperty{
 			if sz > 0 {
 				s.FontSize = sz
 			}
-			if lh > 0 {
+			if lh != 0 {
 				s.LineHeight = lh
+				// The shorthand's line-height was parsed against the
+				// shorthand's own font-size (self-consistent), so clear any
+				// pending standalone raw value — this shorthand is the
+				// winning line-height declaration.
+				s.lineHeightRaw = ""
 			}
 			if ff != "" {
 				s.FontFamily = ff

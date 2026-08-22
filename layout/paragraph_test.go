@@ -5,6 +5,7 @@ package layout
 
 import (
 	"math"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -159,6 +160,132 @@ func TestParagraphLineHeight(t *testing.T) {
 	expected := 14.4 // 12 * 1.2 (default leading)
 	if math.Abs(lines[0].Height-expected) > 0.001 {
 		t.Errorf("expected height %.1f, got %.3f", expected, lines[0].Height)
+	}
+}
+
+// TestParagraphLeadingNormalUsesFontMetrics is the regression test asserting
+// that line-height:normal is derived from the embedded font's own vertical
+// metrics (ascent+descent+line-gap), not a flat fontSize*1.2 — Poppins
+// declares an unusually large line-gap, so its normal leading is well above
+// the 1.2 default other fonts fall back to.
+func TestParagraphLeadingNormalUsesFontMetrics(t *testing.T) {
+	path, err := filepath.Abs("../font/testdata/Poppins-Bold.ttf")
+	if err != nil {
+		t.Fatal(err)
+	}
+	face, err := font.LoadFont(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ef := font.NewEmbeddedFont(face)
+
+	const fontSize = 11
+	want := ef.NormalLineHeight(fontSize)
+	if want <= fontSize*1.2 {
+		t.Fatalf("test fixture assumption broken: Poppins's normal leading (%v) should exceed the flat 1.2 default (%v)", want, fontSize*1.2)
+	}
+
+	p := NewParagraphEmbedded("Hello", ef, fontSize).SetLeading(LeadingNormal)
+	lines := p.Layout(500)
+	if len(lines) == 0 {
+		t.Fatal("expected at least one line")
+	}
+	if math.Abs(lines[0].Height-want) > 0.001 {
+		t.Errorf("Layout: expected height %.3f (font-metric-derived), got %.3f", want, lines[0].Height)
+	}
+
+	plan := p.PlanLayout(LayoutArea{Width: 500, Height: 1000})
+	if len(plan.Blocks) == 0 {
+		t.Fatal("expected at least one block")
+	}
+}
+
+// TestParagraphLeadingNormalMixedFontsTakesMaxRegardlessOfOrder asserts that
+// when a paragraph mixes a plain font.Standard run with an embedded-font
+// run, line-height:normal resolves to the tallest of the two runs' own
+// normal leading — not "whichever run happens to carry the largest
+// font-size" (which is order-dependent when runs tie on size, and can
+// under-size the line box when a smaller-font embedded run needs more
+// leading than a larger plain-font run).
+func TestParagraphLeadingNormalMixedFontsTakesMaxRegardlessOfOrder(t *testing.T) {
+	path, err := filepath.Abs("../font/testdata/Poppins-Bold.ttf")
+	if err != nil {
+		t.Fatal(err)
+	}
+	face, err := font.LoadFont(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ef := font.NewEmbeddedFont(face)
+
+	const fontSize = 12
+	wantHeight := ef.NormalLineHeight(fontSize)
+	if wantHeight <= fontSize*1.2 {
+		t.Fatalf("test fixture assumption broken: Poppins's normal leading (%v) should exceed the flat 1.2 default (%v)", wantHeight, fontSize*1.2)
+	}
+
+	standardRun := TextRun{Text: "Std ", Font: font.Helvetica, FontSize: fontSize}
+	embeddedRun := TextRun{Text: "Emb", Embedded: ef, FontSize: fontSize}
+
+	for _, tc := range []struct {
+		name string
+		runs []TextRun
+	}{
+		{"standard first", []TextRun{standardRun, embeddedRun}},
+		{"embedded first", []TextRun{embeddedRun, standardRun}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			p := NewStyledParagraph(tc.runs...).SetLeading(LeadingNormal)
+			lines := p.Layout(500)
+			if len(lines) == 0 {
+				t.Fatal("expected at least one line")
+			}
+			if math.Abs(lines[0].Height-wantHeight) > 0.001 {
+				t.Errorf("Layout: expected height %.3f regardless of run order, got %.3f", wantHeight, lines[0].Height)
+			}
+			plan := p.PlanLayout(LayoutArea{Width: 500, Height: 1000})
+			if len(plan.Blocks) == 0 {
+				t.Fatal("expected at least one block")
+			}
+		})
+	}
+}
+
+// TestParagraphLeadingNormalLargeStandardFontNotUndersized asserts that a
+// large font.Standard run sharing a line with a small embedded-font run
+// still gets at least its own fontSize*1.2 leading under line-height:normal
+// — a standard-font run must contribute to the max, not be excluded from it
+// just because it has no embedded vertical metrics to consult.
+func TestParagraphLeadingNormalLargeStandardFontNotUndersized(t *testing.T) {
+	path, err := filepath.Abs("../font/testdata/Poppins-Bold.ttf")
+	if err != nil {
+		t.Fatal(err)
+	}
+	face, err := font.LoadFont(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ef := font.NewEmbeddedFont(face)
+
+	const bigSize = 24
+	const smallSize = 8
+	smallEmbeddedHeight := ef.NormalLineHeight(smallSize)
+	minAcceptable := bigSize * 1.2
+	if smallEmbeddedHeight >= minAcceptable {
+		t.Fatalf("test fixture assumption broken: small embedded run's height (%v) should be less than the large standard run's minimum (%v)", smallEmbeddedHeight, minAcceptable)
+	}
+
+	p := NewStyledParagraph(
+		TextRun{Text: "Big ", Font: font.Helvetica, FontSize: bigSize},
+		TextRun{Text: "small", Embedded: ef, FontSize: smallSize},
+	).SetLeading(LeadingNormal)
+
+	lines := p.Layout(500)
+	if len(lines) == 0 {
+		t.Fatal("expected at least one line")
+	}
+	if lines[0].Height < minAcceptable-0.001 {
+		t.Errorf("Layout: height %.3f is shorter than the large standard run's own minimum leading %.3f — overlapping lines", lines[0].Height, minAcceptable)
 	}
 }
 
@@ -982,6 +1109,42 @@ func TestComputeBaselineFallback(t *testing.T) {
 	}
 }
 
+// TestSingleLineCenteredInTallerBox verifies the half-leading centering that
+// backs the CSS "line-height == box height" vertical-centering idiom: for a
+// single line whose line box is taller than the glyph, the extra leading is
+// split evenly above and below so the glyph's vertical center coincides with
+// the line box's center — the glyph must not ride high.
+func TestSingleLineCenteredInTallerBox(t *testing.T) {
+	const fontSize = 8.25 // 11px
+	// line box (20px == 15pt) taller than the glyph's content height.
+	lineH := 15.0
+	p := NewParagraph("1", font.HelveticaBold, fontSize).SetLeading(lineH / fontSize)
+	lines := p.Layout(200)
+	if len(lines) != 1 {
+		t.Fatalf("expected 1 line, got %d", len(lines))
+	}
+	if math.Abs(lines[0].Height-lineH) > 0.01 {
+		t.Fatalf("line height = %.3f, want %.3f", lines[0].Height, lineH)
+	}
+
+	baseline := computeBaseline(lines[0].Words, lines[0].Height)
+	ascent := font.HelveticaBold.Ascent(fontSize)
+	descent := font.HelveticaBold.Descent(fontSize)
+	glyphTop := baseline - ascent
+	glyphBottom := baseline + descent
+	glyphCenter := (glyphTop + glyphBottom) / 2
+	boxCenter := lines[0].Height / 2
+	if math.Abs(glyphCenter-boxCenter) > 0.01 {
+		t.Errorf("glyph center %.3f != box center %.3f — extra leading not split evenly (glyph not centered)", glyphCenter, boxCenter)
+	}
+	// Sanity: the space above the glyph equals the space below.
+	spaceAbove := glyphTop
+	spaceBelow := lines[0].Height - glyphBottom
+	if math.Abs(spaceAbove-spaceBelow) > 0.01 {
+		t.Errorf("half-leading uneven: %.3f above vs %.3f below", spaceAbove, spaceBelow)
+	}
+}
+
 func TestComputeBaselineMixedSizes(t *testing.T) {
 	words := []Word{
 		{Font: font.Helvetica, FontSize: 12},
@@ -1257,6 +1420,30 @@ func TestParagraphEllipsis(t *testing.T) {
 	}
 }
 
+// TestParagraphEllipsisWithNoWrap asserts that white-space:nowrap combined
+// with text-overflow:ellipsis — the standard CSS single-line-truncation
+// idiom (white-space:nowrap; overflow:hidden; text-overflow:ellipsis) —
+// still truncates. nowrap always yields exactly one line, so truncation
+// can't be gated on "more than one line" the way ordinary wrapped overflow
+// is; it must also fire when that single line is itself wider than
+// maxWidth.
+func TestParagraphEllipsisWithNoWrap(t *testing.T) {
+	text := "This is a very long line of unbreakable-looking text for nowrap truncation"
+	p := NewParagraph(text, font.Helvetica, 12).SetNoWrap(true).SetEllipsis(true)
+
+	lines := p.Layout(100)
+	if len(lines) != 1 {
+		t.Fatalf("expected exactly 1 line under nowrap, got %d", len(lines))
+	}
+	if lines[0].Width > 100 {
+		t.Errorf("expected the line to be truncated to fit within maxWidth=100, got width %.2f", lines[0].Width)
+	}
+	last := lines[0].Words[len(lines[0].Words)-1]
+	if !strings.HasSuffix(last.Text, "...") {
+		t.Errorf("expected truncated line to end with an ellipsis, last word = %q", last.Text)
+	}
+}
+
 // TestPlanLayoutEllipsis asserts that Paragraph.PlanLayout — the render
 // path Div.PlanLayout actually calls — truncates with an ellipsis exactly
 // like Paragraph.Layout does. Regression for ellipsis being applied only
@@ -1379,5 +1566,79 @@ func TestParagraphWidowsOrphans(t *testing.T) {
 	pages := r.Render()
 	if len(pages) < 2 {
 		t.Fatalf("expected ≥2 pages, got %d", len(pages))
+	}
+}
+
+// TestParagraphNoWrapOverflowsInsteadOfBreaking is the regression test
+// asserting that an unbreakable word wider than maxWidth stays on one
+// (overflowing) line under white-space:nowrap instead of being character-
+// broken across lines, matching browser behavior. Layout and PlanLayout are
+// two independent word-wrap implementations (the latter used for
+// fragmentable/boxed content) so both are covered here.
+func TestParagraphNoWrapOverflowsInsteadOfBreaking(t *testing.T) {
+	word := strings.Repeat("A", 60) // wider than maxWidth at any reasonable font size
+
+	t.Run("Layout", func(t *testing.T) {
+		p := NewParagraph(word, font.Helvetica, 12).SetNoWrap(true)
+		lines := p.Layout(50)
+		if len(lines) != 1 {
+			t.Fatalf("expected 1 overflowing line, got %d", len(lines))
+		}
+		if lines[0].Words[0].Text != word {
+			t.Errorf("word was split: got %q", lines[0].Words[0].Text)
+		}
+	})
+
+	t.Run("PlanLayout", func(t *testing.T) {
+		p := NewParagraph(word, font.Helvetica, 12).SetNoWrap(true)
+		plan := p.PlanLayout(LayoutArea{Width: 50, Height: 1000})
+		if len(plan.Blocks) != 1 {
+			t.Fatalf("expected 1 overflowing block, got %d", len(plan.Blocks))
+		}
+	})
+
+	t.Run("without nowrap still breaks", func(t *testing.T) {
+		p := NewParagraph(word, font.Helvetica, 12)
+		lines := p.Layout(50)
+		if len(lines) < 2 {
+			t.Fatalf("expected the word to be character-broken across multiple lines, got %d", len(lines))
+		}
+	})
+
+	t.Run("does not soft-wrap at spaces", func(t *testing.T) {
+		p := NewParagraph("hello world this is nowrap text", font.Helvetica, 12).SetNoWrap(true)
+		lines := p.Layout(50)
+		if len(lines) != 1 {
+			t.Fatalf("expected the whole multi-word run to stay on one overflowing line, got %d lines", len(lines))
+		}
+	})
+
+	t.Run("break-all does not force a break nowrap forbids", func(t *testing.T) {
+		p := NewParagraph(word, font.Helvetica, 12).SetNoWrap(true).SetWordBreak("break-all")
+		lines := p.Layout(50)
+		if len(lines) != 1 {
+			t.Fatalf("expected nowrap to override break-all and keep one overflowing line, got %d lines", len(lines))
+		}
+	})
+}
+
+// TestParagraphNoWrapPropagatesAcrossOverflowContinuation is the regression
+// test for cloneWithWords dropping noWrap: a nowrap paragraph that overflows
+// a page/column boundary (via PlanLayout's LayoutPartial/Overflow) must keep
+// nowrap on its continuation fragment, not regress to character-breaking.
+func TestParagraphNoWrapPropagatesAcrossOverflowContinuation(t *testing.T) {
+	text := "first\n" + strings.Repeat("A", 60)
+	p := NewParagraph(text, font.Helvetica, 12).SetNoWrap(true)
+	plan := p.PlanLayout(LayoutArea{Width: 50, Height: 15})
+	if plan.Status != LayoutPartial {
+		t.Fatalf("expected LayoutPartial (first line fits, second overflows the height), got %v", plan.Status)
+	}
+	overflow, ok := plan.Overflow.(*Paragraph)
+	if !ok {
+		t.Fatalf("expected *Paragraph overflow, got %T", plan.Overflow)
+	}
+	lines := overflow.Layout(50)
+	if len(lines) != 1 {
+		t.Errorf("expected the nowrap continuation to stay on one overflowing line, got %d (noWrap was dropped by the clone)", len(lines))
 	}
 }
