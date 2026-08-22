@@ -6,6 +6,7 @@ package document
 import (
 	"crypto/md5"
 	"fmt"
+	"hash"
 	"io"
 
 	"github.com/carlos7ags/folio/core"
@@ -223,19 +224,29 @@ func (w *Writer) WriteToWithOptions(out io.Writer, opts WriteOptions) (int64, er
 	}
 
 	// Deterministic /ID: when requested and no explicit identifier was set
-	// (via SetFileID), derive a stable /ID from the final object set — after
-	// the optimization passes above have settled object content and numbers
-	// — so identical inputs yield byte-identical output. Encryption supplies
-	// its own random /ID and key, so deterministic output is unavailable for
-	// encrypted documents and the derivation is skipped there.
+	// (via SetFileID), derive a stable /ID from the bytes actually written
+	// before the trailer — header, object bodies, and (on the traditional
+	// path) the xref table — via a hashing tee on the output writer. This
+	// needs no extra serialization pass: identical inputs still produce
+	// byte-identical output, since the digest covers exactly the
+	// deterministic content the writer emits. Encryption supplies its own
+	// random /ID and key, so deterministic output is unavailable for
+	// encrypted documents and the tee is skipped there.
+	var h hash.Hash
 	if opts.Deterministic && len(w.fileID) == 0 && w.encryptor == nil {
-		w.fileID = w.deterministicFileID()
+		h = md5.New()
+		out = io.MultiWriter(out, h)
+	}
+	finishID := func() {
+		if h != nil && len(w.fileID) == 0 {
+			w.fileID = h.Sum(nil)
+		}
 	}
 
 	cw := &countingWriter{w: out}
 
 	if opts.UseObjectStreams {
-		return cw.n, w.writeXRefStreamWithObjStms(cw, opts)
+		return cw.n, w.writeXRefStreamWithObjStms(cw, opts, finishID)
 	}
 
 	if err := writeHeader(cw, w.version); err != nil {
@@ -248,9 +259,9 @@ func (w *Writer) WriteToWithOptions(out io.Writer, opts WriteOptions) (int64, er
 	}
 
 	if opts.UseXRefStream {
-		return cw.n, w.writeXRefStreamTrailer(cw, offsets)
+		return cw.n, w.writeXRefStreamTrailer(cw, offsets, finishID)
 	}
-	return cw.n, w.writeTraditionalTrailer(cw, offsets)
+	return cw.n, w.writeTraditionalTrailer(cw, offsets, finishID)
 }
 
 // writeHeader emits the PDF version header and the four-byte binary
@@ -292,7 +303,7 @@ func (w *Writer) writeObjectBodies(cw *countingWriter) ([]int64, error) {
 
 // writeTraditionalTrailer emits a §7.5.4 cross-reference table and a
 // §7.5.5 trailer dictionary followed by startxref and EOF.
-func (w *Writer) writeTraditionalTrailer(cw *countingWriter, offsets []int64) error {
+func (w *Writer) writeTraditionalTrailer(cw *countingWriter, offsets []int64, finishID func()) error {
 	xrefOffset := cw.n
 	if _, err := fmt.Fprint(cw, "xref\n"); err != nil {
 		return err
@@ -309,6 +320,7 @@ func (w *Writer) writeTraditionalTrailer(cw *countingWriter, offsets []int64) er
 		}
 	}
 
+	finishID()
 	trailer := w.buildTrailerDict()
 	trailer.Set("Size", core.NewPdfInteger(len(w.objects)+1))
 	if _, err := fmt.Fprint(cw, "trailer\n"); err != nil {
@@ -329,7 +341,7 @@ func (w *Writer) writeTraditionalTrailer(cw *countingWriter, offsets []int64) er
 // always the last object in the file, so its own offset is known
 // before any compression happens and the field-width calculation can
 // observe the maximum offset directly — no chicken-and-egg.
-func (w *Writer) writeXRefStreamTrailer(cw *countingWriter, offsets []int64) error {
+func (w *Writer) writeXRefStreamTrailer(cw *countingWriter, offsets []int64, finishID func()) error {
 	xrefStreamObjNum := len(w.objects) + 1
 	xrefStreamOffset := cw.n
 	size := xrefStreamObjNum + 1 // covers object numbers 0..xrefStreamObjNum
@@ -349,6 +361,7 @@ func (w *Writer) writeXRefStreamTrailer(cw *countingWriter, offsets []int64) err
 		Field3: 0,
 	}
 
+	finishID()
 	extras := w.buildTrailerDict()
 	subsections := []core.XRefStreamSubsection{{First: 0, Entries: entries}}
 	stream, err := core.BuildXRefStream(subsections, size, extras)
@@ -389,22 +402,4 @@ func (w *Writer) buildTrailerDict() *core.PdfDictionary {
 		d.Set("ID", core.NewPdfArray(id, id))
 	}
 	return d
-}
-
-// deterministicFileID derives a stable 16-byte file identifier by hashing
-// the serialized form of every registered object in order. Because the
-// object set, object numbers, and each object's serialization are fully
-// determined by the document content — PdfDictionary preserves insertion
-// order, so there is no map-iteration nondeterminism — identical input
-// documents produce an identical identifier. MD5 yields exactly the 16
-// bytes a /ID entry expects (ISO 32000-1 §14.4); it is used here only as a
-// content digest, not for any security property.
-func (w *Writer) deterministicFileID() []byte {
-	h := md5.New()
-	for _, obj := range w.objects {
-		_, _ = fmt.Fprintf(h, "%d %d obj\n", obj.ObjectNumber, obj.GenerationNumber)
-		_, _ = obj.Object.WriteTo(h)
-		_, _ = io.WriteString(h, "\nendobj\n")
-	}
-	return h.Sum(nil)
 }
