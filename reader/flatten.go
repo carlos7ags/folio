@@ -204,7 +204,7 @@ func (m *Modifier) flattenPage(pageDict *core.PdfDictionary, pageIndex int) erro
 	if len(keepAnnots) == 0 {
 		removeEntry(pageDict, "Annots")
 	} else {
-		pageDict.Set("Annots", &core.PdfArray{Elements: keepAnnots})
+		pageDict.Set("Annots", core.NewPdfArray(keepAnnots...))
 	}
 
 	return nil
