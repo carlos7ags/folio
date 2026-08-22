@@ -22,8 +22,9 @@ type Image struct {
 	smaskH     int    // smask height
 	adobeCMYK  bool   // Adobe-style inverted CMYK (APP14 marker, ncomp==4)
 
-	preCompressed   bool // data is already a FlateDecode (zlib) payload
-	predictorColors int  // /Colors for the PNG predictor; 0 = no predictor
+	preCompressed   bool           // data is already a FlateDecode (zlib) payload
+	predictorColors int            // /Colors for the PNG predictor; 0 = no predictor
+	colorSpaceObj   core.PdfObject // overrides colorSpace when non-nil (e.g. /Indexed array)
 }
 
 // Width returns the image width in pixels.
@@ -144,7 +145,11 @@ func (img *Image) BuildXObject(addObject func(core.PdfObject) *core.PdfIndirectR
 	stream.Dict.Set("Subtype", core.NewPdfName("Image"))
 	stream.Dict.Set("Width", core.NewPdfInteger(img.width))
 	stream.Dict.Set("Height", core.NewPdfInteger(img.height))
-	stream.Dict.Set("ColorSpace", core.NewPdfName(img.colorSpace))
+	if img.colorSpaceObj != nil {
+		stream.Dict.Set("ColorSpace", img.colorSpaceObj)
+	} else {
+		stream.Dict.Set("ColorSpace", core.NewPdfName(img.colorSpace))
+	}
 	stream.Dict.Set("BitsPerComponent", core.NewPdfInteger(img.bpc))
 
 	// Adobe-written CMYK JPEGs store components in inverted form relative

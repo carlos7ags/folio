@@ -14,6 +14,8 @@ import (
 	"image/png"
 	"io"
 	"math"
+
+	"github.com/carlos7ags/folio/core"
 )
 
 // NewPNG creates an Image from raw PNG data. It decodes the PNG and
@@ -205,8 +207,9 @@ func pngPassthrough(data []byte) *Image {
 		width, height                      int
 		bitDepth, colorType                byte
 		compression, filterMethod, interlc byte
-		sawIHDR                            bool
+		sawIHDR, sawPLTE                   bool
 		idat                               []byte
+		palette                            []byte
 	)
 
 	off := 8
@@ -246,10 +249,18 @@ func pngPassthrough(data []byte) *Image {
 			filterMethod = payload[11]
 			interlc = payload[12]
 
-			if bitDepth != 8 {
-				return nil
-			}
-			if colorType != 0 && colorType != 2 {
+			switch colorType {
+			case 0, 2:
+				if bitDepth != 8 {
+					return nil
+				}
+			case 3:
+				switch bitDepth {
+				case 1, 2, 4, 8:
+				default:
+					return nil
+				}
+			default:
 				return nil
 			}
 			if compression != 0 || filterMethod != 0 {
@@ -258,10 +269,26 @@ func pngPassthrough(data []byte) *Image {
 			if interlc != 0 {
 				return nil
 			}
+		case "PLTE":
+			if !sawIHDR || colorType != 3 || sawPLTE || len(idat) > 0 {
+				return nil
+			}
+			if len(payload) == 0 || len(payload)%3 != 0 {
+				return nil
+			}
+			n := len(payload) / 3
+			if n > 256 || n > (1<<bitDepth) {
+				return nil
+			}
+			sawPLTE = true
+			palette = append([]byte{}, payload...)
 		case "tRNS":
 			return nil
 		case "IDAT":
 			if !sawIHDR {
+				return nil
+			}
+			if colorType == 3 && !sawPLTE {
 				return nil
 			}
 			idat = append(idat, payload...)
@@ -280,6 +307,9 @@ walked:
 	if !sawIHDR || len(idat) == 0 {
 		return nil
 	}
+	if colorType == 3 && !sawPLTE {
+		return nil
+	}
 	if err := checkDimensions(width, height); err != nil {
 		return nil
 	}
@@ -289,8 +319,10 @@ walked:
 	if colorType == 2 {
 		channels = 3
 		colorSpace = "DeviceRGB"
+	} else if colorType == 3 {
+		colorSpace = "Indexed"
 	}
-	rowBytes := width * channels
+	rowBytes := (width*channels*int(bitDepth) + 7) / 8
 	wantLen := int64(height) * int64(1+rowBytes)
 
 	zr, err := zlib.NewReader(bytes.NewReader(idat))
@@ -309,16 +341,29 @@ walked:
 		return nil
 	}
 
-	return &Image{
+	img := &Image{
 		data:            idat,
 		width:           width,
 		height:          height,
 		colorSpace:      colorSpace,
-		bpc:             8,
+		bpc:             int(bitDepth),
 		filter:          "FlateDecode",
 		preCompressed:   true,
-		predictorColors: channels,
+		predictorColors: 1,
 	}
+	if colorType == 0 || colorType == 2 {
+		img.predictorColors = channels
+	}
+	if colorType == 3 {
+		n := len(palette) / 3
+		img.colorSpaceObj = core.NewPdfArray(
+			core.NewPdfName("Indexed"),
+			core.NewPdfName("DeviceRGB"),
+			core.NewPdfInteger(n-1),
+			core.NewPdfHexString(string(palette)),
+		)
+	}
+	return img
 }
 
 // isGrayscale reports whether the image uses a grayscale color model.

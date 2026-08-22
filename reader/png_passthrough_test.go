@@ -5,6 +5,9 @@ package reader_test
 
 import (
 	"bytes"
+	"compress/zlib"
+	"encoding/binary"
+	"hash/crc32"
 	goimage "image"
 	"image/color"
 	"image/png"
@@ -179,4 +182,138 @@ func TestPNGPassthroughRoundTripRGB(t *testing.T) {
 	if !bytes.Equal(stream.Data, want) {
 		t.Fatalf("predictor-decoded bytes mismatch: got %d bytes, want %d bytes", len(stream.Data), len(want))
 	}
+}
+
+// buildChunk assembles a length-prefixed, CRC-terminated PNG chunk.
+func buildChunk(chunkType string, payload []byte) []byte {
+	lenBuf := make([]byte, 4)
+	binary.BigEndian.PutUint32(lenBuf, uint32(len(payload)))
+	body := append([]byte(chunkType), payload...)
+	crc := crc32.ChecksumIEEE(body)
+	crcBuf := make([]byte, 4)
+	binary.BigEndian.PutUint32(crcBuf, crc)
+	out := append([]byte{}, lenBuf...)
+	out = append(out, body...)
+	out = append(out, crcBuf...)
+	return out
+}
+
+// craftPalettedPNG hand-builds a colour-type-3 PNG at the given bit depth
+// with filter type 0 (None) on every scanline, so the caller controls the
+// exact packed-index layout.
+func craftPalettedPNG(t *testing.T, w, h int, bitDepth int, palette []byte, indices [][]int) []byte {
+	t.Helper()
+	rowBytes := (w*bitDepth + 7) / 8
+	var raw []byte
+	for y := range h {
+		row := make([]byte, rowBytes)
+		for x := range w {
+			idx := byte(indices[y][x])
+			bitOff := x * bitDepth
+			byteOff := bitOff / 8
+			shift := 8 - bitDepth - (bitOff % 8)
+			row[byteOff] |= idx << shift
+		}
+		raw = append(raw, 0) // filter type 0
+		raw = append(raw, row...)
+	}
+
+	var zbuf bytes.Buffer
+	zw := zlib.NewWriter(&zbuf)
+	if _, err := zw.Write(raw); err != nil {
+		t.Fatalf("zlib write: %v", err)
+	}
+	if err := zw.Close(); err != nil {
+		t.Fatalf("zlib close: %v", err)
+	}
+
+	ihdr := make([]byte, 13)
+	binary.BigEndian.PutUint32(ihdr[0:4], uint32(w))
+	binary.BigEndian.PutUint32(ihdr[4:8], uint32(h))
+	ihdr[8] = byte(bitDepth)
+	ihdr[9] = 3 // colour type: palette
+
+	sig := []byte{0x89, 'P', 'N', 'G', '\r', '\n', 0x1a, '\n'}
+	out := append([]byte{}, sig...)
+	out = append(out, buildChunk("IHDR", ihdr)...)
+	out = append(out, buildChunk("PLTE", palette)...)
+	out = append(out, buildChunk("IDAT", zbuf.Bytes())...)
+	out = append(out, buildChunk("IEND", nil)...)
+	return out
+}
+
+// unpackIndices unpacks one row's palette indices from bit-packed bytes.
+func unpackIndices(row []byte, w, bitDepth int) []int {
+	out := make([]int, w)
+	for x := range w {
+		bitOff := x * bitDepth
+		byteOff := bitOff / 8
+		shift := 8 - bitDepth - (bitOff % 8)
+		mask := byte(1<<bitDepth) - 1
+		out[x] = int((row[byteOff] >> shift) & mask)
+	}
+	return out
+}
+
+func testPalettedRoundTrip(t *testing.T, w, h, bitDepth int) {
+	t.Helper()
+	maxIdx := 1 << bitDepth
+	if maxIdx > 256 {
+		maxIdx = 256
+	}
+	palette := make([]byte, 0, maxIdx*3)
+	for i := range maxIdx {
+		palette = append(palette, byte(i*7%256), byte(i*13%256), byte(i*29%256))
+	}
+	indices := make([][]int, h)
+	for y := range h {
+		indices[y] = make([]int, w)
+		for x := range w {
+			indices[y][x] = (x + y) % maxIdx
+		}
+	}
+	pngBytes := craftPalettedPNG(t, w, h, bitDepth, palette, indices)
+
+	// Ground truth: what a full decode would produce.
+	decoded, err := png.Decode(bytes.NewReader(pngBytes))
+	if err != nil {
+		t.Fatalf("png.Decode: %v", err)
+	}
+	var want []byte
+	bounds := decoded.Bounds()
+	for y := bounds.Min.Y; y < bounds.Max.Y; y++ {
+		for x := bounds.Min.X; x < bounds.Max.X; x++ {
+			r, g, b, _ := decoded.At(x, y).RGBA()
+			want = append(want, byte(r>>8), byte(g>>8), byte(b>>8))
+		}
+	}
+
+	pdfBytes := embedInDocument(t, pngBytes)
+	stream := resolveImageXObject(t, pdfBytes)
+
+	rowBytes := (w*bitDepth + 7) / 8
+	if len(stream.Data) != h*rowBytes {
+		t.Fatalf("expected %d predictor-decoded bytes, got %d", h*rowBytes, len(stream.Data))
+	}
+
+	var got []byte
+	for y := range h {
+		row := stream.Data[y*rowBytes : (y+1)*rowBytes]
+		idxRow := unpackIndices(row, w, bitDepth)
+		for _, idx := range idxRow {
+			got = append(got, palette[idx*3], palette[idx*3+1], palette[idx*3+2])
+		}
+	}
+
+	if !bytes.Equal(got, want) {
+		t.Fatalf("index-through-palette bytes mismatch at bit depth %d", bitDepth)
+	}
+}
+
+func TestPNGPassthroughRoundTripPaletteDepth4(t *testing.T) {
+	testPalettedRoundTrip(t, 10, 7, 4)
+}
+
+func TestPNGPassthroughRoundTripPaletteDepth8(t *testing.T) {
+	testPalettedRoundTrip(t, 10, 7, 8)
 }
