@@ -15,6 +15,7 @@ import (
 
 	"github.com/carlos7ags/folio/core"
 	"github.com/carlos7ags/folio/font"
+	folioimage "github.com/carlos7ags/folio/image"
 	"github.com/carlos7ags/folio/layout"
 )
 
@@ -757,6 +758,7 @@ func (d *Document) WriteToWithContext(ctx context.Context, w io.Writer, opts Wri
 	// the font program is embedded exactly once per document.
 	embeddedFontRefs := make(map[*font.EmbeddedFont]*core.PdfIndirectReference)
 	standardFontRefs := make(map[*font.Standard]*core.PdfIndirectReference)
+	imageXObjectRefs := map[*folioimage.Image]*core.PdfIndirectReference{}
 
 	// First pass: build page objects.
 	for pageIdx, page := range allPages {
@@ -817,7 +819,11 @@ func (d *Document) WriteToWithContext(ctx context.Context, w io.Writer, opts Wri
 		if len(page.images) > 0 || len(page.formXObjects) > 0 {
 			xobjDict := core.NewPdfDictionary()
 			for _, entry := range page.images {
-				imgRef, _ := entry.image.BuildXObject(writer.AddObject)
+				imgRef, ok := imageXObjectRefs[entry.image]
+				if !ok {
+					imgRef, _ = entry.image.BuildXObject(writer.AddObject)
+					imageXObjectRefs[entry.image] = imgRef
+				}
 				xobjDict.Set(entry.name, imgRef)
 			}
 			for _, entry := range page.formXObjects {

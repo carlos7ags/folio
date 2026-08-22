@@ -316,10 +316,11 @@ walked:
 
 	channels := 1
 	colorSpace := "DeviceGray"
-	if colorType == 2 {
+	switch colorType {
+	case 2:
 		channels = 3
 		colorSpace = "DeviceRGB"
-	} else if colorType == 3 {
+	case 3:
 		colorSpace = "Indexed"
 	}
 	rowBytes := (width*channels*int(bitDepth) + 7) / 8
