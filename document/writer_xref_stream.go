@@ -243,9 +243,9 @@ func (w *Writer) WriteToWithOptions(out io.Writer, opts WriteOptions) (int64, er
 	}
 
 	// Deterministic /ID: when requested and no explicit identifier was set
-	// (via SetFileID), derive a stable /ID from the bytes actually written
-	// before the trailer — header, object bodies, and (on the traditional
-	// path) the xref table — via a hashing tee on the output writer. This
+	// (via SetFileID), derive a stable /ID from the bytes written before
+	// finishID runs — the header and object bodies (each trailer writer
+	// calls finishID first) — via a hashing tee on the output writer. This
 	// needs no extra serialization pass: identical inputs still produce
 	// byte-identical output, since the digest covers exactly the
 	// deterministic content the writer emits. Encryption supplies its own
