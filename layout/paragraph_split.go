@@ -364,6 +364,7 @@ func wordToRun(w Word) TextRun {
 		LetterSpacing:   w.LetterSpacing,
 		WordSpacing:     w.WordSpacing,
 		LinkURI:         w.LinkURI,
+		LinkDest:        w.LinkDest,
 		TextShadow:      w.TextShadow,
 		BackgroundColor: w.BackgroundColor,
 		InlineElement:   w.InlineBlock,
@@ -423,7 +424,8 @@ func (p *Paragraph) cloneWithWords(words []Word) *Paragraph {
 				w.FontSize == cur.FontSize && w.Color == cur.Color &&
 				w.Decoration == cur.Decoration && w.BaselineShift == cur.BaselineShift &&
 				w.LetterSpacing == cur.LetterSpacing && w.WordSpacing == cur.WordSpacing &&
-				w.LinkURI == cur.LinkURI && w.BackgroundColor == cur.BackgroundColor
+				w.LinkURI == cur.LinkURI && w.LinkDest == cur.LinkDest &&
+				w.BackgroundColor == cur.BackgroundColor
 			// A word with LineBreak=true had a forced \n before it.
 			if w.LineBreak {
 				if sameRun {
