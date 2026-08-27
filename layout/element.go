@@ -140,12 +140,17 @@ type TextRun struct {
 	FontSize        float64
 	Color           Color
 	Decoration      TextDecoration
-	DecorationColor *Color      // if non-nil, decoration uses this color instead of text Color
-	DecorationStyle string      // "solid" (default), "dashed", "dotted", "double", "wavy"
-	LetterSpacing   float64     // extra space between characters (points, from CSS letter-spacing)
-	WordSpacing     float64     // extra space between words (points, from CSS word-spacing)
-	BaselineShift   float64     // vertical offset in points (positive = up for super, negative = down for sub)
-	LinkURI         string      // if non-empty, this run is part of a hyperlink
+	DecorationColor *Color  // if non-nil, decoration uses this color instead of text Color
+	DecorationStyle string  // "solid" (default), "dashed", "dotted", "double", "wavy"
+	LetterSpacing   float64 // extra space between characters (points, from CSS letter-spacing)
+	WordSpacing     float64 // extra space between words (points, from CSS word-spacing)
+	BaselineShift   float64 // vertical offset in points (positive = up for super, negative = down for sub)
+	LinkURI         string  // if non-empty, this run is part of a hyperlink
+	// LinkDest is a named destination inside this document (the fragment
+	// of an <a href="#id">, without the '#'). It is mutually exclusive
+	// with LinkURI: a bare fragment is not a URI, and emitting it as a
+	// /URI action produces a link that resolves to nothing in a viewer.
+	LinkDest        string
 	TextShadow      *TextShadow // if non-nil, draws a shadow behind the text
 	BackgroundColor *Color      // if non-nil, a highlight rectangle is drawn behind the text
 	// InlineElement holds a layout element (e.g. ImageElement, SVGElement,
@@ -207,6 +212,14 @@ func (r TextRun) WithDecoration(d TextDecoration) TextRun {
 // Words from this run will produce a clickable annotation in the PDF.
 func (r TextRun) WithLinkURI(uri string) TextRun {
 	r.LinkURI = uri
+	return r
+}
+
+// WithLinkDest returns a copy of the run marked as a link to a named
+// destination within this document. Words from this run produce a
+// clickable annotation that navigates to destName.
+func (r TextRun) WithLinkDest(destName string) TextRun {
+	r.LinkDest = destName
 	return r
 }
 
@@ -326,6 +339,12 @@ type Word struct {
 	// LinkURI is the hyperlink target for this word. If non-empty, the
 	// renderer creates a link annotation covering this word's area.
 	LinkURI string
+
+	// LinkDest is the named destination inside this document that this
+	// word links to. Mutually exclusive with LinkURI; carries the
+	// fragment of an <a href="#id"> so the renderer can emit a /Dest
+	// instead of a /URI action that would navigate nowhere.
+	LinkDest string
 
 	// BackgroundColor, if non-nil, draws a filled highlight rectangle
 	// behind this word before rendering the text.

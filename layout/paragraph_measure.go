@@ -113,6 +113,12 @@ func measureInlineElement(run TextRun, maxWidth float64, measured []Word, runs [
 		InlineHeight: ih,
 		Width:        iw,
 		SpaceAfter:   inlineSpaceAfter(measured, runs, runIdx),
+		// An inline element can be the entire content of a link (an icon
+		// or thumbnail that navigates). Carry the link target onto the
+		// word so linkSpans covers it with an annotation, exactly as it
+		// does for linked text.
+		LinkURI:  run.LinkURI,
+		LinkDest: run.LinkDest,
 	}
 }
 
@@ -373,6 +379,7 @@ func (p *Paragraph) measureWords(maxWidth float64) ([]Word, float64) {
 				WordSpacing:     run.WordSpacing,
 				BaselineShift:   run.BaselineShift,
 				LinkURI:         run.LinkURI,
+				LinkDest:        run.LinkDest,
 				TextShadow:      run.TextShadow,
 				BackgroundColor: run.BackgroundColor,
 				LineBreak:       nextLineBreak,
