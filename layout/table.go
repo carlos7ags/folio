@@ -1856,10 +1856,15 @@ func drawTableRowDirect(ctx DrawContext, tbl *Table, grid []gridRow, rowIndex in
 		var cellX float64
 		if tbl.direction == DirectionRTL {
 			// RTL: column 0 at the right edge, last column at the left.
-			// Start from the right and work leftward past each column.
+			// Start from the right and work leftward past each column
+			// that precedes this one in logical order. Walking the far
+			// end of colWidths instead subtracts the widths of the last
+			// columns, which only lands correctly when every column is
+			// the same width -- otherwise the cell boxes drift out from
+			// under their own text.
 			cellX = x + totalW - gc.spanWidth - sh
 			for c := range gc.col {
-				cellX -= colWidths[len(colWidths)-1-c] + sh
+				cellX -= colWidths[c] + sh
 			}
 		} else {
 			// LTR: column 0 at the left edge (default).
