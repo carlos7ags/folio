@@ -39,8 +39,10 @@ func TestStandardFontDict(t *testing.T) {
 		{Helvetica, "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>"},
 		{TimesBold, "<< /Type /Font /Subtype /Type1 /BaseFont /Times-Bold /Encoding /WinAnsiEncoding >>"},
 		{CourierOblique, "<< /Type /Font /Subtype /Type1 /BaseFont /Courier-Oblique /Encoding /WinAnsiEncoding >>"},
-		{Symbol, "<< /Type /Font /Subtype /Type1 /BaseFont /Symbol /Encoding /WinAnsiEncoding >>"},
-		{ZapfDingbats, "<< /Type /Font /Subtype /Type1 /BaseFont /ZapfDingbats /Encoding /WinAnsiEncoding >>"},
+		// Symbolic fonts should not specify an encoding.
+		// See PDF 32000-1:2008 p265.
+		{Symbol, "<< /Type /Font /Subtype /Type1 /BaseFont /Symbol >>"},
+		{ZapfDingbats, "<< /Type /Font /Subtype /Type1 /BaseFont /ZapfDingbats >>"},
 	}
 
 	for _, tc := range tests {
