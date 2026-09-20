@@ -70,7 +70,11 @@ func (c *converter) convertTable(n *html.Node, style computedStyle) []layout.Ele
 			if text != "" {
 				f := resolveFont(captionStyle)
 				p := layout.NewParagraph(text, f, captionStyle.FontSize)
-				if captionStyle.TextAlignSet {
+				// The UA default for <caption> is center. A declaration
+				// on the caption itself outranks it, but an alignment
+				// merely inherited from an ancestor does not — so test
+				// the self-only flag, not the inherited one.
+				if captionStyle.TextAlignSelfSet {
 					p.SetAlign(resolveTextAlign(captionStyle))
 				} else {
 					p.SetAlign(layout.AlignCenter)
@@ -400,7 +404,11 @@ func (c *converter) convertTableRowKind(n *html.Node, tbl *layout.Table, parentS
 			// before the equality check (otherwise an RTL document
 			// with `text-align: start` would resolve to AlignLeft and
 			// then get unexpectedly re-aligned to center).
-			if !cellStyle.TextAlignSet && resolveTextAlign(cellStyle) == layout.AlignLeft {
+			//
+			// Self-only flag: the UA default outranks an inherited
+			// alignment, so a <th> under a `text-align: left` ancestor
+			// still centers — only a declaration on the cell keeps left.
+			if !cellStyle.TextAlignSelfSet && resolveTextAlign(cellStyle) == layout.AlignLeft {
 				cellStyle.TextAlign = layout.AlignCenter
 				cellStyle.TextAlignKeyword = ""
 			}

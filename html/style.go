@@ -14,7 +14,8 @@ type computedStyle struct {
 	FontStyle            string // "normal", "italic"
 	Color                layout.Color
 	TextAlign            layout.Align
-	TextAlignSet         bool         // true if text-align was explicitly declared
+	TextAlignSet         bool         // true if text-align was declared on this element or inherited from an ancestor that declared it
+	TextAlignSelfSet     bool         // true only if text-align was declared on THIS element; not inherited. Distinguishes an author's own choice from an inherited one for the UA defaults that a direct declaration outranks (<th> centering, <caption> centering).
 	TextAlignKeyword     string       // "start" or "end" when the author used the direction-relative keyword; otherwise "". Resolved at consumer time via resolveTextAlign(style).
 	TextAlignLast        layout.Align // text-align-last override for the last line
 	TextAlignLastSet     bool         // true if text-align-last was explicitly set
@@ -479,6 +480,11 @@ func defaultStyle() computedStyle {
 }
 
 // inherit creates a child style that inherits text properties from the parent.
+//
+// Every inherited property must carry its "was declared" flag alongside its
+// value: consumers guard on the flag, so a value that arrives without it is
+// held but never applied. TextAlignSelfSet is the one deliberate exception —
+// it means "declared on THIS element" and must NOT propagate.
 func (s *computedStyle) inherit() computedStyle {
 	child := computedStyle{
 		FontFamily:           s.FontFamily,
@@ -487,6 +493,7 @@ func (s *computedStyle) inherit() computedStyle {
 		FontStyle:            s.FontStyle,
 		Color:                s.Color,
 		TextAlign:            s.TextAlign,
+		TextAlignSet:         s.TextAlignSet,
 		TextAlignKeyword:     s.TextAlignKeyword,
 		TextAlignLast:        s.TextAlignLast,
 		TextAlignLastSet:     s.TextAlignLastSet,
