@@ -60,17 +60,28 @@ func (p *Paragraph) wrapWords(words []Word, maxWidth float64) [][]Word {
 	return lines
 }
 
+// linkTarget is a word's link destination: either an external URI or a
+// named destination inside the document. Words join the same span only
+// when both components match, so "see A or B" on one line produces two
+// annotations even if one link is internal and the other external.
+type linkTarget struct {
+	uri  string
+	dest string
+}
+
+func (t linkTarget) empty() bool { return t.uri == "" && t.dest == "" }
+
 // linkSpans computes a LinkArea for every contiguous run of words that
-// share the same non-empty LinkURI. Each span's X and W are relative to
-// the line's starting x position. This supports multiple distinct links
+// share the same non-empty link target. Each span's X and W are relative
+// to the line's starting x position. This supports multiple distinct links
 // on the same line (e.g. "Visit GitHub or GitLab").
 func linkSpans(words []Word) []LinkArea {
 	var spans []LinkArea
 	cx := 0.0
 	i := 0
 	for i < len(words) {
-		uri := words[i].LinkURI
-		if uri == "" {
+		target := linkTarget{uri: words[i].LinkURI, dest: words[i].LinkDest}
+		if target.empty() {
 			if i < len(words)-1 {
 				cx += words[i].Width + words[i].SpaceAfter
 			}
@@ -81,7 +92,7 @@ func linkSpans(words []Word) []LinkArea {
 		startX := cx
 		endX := cx + words[i].Width
 		j := i + 1
-		for j < len(words) && words[j].LinkURI == uri {
+		for j < len(words) && (linkTarget{uri: words[j].LinkURI, dest: words[j].LinkDest}) == target {
 			// Extend through the space before this word.
 			endX = cx
 			for k := i; k < j; k++ {
@@ -91,9 +102,10 @@ func linkSpans(words []Word) []LinkArea {
 			j++
 		}
 		spans = append(spans, LinkArea{
-			URI: uri,
-			X:   startX,
-			W:   endX - startX,
+			URI:      target.uri,
+			DestName: target.dest,
+			X:        startX,
+			W:        endX - startX,
 		})
 		// Advance cx past all words in this span.
 		for i < j {

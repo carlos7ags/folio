@@ -2043,9 +2043,38 @@ func drawCellElementDirect(ctx DrawContext, gc gridCell, cellX, topY, rowHeight 
 		if block.Draw != nil {
 			block.Draw(ctx, bx, by)
 		}
+		recordBlockLinks(ctx, block, bx, by)
 		for _, child := range block.Children {
 			drawBlockRecursive(child, bx, by, ctx)
 		}
+	}
+}
+
+// recordBlockLinks converts a placed block's link areas into page-space
+// annotations. Cells are drawn directly rather than through the plan
+// renderer in render_plans.go, so without this a link inside a table cell
+// is painted as underlined text and nothing else — no clickable region
+// reaches the PDF. bx/by are the block's top-left in PDF coordinates.
+func recordBlockLinks(ctx DrawContext, block PlacedBlock, bx, by float64) {
+	if ctx.Page == nil || len(block.Links) == 0 {
+		return
+	}
+	for _, link := range block.Links {
+		// Use the precise per-line span when the paragraph computed one,
+		// otherwise fall back to the block's full width — the same rule
+		// the plan renderer applies.
+		linkX, linkW := bx, block.Width
+		if link.W > 0 {
+			linkX, linkW = bx+link.X, link.W
+		}
+		ctx.Page.Links = append(ctx.Page.Links, LinkArea{
+			X:        linkX,
+			Y:        by - block.Height,
+			W:        linkW,
+			H:        block.Height,
+			URI:      link.URI,
+			DestName: link.DestName,
+		})
 	}
 }
 
@@ -2056,6 +2085,7 @@ func drawBlockRecursive(block PlacedBlock, baseX, topY float64, ctx DrawContext)
 	if block.Draw != nil {
 		block.Draw(ctx, bx, by)
 	}
+	recordBlockLinks(ctx, block, bx, by)
 	for _, child := range block.Children {
 		drawBlockRecursive(child, bx, by, ctx)
 	}

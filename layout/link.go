@@ -38,6 +38,13 @@ func NewInternalLink(text, destName string, f *font.Standard, fontSize float64) 
 	return &Link{para: p, destName: destName}
 }
 
+// NewInternalLinkEmbedded creates a link to a named destination within the
+// document, rendered with an embedded font.
+func NewInternalLinkEmbedded(text, destName string, ef *font.EmbeddedFont, fontSize float64) *Link {
+	p := NewParagraphEmbedded(text, ef, fontSize)
+	return &Link{para: p, destName: destName}
+}
+
 // SetColor sets the text color (default is inherited from the paragraph).
 func (l *Link) SetColor(c Color) *Link {
 	for i := range l.para.runs {
