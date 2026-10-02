@@ -28,9 +28,9 @@ func TestParagraphRTLAutoDetect(t *testing.T) {
 }
 
 // TestParagraphRTLWordOrder verifies that Hebrew words appear in visual
-// order (reversed from logical) on the line.
+// order on the line with intra-word visual glyphs reversed for PDF operators.
 func TestParagraphRTLWordOrder(t *testing.T) {
-	// "שלום עולם" → visual order left-to-right: עולם שלום
+	// "שלום עולם" → visual order left-to-right: עולם (reversed) then שלום (reversed)
 	p := NewParagraph("\u05E9\u05DC\u05D5\u05DD \u05E2\u05D5\u05DC\u05DD", font.Helvetica, 12)
 	lines := p.Layout(500)
 	if len(lines) == 0 {
@@ -40,12 +40,14 @@ func TestParagraphRTLWordOrder(t *testing.T) {
 	if len(words) < 2 {
 		t.Fatalf("expected 2 words, got %d", len(words))
 	}
-	// Visual first word should be the second logical word (עולם).
-	if words[0].Text != "\u05E2\u05D5\u05DC\u05DD" {
-		t.Errorf("first visual word: got %q, want %q", words[0].Text, "\u05E2\u05D5\u05DC\u05DD")
+	// Visual first word should be the second logical word (עולם reversed).
+	wantOlam := "\u05DD\u05DC\u05D5\u05E2"
+	wantShalom := "\u05DD\u05D5\u05DC\u05E9"
+	if words[0].Text != wantOlam {
+		t.Errorf("first visual word: got %q, want %q", words[0].Text, wantOlam)
 	}
-	if words[1].Text != "\u05E9\u05DC\u05D5\u05DD" {
-		t.Errorf("second visual word: got %q, want %q", words[1].Text, "\u05E9\u05DC\u05D5\u05DD")
+	if words[1].Text != wantShalom {
+		t.Errorf("second visual word: got %q, want %q", words[1].Text, wantShalom)
 	}
 }
 
@@ -106,7 +108,7 @@ func TestParagraphLTRUnchanged(t *testing.T) {
 // TestParagraphMixedBidiInRTL verifies mixed Hebrew+English in an RTL
 // paragraph: the English word stays LTR, Hebrew words reverse.
 func TestParagraphMixedBidiInRTL(t *testing.T) {
-	// "שלום Hello עולם" → visual: עולם Hello שלום
+	// "שלום Hello עולם" → visual: עולם (reversed) Hello שלום (reversed)
 	text := "\u05E9\u05DC\u05D5\u05DD Hello \u05E2\u05D5\u05DC\u05DD"
 	p := NewParagraph(text, font.Helvetica, 12)
 	lines := p.Layout(500)
@@ -117,21 +119,23 @@ func TestParagraphMixedBidiInRTL(t *testing.T) {
 	if len(words) < 3 {
 		t.Fatalf("expected 3 words, got %d", len(words))
 	}
-	if words[0].Text != "\u05E2\u05D5\u05DC\u05DD" {
-		t.Errorf("first visual word: got %q, want עולם", words[0].Text)
+	wantOlam := "\u05DD\u05DC\u05D5\u05E2"
+	wantShalom := "\u05DD\u05D5\u05DC\u05E9"
+	if words[0].Text != wantOlam {
+		t.Errorf("first visual word: got %q, want %q", words[0].Text, wantOlam)
 	}
 	if words[1].Text != "Hello" {
 		t.Errorf("middle word: got %q, want Hello", words[1].Text)
 	}
-	if words[2].Text != "\u05E9\u05DC\u05D5\u05DD" {
-		t.Errorf("last visual word: got %q, want שלום", words[2].Text)
+	if words[2].Text != wantShalom {
+		t.Errorf("last visual word: got %q, want %q", words[2].Text, wantShalom)
 	}
 }
 
 // TestParagraphRTLBracketsAreMirrored verifies that parentheses in an
-// RTL paragraph are mirrored per UAX #9 rule L4.
+// RTL paragraph are mirrored and reversed per UAX #9 rule L4.
 func TestParagraphRTLBracketsAreMirrored(t *testing.T) {
-	// "(שלום)" → visual: ")שלום(" — mirrored brackets.
+	// "(שלום)" → visual: "(" + reversed(שלום) + ")" — opening bracket on the left, closing on the right.
 	text := "(\u05E9\u05DC\u05D5\u05DD)"
 	p := NewParagraph(text, font.Helvetica, 12)
 	lines := p.Layout(500)
@@ -139,8 +143,9 @@ func TestParagraphRTLBracketsAreMirrored(t *testing.T) {
 		t.Fatal("no words")
 	}
 	w := lines[0].Words[0].Text
-	if len(w) == 0 || w[0] != ')' {
-		t.Errorf("opening '(' should mirror to ')' in RTL: got %q", w)
+	want := "(\u05DD\u05D5\u05DC\u05E9)"
+	if w != want {
+		t.Errorf("brackets mirrored and reversed in RTL: got %q, want %q", w, want)
 	}
 }
 

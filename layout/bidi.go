@@ -4,9 +4,11 @@
 package layout
 
 import (
+	"slices"
 	"strings"
 	"unicode/utf8"
 
+	"github.com/carlos7ags/folio/unicode/grapheme"
 	"golang.org/x/text/unicode/bidi"
 )
 
@@ -143,27 +145,59 @@ func resolveLineBidi(words []Word, base Direction) ([]Word, Direction) {
 		runStart, runEnd, runStep = numRuns-1, -1, -1
 	}
 
-	for ri := runStart; ri != runEnd; ri += runStep {
-		run := ord.Run(ri)
-		rStart, rEnd := run.Pos()
-		runDir := run.Direction()
+	// Map each text word to its best-matching bidi run. Each word belongs
+	// to exactly one run: assigning by maximum overlap and matching the word's
+	// strong direction ensures that neutral boundary tokens (e.g. "(RC):",
+	// "(Business)", "19%") are claimed by their true direction and are never
+	// placed more than once.
+	wordRun := make([]int, len(words))
+	for wi, sp := range spans {
+		if inlineAt[wi] {
+			wordRun[wi] = -1
+			continue
+		}
+		strongDir, hasStrong := wordStrongDirection(words[wi].Text)
+		bestRun := -1
+		bestScore := -1
 
-		// Collect indices of text words that overlap this run's rune range.
-		var indices []int
-		for wi, sp := range spans {
-			if inlineAt[wi] {
+		for ri := range numRuns {
+			run := ord.Run(ri)
+			rStart, rEnd := run.Pos()
+			overlapStart := max(sp.start, rStart)
+			overlapEnd := min(sp.end, rEnd+1)
+			overlap := overlapEnd - overlapStart
+			if overlap <= 0 {
 				continue
 			}
-			if sp.end > rStart && sp.start < rEnd {
+
+			score := overlap
+			if hasStrong && run.Direction() == strongDir {
+				score += 10000
+			}
+			if score > bestScore {
+				bestScore = score
+				bestRun = ri
+			}
+		}
+		wordRun[wi] = bestRun
+	}
+
+	for ri := runStart; ri != runEnd; ri += runStep {
+		run := ord.Run(ri)
+		runDir := run.Direction()
+
+		// Collect indices of text words assigned to this run.
+		var indices []int
+		for wi := range words {
+			if wordRun[wi] == ri && !placed[wi] {
 				indices = append(indices, wi)
 			}
 		}
 
 		if runDir == bidi.RightToLeft {
-			for j := len(indices) - 1; j >= 0; j-- {
-				wi := indices[j]
+			for _, wi := range slices.Backward(indices) {
 				w := words[wi]
-				w.Text = mirrorBrackets(w.Text)
+				w.Text = reverseVisualRTL(mirrorBrackets(w.Text))
 				// Attach any inline-block words that immediately preceded
 				// this text word in logical order (they travel with it).
 				for ib := wi - 1; ib >= 0 && inlineAt[ib] && !placed[ib]; ib-- {
@@ -427,4 +461,39 @@ func mirrorBrackets(s string) string {
 		}
 	}
 	return sb.String()
+}
+
+// reverseVisualRTL reverses the visual characters of an RTL word so that
+// the LTR drawing advance of PDF text operators (Tj, TJ, ShowTextHex) paints
+// them in correct right-to-left visual reading order. Grapheme cluster
+// boundaries are respected so that combining marks (Arabic harakat, Hebrew
+// niqqud) stay attached to their base character.
+func reverseVisualRTL(s string) string {
+	breaks := grapheme.Breaks(s)
+	numClusters := len(breaks) - 1
+	if numClusters <= 1 {
+		return s
+	}
+	var sb strings.Builder
+	sb.Grow(len(s))
+	for i := numClusters - 1; i >= 0; i-- {
+		sb.WriteString(s[breaks[i]:breaks[i+1]])
+	}
+	return sb.String()
+}
+
+// wordStrongDirection reports the primary strong direction of text, if any.
+// European/Arabic digits are treated as LTR since numbers display LTR in both
+// LTR and RTL scripts.
+func wordStrongDirection(text string) (bidi.Direction, bool) {
+	for _, r := range text {
+		props, _ := bidi.LookupRune(r)
+		switch props.Class() {
+		case bidi.R, bidi.AL:
+			return bidi.RightToLeft, true
+		case bidi.L, bidi.EN, bidi.AN:
+			return bidi.LeftToRight, true
+		}
+	}
+	return bidi.LeftToRight, false
 }

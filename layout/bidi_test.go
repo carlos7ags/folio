@@ -18,6 +18,15 @@ func makeWords(texts ...string) []Word {
 	return words
 }
 
+// reverseTestRunes reverses runes for test assertions.
+func reverseTestRunes(s string) string {
+	r := []rune(s)
+	for i, j := 0, len(r)-1; i < j; i, j = i+1, j-1 {
+		r[i], r[j] = r[j], r[i]
+	}
+	return string(r)
+}
+
 // wordTexts extracts the Text field from each Word for easy comparison.
 func wordTexts(words []Word) []string {
 	out := make([]string, len(words))
@@ -29,16 +38,19 @@ func wordTexts(words []Word) []string {
 
 func TestBidiPureHebrew_RTL(t *testing.T) {
 	// Two Hebrew words in logical order. Visual order (left-to-right
-	// on the page) should be reversed for an RTL paragraph.
+	// on the page) should be reversed for an RTL paragraph, and each
+	// word's glyphs reversed for PDF operators.
 	words := makeWords("\u05E9\u05DC\u05D5\u05DD", "\u05E2\u05D5\u05DC\u05DD") // שלום עולם
 	visual, dir := resolveLineBidi(words, DirectionAuto)
 	if dir != DirectionRTL {
 		t.Errorf("direction: got %v, want RTL", dir)
 	}
 	got := wordTexts(visual)
-	// Visual order: second word first (עולם שלום left-to-right).
-	if got[0] != words[1].Text || got[1] != words[0].Text {
-		t.Errorf("visual order: got %v, want [%q, %q]", got, words[1].Text, words[0].Text)
+	// Visual order: second word first (עולם reversed, then שלום reversed).
+	want0 := reverseTestRunes(words[1].Text)
+	want1 := reverseTestRunes(words[0].Text)
+	if got[0] != want0 || got[1] != want1 {
+		t.Errorf("visual order: got %v, want [%q, %q]", got, want0, want1)
 	}
 }
 
@@ -56,31 +68,32 @@ func TestBidiPureEnglish_LTR(t *testing.T) {
 
 func TestBidiMixed_LTRBase(t *testing.T) {
 	// "Hello שלום world" with LTR base. The Hebrew word sits visually
-	// between the two English words (same position as logical order for
-	// a single embedded RTL word in an LTR paragraph).
+	// between the two English words with its glyphs visually reversed.
 	words := makeWords("Hello", "\u05E9\u05DC\u05D5\u05DD", "world")
 	visual, dir := resolveLineBidi(words, DirectionLTR)
 	if dir != DirectionLTR {
 		t.Errorf("direction: got %v, want LTR", dir)
 	}
 	got := wordTexts(visual)
-	if got[0] != "Hello" || got[1] != words[1].Text || got[2] != "world" {
-		t.Errorf("visual order: got %v, want [Hello, שלום, world]", got)
+	wantHebrew := reverseTestRunes(words[1].Text)
+	if got[0] != "Hello" || got[1] != wantHebrew || got[2] != "world" {
+		t.Errorf("visual order: got %v, want [Hello, %q, world]", got, wantHebrew)
 	}
 }
 
 func TestBidiMixed_RTLBase(t *testing.T) {
 	// "שלום Hello עולם" with RTL base (first strong char is Hebrew).
-	// Visual order (left-to-right on page): עולם Hello שלום
+	// Visual order (left-to-right on page): עולם (reversed) Hello שלום (reversed)
 	words := makeWords("\u05E9\u05DC\u05D5\u05DD", "Hello", "\u05E2\u05D5\u05DC\u05DD")
 	visual, dir := resolveLineBidi(words, DirectionRTL)
 	if dir != DirectionRTL {
 		t.Errorf("direction: got %v, want RTL", dir)
 	}
 	got := wordTexts(visual)
-	// Visual: עולם then Hello then שלום
-	if got[0] != words[2].Text || got[1] != "Hello" || got[2] != words[0].Text {
-		t.Errorf("visual order: got %v, want [עולם, Hello, שלום]", got)
+	want0 := reverseTestRunes(words[2].Text)
+	want2 := reverseTestRunes(words[0].Text)
+	if got[0] != want0 || got[1] != "Hello" || got[2] != want2 {
+		t.Errorf("visual order: got %v, want [%q, Hello, %q]", got, want0, want2)
 	}
 }
 
@@ -114,8 +127,9 @@ func TestBidiSingleWord(t *testing.T) {
 	if dir != DirectionRTL {
 		t.Errorf("direction: got %v, want RTL", dir)
 	}
-	if len(visual) != 1 || visual[0].Text != words[0].Text {
-		t.Errorf("single word should pass through unchanged")
+	want := reverseTestRunes(words[0].Text)
+	if len(visual) != 1 || visual[0].Text != want {
+		t.Errorf("single word visual text: got %q, want %q", visual[0].Text, want)
 	}
 }
 
@@ -139,15 +153,15 @@ func TestMirrorBrackets(t *testing.T) {
 
 func TestMirrorBracketsAppliedToRTLWords(t *testing.T) {
 	// A Hebrew "word" containing parentheses should have them mirrored
-	// after bidi reordering, per UAX #9 rule L4.
+	// and reversed after bidi reordering, per UAX #9 rule L4.
 	words := makeWords("(\u05E9\u05DC\u05D5\u05DD)") // (שלום)
 	visual, _ := resolveLineBidi(words, DirectionRTL)
 	if len(visual) != 1 {
 		t.Fatalf("expected 1 word, got %d", len(visual))
 	}
-	// After mirroring, ( → ) and ) → (
-	if !strings.Contains(visual[0].Text, ")") || visual[0].Text[0] != ')' {
-		t.Errorf("brackets not mirrored: got %q", visual[0].Text)
+	want := "(" + reverseTestRunes("\u05E9\u05DC\u05D5\u05DD") + ")"
+	if visual[0].Text != want {
+		t.Errorf("brackets mirrored and reversed: got %q, want %q", visual[0].Text, want)
 	}
 }
 
@@ -169,14 +183,16 @@ func TestBidiInlineBlockPreserved(t *testing.T) {
 	foundInline := false
 	foundShalom := false
 	foundOlam := false
+	wantShalom := reverseTestRunes("\u05E9\u05DC\u05D5\u05DD")
+	wantOlam := reverseTestRunes("\u05E2\u05D5\u05DC\u05DD")
 	for _, w := range visual {
 		if w.InlineBlock != nil {
 			foundInline = true
 		}
-		if w.Text == "\u05E9\u05DC\u05D5\u05DD" {
+		if w.Text == wantShalom {
 			foundShalom = true
 		}
-		if w.Text == "\u05E2\u05D5\u05DC\u05DD" {
+		if w.Text == wantOlam {
 			foundOlam = true
 		}
 	}
@@ -379,15 +395,106 @@ func TestSplitMixedBidiWordClusterSnap(t *testing.T) {
 
 func TestBidiNumbersInRTL(t *testing.T) {
 	// "שלום 42 עולם" — numbers in an RTL paragraph stay LTR.
-	// Visual order (left-to-right): עולם 42 שלום
+	// Visual order (left-to-right): עולם (reversed) 42 שלום (reversed)
 	words := makeWords("\u05E9\u05DC\u05D5\u05DD", "42", "\u05E2\u05D5\u05DC\u05DD")
 	visual, dir := resolveLineBidi(words, DirectionRTL)
 	if dir != DirectionRTL {
 		t.Errorf("direction: got %v, want RTL", dir)
 	}
 	got := wordTexts(visual)
-	// Visual: עולם 42 שלום
-	if got[0] != words[2].Text || got[1] != "42" || got[2] != words[0].Text {
-		t.Errorf("visual order: got %v, want [עולם, 42, שלום]", got)
+	want0 := reverseTestRunes(words[2].Text)
+	want2 := reverseTestRunes(words[0].Text)
+	if got[0] != want0 || got[1] != "42" || got[2] != want2 {
+		t.Errorf("visual order: got %v, want [%q, 42, %q]", got, want0, want2)
+	}
+}
+
+// TestBidiRTLRunReversesVisualGlyphsAndPreservesOriginalText verifies that
+// pure Arabic and Hebrew words have their visual glyph runes reversed in an RTL run,
+// while Word.OriginalText is preserved completely untouched for /ActualText recovery.
+func TestBidiRTLRunReversesVisualGlyphsAndPreservesOriginalText(t *testing.T) {
+	// Arabic: "سلام"
+	origArabic := "\u0633\u0644\u0627\u0645"
+	shapedArabic := ShapeArabic(origArabic)
+	wordArabic := Word{
+		Text:         shapedArabic,
+		OriginalText: origArabic,
+		Width:        30,
+	}
+
+	// Hebrew: "שלום"
+	origHebrew := "\u05E9\u05DC\u05D5\u05DD"
+	wordHebrew := Word{
+		Text:         origHebrew,
+		OriginalText: origHebrew,
+		Width:        30,
+	}
+
+	visual, dir := resolveLineBidi([]Word{wordArabic, wordHebrew}, DirectionRTL)
+	if dir != DirectionRTL {
+		t.Fatalf("expected DirectionRTL, got %v", dir)
+	}
+	if len(visual) != 2 {
+		t.Fatalf("expected 2 words, got %d", len(visual))
+	}
+
+	// Visual order in RTL: second word (Hebrew) first, first word (Arabic) second.
+	// Hebrew word check:
+	wantHebrewVisual := reverseTestRunes(origHebrew)
+	if visual[0].Text != wantHebrewVisual {
+		t.Errorf("Hebrew visual Text: got %q, want %q", visual[0].Text, wantHebrewVisual)
+	}
+	if visual[0].OriginalText != origHebrew {
+		t.Errorf("Hebrew OriginalText: got %q, want untouched %q", visual[0].OriginalText, origHebrew)
+	}
+
+	// Arabic word check:
+	wantArabicVisual := reverseTestRunes(shapedArabic)
+	if visual[1].Text != wantArabicVisual {
+		t.Errorf("Arabic visual Text: got %q, want %q", visual[1].Text, wantArabicVisual)
+	}
+	if visual[1].OriginalText != origArabic {
+		t.Errorf("Arabic OriginalText: got %q, want untouched %q", visual[1].OriginalText, origArabic)
+	}
+}
+
+// TestBidiMixedScriptBoundaryTokens verifies that boundary tokens containing
+// neutral punctuation and numbers adjacent to RTL words (e.g. "(RC):", "19%")
+// do not get their Latin characters or digits flipped.
+func TestBidiMixedScriptBoundaryTokens(t *testing.T) {
+	// Standalone boundary tokens: "(RC):", "19%", "(Business)"
+	tokens := []string{"(RC):", "19%", "(Business)"}
+	for _, tok := range tokens {
+		w := Word{Text: tok, Width: 20}
+		visual, _ := resolveLineBidi([]Word{w}, DirectionRTL)
+		if len(visual) != 1 {
+			t.Fatalf("%s: expected 1 word, got %d", tok, len(visual))
+		}
+		if visual[0].Text != tok {
+			t.Errorf("%s: Latin/digit characters must not be flipped; got %q", tok, visual[0].Text)
+		}
+	}
+
+	// Mixed token: "שלום(RC):" pre-split by splitMixedBidiWord
+	combined := Word{Text: "\u05E9\u05DC\u05D5\u05DD(RC):", Width: 50}
+	subs := splitMixedBidiWord(combined)
+	if len(subs) < 2 {
+		t.Fatalf("expected splitMixedBidiWord to split %q, got %v", combined.Text, subs)
+	}
+	visual, _ := resolveLineBidi(subs, DirectionRTL)
+	if len(visual) != len(subs) {
+		t.Fatalf("expected %d visual words, got %d", len(subs), len(visual))
+	}
+	foundRC := false
+	for _, w := range visual {
+		if strings.Contains(w.Text, "RC") {
+			foundRC = true
+			if strings.Contains(w.Text, "CR") {
+				t.Errorf("Latin characters 'RC' flipped to 'CR' in %q", w.Text)
+			}
+		}
+	}
+	if !foundRC {
+		t.Errorf("RC token not found in visual output: %v", wordTexts(visual))
 	}
 }
