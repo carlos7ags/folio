@@ -787,7 +787,11 @@ func (p *PageInfo) TextSpans() ([]TextSpan, error) {
 		})
 	}
 
-	return proc.Process(ops), nil
+	spans := proc.Process(ops)
+	if err := proc.Err(); err != nil {
+		return nil, err
+	}
+	return spans, nil
 }
 
 // ImageRefs extracts image references with positions from the page content stream.
@@ -842,6 +846,9 @@ func (p *PageInfo) processContent() (*ContentProcessor, error) {
 	}
 
 	proc.Process(ops)
+	if err := proc.Err(); err != nil {
+		return nil, err
+	}
 	return proc, nil
 }
 
