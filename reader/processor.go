@@ -3,7 +3,10 @@
 
 package reader
 
-import "math"
+import (
+	"errors"
+	"math"
+)
 
 // TextSpan is a positioned piece of text extracted from a content stream.
 // It carries full rendering context: position, size, font, color, and
@@ -132,7 +135,18 @@ type ContentProcessor struct {
 	// Set via SetFormResolver to enable recursive Form XObject processing.
 	formResolver func(name string) []ContentOp
 	depth        int // recursion depth (0 = top-level call)
+	formOps      int // operators executed inside Form XObjects
+	err          error
 }
+
+// ErrFormBudgetExceeded is returned when Form XObjects drawn from one content
+// stream execute more than maxFormOps operators. Forms that draw each other
+// repeatedly cost exponential time in their nesting depth.
+var ErrFormBudgetExceeded = errors.New("reader: form XObjects exceed the operator budget")
+
+// maxFormOps bounds the operators executed inside Form XObjects per top-level
+// Process call; real pages stay far below it. A variable so tests can lower it.
+var maxFormOps = 10_000_000
 
 // pathSegment is a single segment of a path being constructed.
 type pathSegment struct {
@@ -188,6 +202,8 @@ func (p *ContentProcessor) Process(ops []ContentOp) []TextSpan {
 		p.images = nil
 		p.glyphs = nil
 		p.curPath = nil
+		p.formOps = 0
+		p.err = nil
 	}
 	// Guard against excessive recursion from circular Form XObject references.
 	const maxFormDepth = 50
@@ -198,6 +214,15 @@ func (p *ContentProcessor) Process(ops []ContentOp) []TextSpan {
 	defer func() { p.depth-- }()
 
 	for _, op := range ops {
+		if p.err != nil {
+			return p.spans
+		}
+		if p.depth > 1 {
+			if p.formOps++; p.formOps > maxFormOps {
+				p.err = ErrFormBudgetExceeded
+				return p.spans
+			}
+		}
 		switch op.Operator {
 
 		// --- Graphics state ---
@@ -482,6 +507,11 @@ func (p *ContentProcessor) Process(ops []ContentOp) []TextSpan {
 	}
 
 	return p.spans
+}
+
+// Err reports why the last Process call stopped early, or nil.
+func (p *ContentProcessor) Err() error {
+	return p.err
 }
 
 // Spans returns the collected text spans from the last Process call.
