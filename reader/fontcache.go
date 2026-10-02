@@ -28,6 +28,11 @@ func (fe *FontEntry) Decode(raw []byte) string {
 		return string(raw)
 	}
 	if fe.cmap != nil {
+		if !fe.isType0 {
+			// A simple font's codes are one byte, whatever its ToUnicode
+			// codespace declares (ISO 32000-1 §9.6.6).
+			return fe.cmap.decodeCodes(raw, 1)
+		}
 		return fe.cmap.Decode(raw)
 	}
 	if fe.encoding != nil {
