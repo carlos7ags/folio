@@ -263,3 +263,73 @@ func TestDefaultDirectionIsAuto(t *testing.T) {
 		t.Errorf("default direction: got %v, want DirectionAuto", p.Direction())
 	}
 }
+
+// TestRTLInvoiceTableLayout verifies that an RTL HTML invoice containing tables with
+// unequal columns, headers, totals, and flex-nested layout converts and renders to PDF
+// without layout errors.
+func TestRTLInvoiceTableLayout(t *testing.T) {
+	src := `<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+  <style>
+    @page { size: A4; margin: 0; }
+    html, body { direction: rtl; width: 210mm; }
+    .paper { display: flex; flex-direction: column; width: 210mm; padding: 10mm; }
+    table { width: 100%; border-collapse: collapse; }
+    table.doc-lines th { text-align: start; direction: rtl; }
+    table.doc-lines td.num { text-align: end; direction: ltr; }
+    .footer-notes-blocks { margin-top: auto; }
+    .footer { margin-top: 8mm; text-align: center; }
+  </style>
+</head>
+<body dir="rtl">
+<main class="paper" dir="rtl">
+  <table class="layout-table" dir="rtl">
+    <tr>
+      <td style="width:50%"><div>شركة الأفق للحلول التقنية</div></td>
+      <td style="width:50%"><div>فاتورة FAC-2026-00142</div></td>
+    </tr>
+  </table>
+  <table class="doc-lines" dir="rtl">
+    <thead>
+      <tr>
+        <th style="width:10%">#</th>
+        <th style="width:50%">البيان</th>
+        <th style="width:40%">الإجمالي</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td class="num">1</td>
+        <td>اشتراك سنوي (Business)</td>
+        <td class="num">120 000,00 DZD</td>
+      </tr>
+    </tbody>
+  </table>
+  <div class="footer-notes-blocks">
+    <div>طريقة الدفع: تحويل بنكي</div>
+  </div>
+  <footer class="footer">
+    <div>RIB: 002 00012 1234567890 45</div>
+  </footer>
+</main>
+</body>
+</html>`
+
+	res, err := ConvertFull(src, nil)
+	if err != nil {
+		t.Fatalf("ConvertFull failed: %v", err)
+	}
+	if len(res.Elements) == 0 {
+		t.Fatal("expected elements")
+	}
+
+	// 210mm x 297mm in points: 595.28 x 841.89
+	plan := res.Elements[0].PlanLayout(layout.LayoutArea{Width: 595.28, Height: 841.89})
+	if plan.Status != layout.LayoutFull {
+		t.Errorf("expected LayoutFull, got %v", plan.Status)
+	}
+	if plan.Overflow != nil {
+		t.Error("expected invoice to fit on single page without overflow")
+	}
+}
