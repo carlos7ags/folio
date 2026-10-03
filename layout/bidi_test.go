@@ -498,3 +498,61 @@ func TestBidiMixedScriptBoundaryTokens(t *testing.T) {
 		t.Errorf("RC token not found in visual output: %v", wordTexts(visual))
 	}
 }
+
+// TestBidiLTRWordInRTLRunPreservesInternalOrder verifies that per UAX #9 Rule L2,
+// any word with strong LTR characters or numbers retains its internal character
+// sequence and bracket orientation even if an RTL run positions it, while purely
+// neutral tokens in RTL runs are mirrored and reversed.
+func TestBidiLTRWordInRTLRunPreservesInternalOrder(t *testing.T) {
+	// 1. Strong LTR words: Latin text, product codes, units
+	ltrWords := []string{"USD", "ISO-9001", "100mg", "(Business)", "(RC):"}
+	for _, text := range ltrWords {
+		words := []Word{
+			{Text: "\u05E9\u05DC\u05D5\u05DD", Width: 40}, // Hebrew "שלום"
+			{Text: text, Width: 40},
+		}
+		visual, _ := resolveLineBidi(words, DirectionRTL)
+		var foundWord *Word
+		for i := range visual {
+			if strings.Contains(visual[i].Text, text) || visual[i].Text == text {
+				foundWord = &visual[i]
+				break
+			}
+		}
+		if foundWord == nil {
+			t.Fatalf("word %q not found in visual order: %v", text, wordTexts(visual))
+		}
+		if foundWord.Text != text {
+			t.Errorf("word %q internal order must not be modified; got %q", text, foundWord.Text)
+		}
+	}
+
+	// 2. Purely neutral tokens: should be mirrored and reversed in RTL context
+	neutralTests := []struct {
+		input    string
+		expected string
+	}{
+		{input: "(:", expected: ":)"},
+		{input: "[*]", expected: "[*]"},
+		{input: "<-", expected: "->"},
+	}
+	for _, tc := range neutralTests {
+		words := []Word{
+			{Text: "\u05E9\u05DC\u05D5\u05DD", Width: 40},
+			{Text: tc.input, Width: 20},
+		}
+		visual, _ := resolveLineBidi(words, DirectionRTL)
+		found := false
+		for _, w := range visual {
+			if w.Text == tc.expected {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("neutral token %q in RTL run: expected visual %q, got visual words %v",
+				tc.input, tc.expected, wordTexts(visual))
+		}
+	}
+}
+

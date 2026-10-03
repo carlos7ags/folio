@@ -197,7 +197,13 @@ func resolveLineBidi(words []Word, base Direction) ([]Word, Direction) {
 		if runDir == bidi.RightToLeft {
 			for _, wi := range slices.Backward(indices) {
 				w := words[wi]
-				w.Text = reverseVisualRTL(mirrorBrackets(w.Text))
+				// UAX #9 Rule L2: a word whose own strong direction is LTR retains
+				// its internal character order even when an RTL run positions it.
+				// Only reverse and mirror brackets if the word does not have an
+				// opposing strong direction (i.e. it is RTL-strong or purely neutral).
+				if sd, ok := wordStrongDirection(w.Text); !ok || sd == runDir {
+					w.Text = reverseVisualRTL(mirrorBrackets(w.Text))
+				}
 				// Attach any inline-block words that immediately preceded
 				// this text word in logical order (they travel with it).
 				for ib := wi - 1; ib >= 0 && inlineAt[ib] && !placed[ib]; ib-- {
