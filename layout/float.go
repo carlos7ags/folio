@@ -92,11 +92,18 @@ func (f *Float) PlanLayout(area LayoutArea) LayoutPlan {
 		},
 	}
 
+	// The unplaced rest of a split float continues as a float on the same
+	// side; returned bare it would resume as in-flow content.
+	var overflow Element
+	if plan.Overflow != nil {
+		overflow = &Float{side: f.side, content: plan.Overflow, margin: f.margin}
+	}
+
 	return LayoutPlan{
 		Status:   plan.Status,
 		Consumed: 0, // float doesn't consume vertical space in the normal flow
 		Blocks:   []PlacedBlock{block},
-		Overflow: plan.Overflow,
+		Overflow: overflow,
 	}
 }
 
