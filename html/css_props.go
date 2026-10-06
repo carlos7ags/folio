@@ -106,6 +106,7 @@ var cssProperties = []cssProperty{
 				s.TextAlign = a
 				s.TextAlignKeyword = kw
 				s.TextAlignSet = true
+				s.TextAlignSelfSet = true
 			}
 		},
 	},
