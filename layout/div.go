@@ -691,11 +691,15 @@ func (d *Div) PlanLayout(area LayoutArea) LayoutPlan {
 	// floats placed since then, i.e. at the current position with no in-flow
 	// content beside them yet.
 	type flowMark struct {
-		blocks, floats  int
-		curY, remaining float64
+		blocks, floats, tails int
+		curY, remaining       float64
 	}
 	mark := flowMark{curY: curY, remaining: remaining}
 	var pendingFloats []Element
+	// floatTails are the unplaced remainders of floats split at the page
+	// bottom. They lead the overflow container so each continues as a float
+	// at the top of the next page.
+	var floatTails []Element
 
 	// deferWith moves elem (and everything after it) to the overflow
 	// container. Floats placed since the last in-flow placement are un-placed
@@ -704,17 +708,19 @@ func (d *Div) PlanLayout(area LayoutArea) LayoutPlan {
 	// page bottom while that block's content starts the next page. (Strict CSS
 	// fragmentation would leave a fitting float on the earlier page; keeping
 	// it with its content is what a reader expects and what the browser shows
-	// for a float at the start of a block that moves.) The rollback also
-	// restores curY/remaining, undoing any clear/drop-below advance made for
-	// the deferred child.
+	// for a float at the start of a block that moves.) A rolled-back float
+	// that had split drops its tail too, since the whole float moves.
+	// curY/remaining are restored to the last in-flow placement either way,
+	// undoing any clear/drop-below advance made for the deferred child.
 	deferWith := func(idx int, elem Element) {
 		if len(pendingFloats) > 0 {
 			fittedBlocks = fittedBlocks[:mark.blocks]
 			fc.floats = fc.floats[:mark.floats]
-			curY, remaining = mark.curY, mark.remaining
+			floatTails = floatTails[:mark.tails]
 			overflowElements = append(overflowElements, pendingFloats...)
 			pendingFloats = nil
 		}
+		curY, remaining = mark.curY, mark.remaining
 		allFit = false
 		overflowStartIdx = idx
 		overflowElements = append(overflowElements, elem)
@@ -734,6 +740,12 @@ func (d *Div) PlanLayout(area LayoutArea) LayoutPlan {
 		if hasFloat {
 			if _, isFloat := elem.(*Float); isFloat {
 				plan := elem.PlanLayout(LayoutArea{Width: innerWidth, Height: remaining})
+				if plan.Status != LayoutFull && !paginateOverflow {
+					// A definite-height or clipping box contains its content
+					// instead of fragmenting it: place the float whole and let
+					// it overflow (or be clipped by) the box, as a browser does.
+					plan = elem.PlanLayout(LayoutArea{Width: innerWidth, Height: 1e9})
+				}
 				if plan.Status == LayoutNothing {
 					// The float does not fit in the space left. Skipping it
 					// here dropped it outright: it was neither placed nor
@@ -759,6 +771,13 @@ func (d *Div) PlanLayout(area LayoutArea) LayoutPlan {
 					fittedBlocks = append(fittedBlocks, block)
 				}
 				pendingFloats = append(pendingFloats, elem)
+				if plan.Status == LayoutPartial && plan.Overflow != nil {
+					// Split at the page bottom: the placed part stays, and
+					// the rest continues on the next page. Ignoring the
+					// overflow lost the tail whenever the content beside the
+					// float fitted on this page.
+					floatTails = append(floatTails, plan.Overflow)
+				}
 				continue
 			}
 		}
@@ -808,7 +827,7 @@ func (d *Div) PlanLayout(area LayoutArea) LayoutPlan {
 				curY += plan.Consumed
 				remaining -= plan.Consumed
 				fittedInFlow++
-				mark = flowMark{len(fittedBlocks), len(fc.floats), curY, remaining}
+				mark = flowMark{len(fittedBlocks), len(fc.floats), len(floatTails), curY, remaining}
 				pendingFloats = nil
 
 			case LayoutPartial:
@@ -943,6 +962,13 @@ func (d *Div) PlanLayout(area LayoutArea) LayoutPlan {
 	// Add remaining un-laid-out siblings to overflow.
 	if overflowStartIdx >= 0 && overflowStartIdx+1 < len(d.elements) {
 		overflowElements = append(overflowElements, d.elements[overflowStartIdx+1:]...)
+	}
+
+	// Tails of split floats lead the overflow so each resumes as a float at
+	// the top of the next fragment, beside the content that follows it.
+	if len(floatTails) > 0 {
+		overflowElements = append(append([]Element(nil), floatTails...), overflowElements...)
+		allFit = false
 	}
 
 	// Grow the container to enclose its floats (display:flow-root model): the

@@ -144,3 +144,95 @@ func TestDivFloatSurvivesRelocation(t *testing.T) {
 		}
 	}
 }
+
+// TestDivFloatInDefiniteHeightBoxIsNotDeferred: a box with a definite height
+// contains (or clips) its content rather than fragmenting it. A float taller
+// than the box must be placed overflowing it, as a browser does, not moved —
+// with the in-flow content after it — into an overflow fragment, which left
+// the box empty and drew its label on the next page.
+func TestDivFloatInDefiniteHeightBoxIsNotDeferred(t *testing.T) {
+	d := NewDiv().SetHeightUnit(Pt(20)).
+		Add(NewFloat(FloatLeft, &atomicElement{width: 15, height: 24})).
+		Add(&atomicElement{width: 100, height: 12})
+	plan := d.PlanLayout(LayoutArea{Width: 200, Height: 500})
+	if plan.Status != LayoutFull {
+		t.Fatalf("expected LayoutFull (definite-height box contains its content), got status %d", plan.Status)
+	}
+	if got := countFloatBlocks(plan.Blocks); got != 1 {
+		t.Errorf("placed %d float blocks, want 1 (overflowing the box)", got)
+	}
+	if got := countLeafBlocks(plan.Blocks); got != 2 {
+		t.Errorf("placed %d leaf blocks, want 2 (icon + label)", got)
+	}
+}
+
+// splitElement is a stack of fixed-height lines that splits between lines,
+// like a paragraph: it places the lines that fit and overflows the rest.
+type splitElement struct {
+	lines int
+	lineH float64
+}
+
+func (s *splitElement) PlanLayout(area LayoutArea) LayoutPlan {
+	fit := s.lines
+	if area.Height > 0 {
+		if n := int(area.Height / s.lineH); n < fit {
+			fit = n
+		}
+	}
+	if fit == 0 {
+		return LayoutPlan{Status: LayoutNothing}
+	}
+	blocks := make([]PlacedBlock, fit)
+	for i := range blocks {
+		blocks[i] = PlacedBlock{Y: float64(i) * s.lineH, Width: 50, Height: s.lineH}
+	}
+	plan := LayoutPlan{Status: LayoutFull, Consumed: float64(fit) * s.lineH, Blocks: blocks}
+	if fit < s.lines {
+		plan.Status = LayoutPartial
+		plan.Overflow = &splitElement{lines: s.lines - fit, lineH: s.lineH}
+	}
+	return plan
+}
+
+// TestDivPartialFloatKeepsItsTail: a floated block taller than the space left
+// places the lines that fit, and the rest must continue as a float on the next
+// page. The container ignored the float's overflow, so when the in-flow
+// content beside it fitted the container reported LayoutFull and the float's
+// remaining lines were drawn on no page.
+func TestDivPartialFloatKeepsItsTail(t *testing.T) {
+	const lines = 10
+	var elem Element = NewDiv().
+		Add(NewFloat(FloatLeft, &splitElement{lines: lines, lineH: 10})).
+		Add(&atomicElement{width: 100, height: 10})
+
+	first := elem.PlanLayout(LayoutArea{Width: 200, Height: 30})
+	if first.Status != LayoutPartial {
+		t.Fatalf("expected LayoutPartial (the float's tail continues), got status %d", first.Status)
+	}
+	ov, ok := first.Overflow.(*Div)
+	if !ok || len(ov.Children()) == 0 {
+		t.Fatalf("overflow = %T, want a *Div carrying the float's tail", first.Overflow)
+	}
+	if _, isFloat := ov.Children()[0].(*Float); !isFloat {
+		t.Errorf("overflow's first child is %T, want *Float (the tail stays floated)", ov.Children()[0])
+	}
+
+	got := countLeafBlocks(first.Blocks)
+	elem = first.Overflow
+	for page := 0; page < 20; page++ {
+		plan := elem.PlanLayout(LayoutArea{Width: 200, Height: 30})
+		got += countLeafBlocks(plan.Blocks)
+		if plan.Status != LayoutPartial {
+			elem = nil
+			break
+		}
+		elem = plan.Overflow
+	}
+	if elem != nil {
+		t.Fatal("fragmentation did not terminate")
+	}
+	if want := lines + 1; got != want {
+		t.Errorf("placed %d leaf blocks across the page chain, want %d (every float line + the in-flow box)", got, want)
+	}
+}

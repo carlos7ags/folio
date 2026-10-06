@@ -132,3 +132,49 @@ func TestFloatAtPageBreakIsNotDropped(t *testing.T) {
 		})
 	}
 }
+
+// TestBodyLevelFloatNotStrandedAtPageBreak is the body-flow counterpart of
+// the container case: a float that is a direct <body> child fits in the
+// space left, but the block after it does not. The renderer placed the float,
+// broke the page and dropped its float state, so the icon sat alone at the
+// bottom of page 1 and the block started page 2 without the float's offset.
+func TestBodyLevelFloatNotStrandedAtPageBreak(t *testing.T) {
+	icon := iconDataURI(t)
+	// The header is a table row 24pt+ tall: more than the 18pt left, so the
+	// table moves to the next page (a paragraph would not do: it always
+	// places its first line).
+	body := func(spacerPx float64) string {
+		spacer := ""
+		if spacerPx > 0 {
+			spacer = fmt.Sprintf(`<div style="height:%.0fpx"></div>`, spacerPx)
+		}
+		return fmt.Sprintf(`%s<img style="float:left; width:20px" src="%s" alt="icon">
+<table><tr><td style="font-size:32px">Header</td></tr></table>
+<p style="margin:0">After</p>`, spacer, icon)
+	}
+
+	_, control := biRender(t, body(0))
+	wantX, ok := headerX(string(control[0].Stream.Bytes()))
+	if !ok {
+		t.Fatal("control: header not found")
+	}
+
+	_, pages := biRender(t, body((biUsable-18)/0.75))
+	if len(pages) != 2 {
+		t.Fatalf("got %d pages, want 2", len(pages))
+	}
+	p1, p2 := string(pages[0].Stream.Bytes()), string(pages[1].Stream.Bytes())
+	if n := countDoOps(p1); n != 0 {
+		t.Errorf("page 1 draws %d images, want 0 (the icon belongs with its header on page 2)", n)
+	}
+	if n := countDoOps(p2); n != 1 {
+		t.Errorf("page 2 draws %d images, want 1", n)
+	}
+	gotX, ok := headerX(p2)
+	if !ok {
+		t.Fatal("header not found on page 2")
+	}
+	if diff := gotX - wantX; diff > 0.01 || diff < -0.01 {
+		t.Errorf("header x on page 2 = %.2f, want %.2f (offset beside the float)", gotX, wantX)
+	}
+}
