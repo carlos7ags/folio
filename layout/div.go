@@ -660,7 +660,10 @@ func (d *Div) PlanLayout(area LayoutArea) LayoutPlan {
 
 	// Detect floats among the children up front. The float-free path (the
 	// vast majority of containers) MUST behave exactly as before, so every
-	// float-aware operation below is gated behind hasFloat.
+	// float-aware operation below is gated behind hasFloat. (The zero-progress
+	// guard after the loop is shared, but in the float-free path
+	// fittedInFlow == 0 holds exactly when fittedBlocks is empty, so its extra
+	// condition is a no-op there.)
 	hasFloat := false
 	for _, e := range d.elements {
 		if _, ok := e.(*Float); ok {
@@ -683,6 +686,40 @@ func (d *Div) PlanLayout(area LayoutArea) LayoutPlan {
 	overflowStartIdx := -1
 	fittedInFlow := 0 // in-flow children fully placed on this page
 
+	// Float-aware deferral bookkeeping (hasFloat only). mark snapshots the
+	// layout state after the last in-flow placement; pendingFloats are the
+	// floats placed since then, i.e. at the current position with no in-flow
+	// content beside them yet.
+	type flowMark struct {
+		blocks, floats  int
+		curY, remaining float64
+	}
+	mark := flowMark{curY: curY, remaining: remaining}
+	var pendingFloats []Element
+
+	// deferWith moves elem (and everything after it) to the overflow
+	// container. Floats placed since the last in-flow placement are un-placed
+	// and move with it: a float belongs beside the content that follows it,
+	// so an icon floated at the start of a block must not be left alone at a
+	// page bottom while that block's content starts the next page. (Strict CSS
+	// fragmentation would leave a fitting float on the earlier page; keeping
+	// it with its content is what a reader expects and what the browser shows
+	// for a float at the start of a block that moves.) The rollback also
+	// restores curY/remaining, undoing any clear/drop-below advance made for
+	// the deferred child.
+	deferWith := func(idx int, elem Element) {
+		if len(pendingFloats) > 0 {
+			fittedBlocks = fittedBlocks[:mark.blocks]
+			fc.floats = fc.floats[:mark.floats]
+			curY, remaining = mark.curY, mark.remaining
+			overflowElements = append(overflowElements, pendingFloats...)
+			pendingFloats = nil
+		}
+		allFit = false
+		overflowStartIdx = idx
+		overflowElements = append(overflowElements, elem)
+	}
+
 	// paginateOverflow is true when this container is an auto-height flowing
 	// box whose overflowing in-flow content should continue on the next page.
 	// A box with a definite/limited height (or aspect-ratio) or one that clips
@@ -697,6 +734,14 @@ func (d *Div) PlanLayout(area LayoutArea) LayoutPlan {
 		if hasFloat {
 			if _, isFloat := elem.(*Float); isFloat {
 				plan := elem.PlanLayout(LayoutArea{Width: innerWidth, Height: remaining})
+				if plan.Status == LayoutNothing {
+					// The float does not fit in the space left. Skipping it
+					// here dropped it outright: it was neither placed nor
+					// carried to the overflow, so it was drawn on no page.
+					// Defer it (with what follows) to the next page instead.
+					deferWith(idx, elem)
+					break
+				}
 				for bi := range plan.Blocks {
 					block := plan.Blocks[bi]
 					if block.floatInfo == nil {
@@ -713,6 +758,7 @@ func (d *Div) PlanLayout(area LayoutArea) LayoutPlan {
 					block.Y += curY
 					fittedBlocks = append(fittedBlocks, block)
 				}
+				pendingFloats = append(pendingFloats, elem)
 				continue
 			}
 		}
@@ -746,6 +792,14 @@ func (d *Div) PlanLayout(area LayoutArea) LayoutPlan {
 			xOff := d.padding.Left + leftOff
 			switch plan.Status {
 			case LayoutFull:
+				// An unsplittable child taller than the space left moves to
+				// the next page, as in the float-free path below. Guarded on
+				// having placed something (a float counts), so a lone child
+				// taller than a whole page is still drawn instead of looping.
+				if paginateOverflow && plan.Consumed > remaining+0.01 && (fittedInFlow > 0 || len(fittedBlocks) > 0) {
+					deferWith(idx, elem)
+					break
+				}
 				for _, block := range plan.Blocks {
 					block.X += xOff
 					block.Y += curY
@@ -753,6 +807,9 @@ func (d *Div) PlanLayout(area LayoutArea) LayoutPlan {
 				}
 				curY += plan.Consumed
 				remaining -= plan.Consumed
+				fittedInFlow++
+				mark = flowMark{len(fittedBlocks), len(fc.floats), curY, remaining}
+				pendingFloats = nil
 
 			case LayoutPartial:
 				for _, block := range plan.Blocks {
@@ -769,14 +826,13 @@ func (d *Div) PlanLayout(area LayoutArea) LayoutPlan {
 				remaining -= plan.Consumed
 				allFit = false
 				overflowStartIdx = idx
+				fittedInFlow++
 				if plan.Overflow != nil {
 					overflowElements = append(overflowElements, plan.Overflow)
 				}
 
 			case LayoutNothing:
-				allFit = false
-				overflowStartIdx = idx
-				overflowElements = append(overflowElements, elem)
+				deferWith(idx, elem)
 			}
 
 			if !allFit {
@@ -877,7 +933,10 @@ func (d *Div) PlanLayout(area LayoutArea) LayoutPlan {
 	// at page top, force-place it (Height ≈ ∞). Mirrors the flex column's
 	// fittedCount == 0 handling. Scoped to the auto-height fragmenting path
 	// (paginateOverflow); a definite/clipping box keeps its contain semantics.
-	if paginateOverflow && !hasFloat && !allFit && fittedInFlow == 0 {
+	// A placed float counts as progress (len(fittedBlocks) > 0), but floats
+	// that deferWith un-placed do not: a container whose leading floats moved
+	// with its first in-flow child placed nothing and relocates whole.
+	if paginateOverflow && !allFit && fittedInFlow == 0 && len(fittedBlocks) == 0 {
 		return LayoutPlan{Status: LayoutNothing}
 	}
 
