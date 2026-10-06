@@ -6,6 +6,8 @@ package html
 import (
 	"math"
 	"testing"
+
+	"github.com/carlos7ags/folio/layout"
 )
 
 // TestParseAngleWithCalc closes #274 for parseAngle. Pre-fix the
@@ -208,8 +210,8 @@ func TestParseLineHeight(t *testing.T) {
 		want     float64
 	}{
 		// Keyword + simple forms.
-		{"normal keyword", "normal", 12, 1.2},
-		{"empty string falls back to normal", "", 12, 1.2},
+		{"normal keyword", "normal", 12, layout.LeadingNormal},
+		{"empty string falls back to normal", "", 12, layout.LeadingNormal},
 		{"bare unitless number", "1.5", 12, 1.5},
 		{"zero collapses the line box", "0", 12, 0},
 

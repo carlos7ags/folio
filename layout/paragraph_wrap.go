@@ -47,7 +47,7 @@ func (p *Paragraph) wrapWords(words []Word, maxWidth float64) [][]Word {
 		}
 		spaceW := words[i-1].SpaceAfter
 		candidate := lw + spaceW + words[i].Width
-		if candidate > effectiveWidth && lineStart < i {
+		if !p.noWrap && candidate > effectiveWidth && lineStart < i {
 			lines = append(lines, slices.Clone(words[lineStart:i]))
 			lineStart = i
 			lw = words[i].Width
@@ -128,7 +128,15 @@ func lineWidth(words []Word) float64 {
 // paths share the exact same truncation logic. Returns the (possibly
 // collapsed) word-lines, their widths, and whether truncation fired.
 func applyEllipsisWords(wordLines [][]Word, widths []float64, maxWidth float64) ([][]Word, []float64, bool) {
-	if len(wordLines) <= 1 {
+	// Truncation fires when wrapping produced more than one line, or when a
+	// single line is itself wider than maxWidth. The latter is the
+	// white-space:nowrap case — nowrap always yields exactly one line, so
+	// truncation cannot be gated on line count alone. An already-truncated
+	// line fits maxWidth, so re-running this never doubles the ellipsis.
+	if len(wordLines) == 0 || len(widths) == 0 {
+		return wordLines, widths, false
+	}
+	if len(wordLines) == 1 && widths[0] <= maxWidth {
 		return wordLines, widths, false
 	}
 	first := Line{Words: wordLines[0], Width: widths[0]}

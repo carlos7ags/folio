@@ -125,6 +125,19 @@ func (c *converter) computeElementStyle(n *html.Node, parent computedStyle) comp
 		}
 	}
 
+	// Re-resolve a standalone `line-height` against the element's FINAL
+	// font-size. line-height:<length> is eagerly turned into a font-size
+	// multiplier when its declaration is applied; if `font-size` is declared
+	// after `line-height` in the same rule, that multiplier used a stale
+	// font-size (e.g. `line-height:20px; font-size:11px` produced 1.25× — the
+	// default 16px basis — instead of 20/11 = 1.82×, so the glyph rode high in
+	// a line box that was too short). Resolving here makes the used line
+	// height independent of declaration order. Multiplier/percentage/em/normal
+	// values are font-size-independent, so this is a no-op for them.
+	if style.lineHeightRaw != "" {
+		style.LineHeight = parseLineHeight(style.lineHeightRaw, style.FontSize)
+	}
+
 	return style
 }
 

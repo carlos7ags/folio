@@ -313,6 +313,34 @@ outer:
 	return byteLen, runeLen, width
 }
 
+// lineGapper is implemented by faces that expose a recommended extra
+// line-spacing metric (currently only [sfntFace], via its hhea/OS-2
+// line-gap fields). Faces that don't implement it (e.g. test doubles)
+// are treated as having a zero line-gap by [EmbeddedFont.NormalLineHeight].
+type lineGapper interface {
+	LineGap() int
+}
+
+// NormalLineHeight computes CSS `line-height: normal` for this font at
+// fontSize, derived from the font's own vertical metrics
+// (ascent + descent + line-gap, scaled by UnitsPerEm) rather than a flat
+// multiplier. This matches how browsers resolve `normal` — fonts that
+// declare a large line-gap (common for many text faces) get proportionally
+// more leading than fonts that don't.
+func (ef *EmbeddedFont) NormalLineHeight(fontSize float64) float64 {
+	face := ef.face
+	upem := face.UnitsPerEm()
+	if upem == 0 {
+		return fontSize * 1.2
+	}
+	var lineGap int
+	if lg, ok := face.(lineGapper); ok {
+		lineGap = lg.LineGap()
+	}
+	units := face.Ascent() - face.Descent() + lineGap
+	return float64(units) / float64(upem) * fontSize
+}
+
 // MeasureString implements TextMeasurer for embedded fonts. The returned
 // width is in PDF points and accounts for any kerning pairs the font
 // supplies via its kern table, so wrapping widths agree with the

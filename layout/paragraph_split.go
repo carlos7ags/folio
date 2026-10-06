@@ -102,7 +102,7 @@ func (p *Paragraph) PlanLayout(area LayoutArea) LayoutPlan {
 		return LayoutPlan{Status: LayoutFull, Consumed: consumed}
 	}
 
-	lineHeight := maxFontSize * p.leading
+	lineHeight := resolveLineHeight(p.leading, maxFontSize, p.runs)
 	wordLines := p.wrapWords(measured, area.Width)
 
 	// Bidi reordering: resolve the paragraph's base direction and
@@ -126,7 +126,11 @@ func (p *Paragraph) PlanLayout(area LayoutArea) LayoutPlan {
 	// path (PlanLayout) and the measure/height path (Layout) truncate
 	// identically. Firing this collapses wordLines to a single line, so
 	// an ellipsis paragraph can never produce Overflow below.
-	if p.ellipsis && len(wordLines) > 1 {
+	// applyEllipsisWords decides whether truncation actually applies — it
+	// fires for multi-line overflow *and* for a single line wider than the
+	// area (the white-space:nowrap case, which always yields one line, so
+	// this cannot be gated on line count here).
+	if p.ellipsis && len(wordLines) > 0 {
 		widths := make([]float64, len(wordLines))
 		for i, wl := range wordLines {
 			widths[i] = lineWidth(wl)
@@ -456,6 +460,7 @@ func (p *Paragraph) cloneWithWords(words []Word) *Paragraph {
 	return &Paragraph{
 		runs:             runs,
 		leading:          p.leading,
+		noWrap:           p.noWrap,
 		align:            p.align,
 		alignSet:         p.alignSet,
 		direction:        p.direction,

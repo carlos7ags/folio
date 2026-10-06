@@ -1,4 +1,4 @@
-p fontFamily=helvetica fontSize=12.0000 weight=400 style=normal color=rgb(0.0000,0.0000,0.0000) align=0 lineHeight=1.2000 display=block
+p fontFamily=helvetica fontSize=12.0000 weight=400 style=normal color=rgb(0.0000,0.0000,0.0000) align=0 lineHeight=-1.0000 display=block
   marginAt400=0.7500,1.5000,2.2500,3.0000 paddingAt400=7.5000,15.0000,7.5000,15.0000 borderW=0.7500,0.7500,0.7500,0.7500 decoration=0
   letterSpacing=0.0000 textTransform= whiteSpace= textIndent=0.0000
   flex: justify=flex-start alignItems=stretch gap=0.0000
