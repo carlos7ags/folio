@@ -100,7 +100,7 @@ func buildAttachments(
 		fsDict.Set("Type", core.NewPdfName("Filespec"))
 		fsDict.Set("F", core.NewPdfLiteralString(att.FileName))
 		// /UF (Unicode filename) is required by PDF/A-3 even for ASCII names.
-		fsDict.Set("UF", core.NewPdfLiteralString(att.FileName))
+		fsDict.Set("UF", core.NewPdfTextString(att.FileName))
 
 		// /EF holds a dictionary mapping /F to the EmbeddedFile stream ref.
 		efHolder := core.NewPdfDictionary()
@@ -108,7 +108,7 @@ func buildAttachments(
 		fsDict.Set("EF", efHolder)
 
 		if att.Description != "" {
-			fsDict.Set("Desc", core.NewPdfLiteralString(att.Description))
+			fsDict.Set("Desc", core.NewPdfTextString(att.Description))
 		}
 
 		rel := att.AFRelationship

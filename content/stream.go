@@ -579,37 +579,9 @@ func (s *Stream) BeginMarkedContentWithID(tag string, mcid int) {
 // ISO 32000-2 §7.9.2.2. Pair every call with a single EndMarkedContent;
 // nested ActualText sequences are not supported by this helper.
 func (s *Stream) BeginMarkedContentActualText(text string) {
-	enc := encodeTextStringUTF16BE(text)
+	enc := core.EncodeTextStringUTF16BE(text)
 	s.writeln(fmt.Sprintf("/Span <</ActualText (%s)>> BDC",
 		core.EscapeLiteralString(enc)))
-}
-
-// encodeTextStringUTF16BE returns the UTF-16BE byte representation of s
-// prefixed with the UTF-16 byte-order mark (\xFE\xFF). The result is suitable
-// for use as the value of a PDF text string per ISO 32000-2 §7.9.2.2.
-// Code points outside the Basic Multilingual Plane are emitted as a UTF-16
-// surrogate pair (high surrogate + low surrogate).
-func encodeTextStringUTF16BE(s string) string {
-	var b strings.Builder
-	b.Grow(2 + 2*len(s))
-	b.WriteByte(0xFE)
-	b.WriteByte(0xFF)
-	for _, r := range s {
-		if r <= 0xFFFF {
-			b.WriteByte(byte(r >> 8))
-			b.WriteByte(byte(r))
-			continue
-		}
-		// Astral plane: encode as a surrogate pair (UTF-16, RFC 2781).
-		v := uint32(r) - 0x10000
-		hi := 0xD800 + (v >> 10)
-		lo := 0xDC00 + (v & 0x3FF)
-		b.WriteByte(byte(hi >> 8))
-		b.WriteByte(byte(hi))
-		b.WriteByte(byte(lo >> 8))
-		b.WriteByte(byte(lo))
-	}
-	return b.String()
 }
 
 // BeginArtifact writes the BDC operator opening an /Artifact marked-content

@@ -32,7 +32,7 @@ func (ff *FormFiller) FieldNames() ([]string, error) {
 	for _, fd := range fields {
 		if t := fd.Get("T"); t != nil {
 			if s, ok := t.(*core.PdfString); ok {
-				names = append(names, s.Text())
+				names = append(names, s.TextString())
 			}
 		}
 	}
@@ -63,7 +63,7 @@ func (ff *FormFiller) SetValue(fieldName, value string) error {
 	}
 	for _, fd := range fields {
 		if nameMatch(fd, fieldName) {
-			fd.Set("V", core.NewPdfLiteralString(value))
+			fd.Set("V", core.NewPdfTextString(value))
 			return nil
 		}
 	}
@@ -176,7 +176,7 @@ func nameMatch(fd *core.PdfDictionary, name string) bool {
 		return false
 	}
 	if s, ok := t.(*core.PdfString); ok {
-		return s.Text() == name
+		return s.TextString() == name
 	}
 	return false
 }
@@ -189,7 +189,7 @@ func fieldValue(fd *core.PdfDictionary) string {
 	}
 	switch val := v.(type) {
 	case *core.PdfString:
-		return val.Text()
+		return val.TextString()
 	case *core.PdfName:
 		return val.Value
 	default:

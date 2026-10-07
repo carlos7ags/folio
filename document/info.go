@@ -36,22 +36,22 @@ func (info *Info) toDict() *core.PdfDictionary {
 	d := core.NewPdfDictionary()
 
 	if info.Title != "" {
-		d.Set("Title", core.NewPdfLiteralString(info.Title))
+		d.Set("Title", core.NewPdfTextString(info.Title))
 	}
 	if info.Author != "" {
-		d.Set("Author", core.NewPdfLiteralString(info.Author))
+		d.Set("Author", core.NewPdfTextString(info.Author))
 	}
 	if info.Subject != "" {
-		d.Set("Subject", core.NewPdfLiteralString(info.Subject))
+		d.Set("Subject", core.NewPdfTextString(info.Subject))
 	}
 	if info.Keywords != "" {
-		d.Set("Keywords", core.NewPdfLiteralString(info.Keywords))
+		d.Set("Keywords", core.NewPdfTextString(info.Keywords))
 	}
 	if info.Creator != "" {
-		d.Set("Creator", core.NewPdfLiteralString(info.Creator))
+		d.Set("Creator", core.NewPdfTextString(info.Creator))
 	}
 	if info.Producer != "" {
-		d.Set("Producer", core.NewPdfLiteralString(info.Producer))
+		d.Set("Producer", core.NewPdfTextString(info.Producer))
 	}
 	if !info.CreationDate.IsZero() {
 		d.Set("CreationDate", core.NewPdfLiteralString(formatPdfDate(info.CreationDate)))

@@ -510,11 +510,11 @@ func isDocTimeStampDict(sd *core.PdfDictionary) bool {
 	return false
 }
 
-// pdfStringField reads a string-valued dictionary entry, returning "" if
-// absent or not a string.
+// pdfStringField reads a text-string dictionary entry, decoded to UTF-8,
+// returning "" if absent or not a string.
 func pdfStringField(d *core.PdfDictionary, key string) string {
 	if s, ok := d.Get(key).(*core.PdfString); ok {
-		return s.Text()
+		return s.TextString()
 	}
 	return ""
 }
@@ -668,8 +668,12 @@ func parseByteRangeArray(pdf []byte, start int) ([4]int, int, error) {
 }
 
 // extractLiteralString reads the PDF literal string value of "/key (...)"
-// within region, unescaping \\, \(, and \) — the only escapes
-// escapePdfString produces. It returns "" if key is not present.
+// within region and decodes it as a text string. It handles the escapes
+// ISO 32000-1 §7.3.4.2 defines (\n \r \t \b \f \( \) \\, octal \ddd
+// and a backslash before an end-of-line), so a UTF-16BE value
+// written by textStringLiteral round-trips, then converts a value with a
+// byte-order mark to UTF-8 (see [core.DecodeTextString]). It returns ""
+// if key is not present.
 func extractLiteralString(region []byte, key string) string {
 	marker := []byte("/" + key + " (")
 	idx := bytes.Index(region, marker)
@@ -680,19 +684,49 @@ func extractLiteralString(region []byte, key string) string {
 	var out []byte
 	for pos < len(region) {
 		c := region[pos]
-		if c == '\\' && pos+1 < len(region) {
-			pos++
-			out = append(out, region[pos])
-			pos++
-			continue
-		}
 		if c == ')' {
 			break
 		}
-		out = append(out, c)
+		if c != '\\' || pos+1 >= len(region) {
+			out = append(out, c)
+			pos++
+			continue
+		}
+		pos++
+		e := region[pos]
+		switch {
+		case e == 'n':
+			out = append(out, '\n')
+		case e == 'r':
+			out = append(out, '\r')
+		case e == 't':
+			out = append(out, '\t')
+		case e == 'b':
+			out = append(out, '\b')
+		case e == 'f':
+			out = append(out, '\f')
+		case e >= '0' && e <= '7':
+			v := 0
+			for n := 0; n < 3 && pos < len(region) && region[pos] >= '0' && region[pos] <= '7'; n++ {
+				v = v*8 + int(region[pos]-'0')
+				pos++
+			}
+			out = append(out, byte(v))
+			continue
+		case e == '\r':
+			// Line continuation: drop the backslash and the EOL.
+			if pos+1 < len(region) && region[pos+1] == '\n' {
+				pos++
+			}
+		case e == '\n':
+			// Line continuation.
+		default:
+			// \\, \(, \) and any other character map to themselves.
+			out = append(out, e)
+		}
 		pos++
 	}
-	return string(out)
+	return core.DecodeTextString(string(out))
 }
 
 // byteRangeCoversFile reports whether br spans the entire file with no gap
