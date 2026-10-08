@@ -732,10 +732,10 @@ func TestParseCMS_RequiresContentType(t *testing.T) {
 	}
 }
 
-// TestVerify_NonASCIITextStrings verifies that /Name, /Reason and
+// TestVerify_NonASCIIStringFields verifies that /Name, /Reason and
 // /Location outside ASCII are written as PDF text strings and that
 // Verify decodes them back to the original Unicode text.
-func TestVerify_NonASCIITextStrings(t *testing.T) {
+func TestVerify_NonASCIIStringFields(t *testing.T) {
 	key, cert := testKeyGens[0].gen(t)
 	signed := signMinimalPDF(t, key, cert, Options{
 		Level:       LevelBB,
