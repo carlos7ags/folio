@@ -133,7 +133,7 @@ func buildOutlineItems(
 	// Second pass: fill in all fields now that we have all refs
 	for i, item := range items {
 		d := dicts[i]
-		d.Set("Title", core.NewPdfLiteralString(item.Title))
+		d.Set("Title", core.NewPdfTextString(item.Title))
 		d.Set("Parent", parentRef)
 
 		// Destination

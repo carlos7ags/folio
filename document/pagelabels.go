@@ -57,7 +57,7 @@ func buildPageLabels(ranges []PageLabelRange, catalog *core.PdfDictionary, addOb
 			labelDict.Set("S", core.NewPdfName(string(r.Style)))
 		}
 		if r.Prefix != "" {
-			labelDict.Set("P", core.NewPdfLiteralString(r.Prefix))
+			labelDict.Set("P", core.NewPdfTextString(r.Prefix))
 		}
 		if r.Start > 0 && r.Start != 1 {
 			labelDict.Set("St", core.NewPdfInteger(r.Start))

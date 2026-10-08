@@ -136,3 +136,50 @@ func TestFormFillerFieldNotFound(t *testing.T) {
 		t.Error("expected error for nonexistent field")
 	}
 }
+
+// TestFormFillerNonASCIINamesAndValues verifies that field names and
+// values outside ASCII are written as PDF text strings and that the
+// filler decodes them when reading back and matching names.
+func TestFormFillerNonASCIINamesAndValues(t *testing.T) {
+	doc := document.NewDocument(document.PageSizeLetter)
+	doc.AddPage()
+	form := NewAcroForm()
+	tf := NewTextField("Año", [4]float64{72, 700, 300, 720}, 0)
+	tf.SetValue("Sí — “claro”")
+	form.Add(tf)
+	doc.SetAcroForm(form)
+
+	var buf strings.Builder
+	if _, err := doc.WriteTo(&buf); err != nil {
+		t.Fatalf("WriteTo: %v", err)
+	}
+	if strings.Contains(buf.String(), "A\xc3\xb1o") || strings.Contains(buf.String(), "S\xc3\xad") {
+		t.Error("raw UTF-8 bytes leaked into the field name or value")
+	}
+	r, err := reader.Parse([]byte(buf.String()))
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	ff := NewFormFiller(r)
+
+	names, err := ff.FieldNames()
+	if err != nil {
+		t.Fatalf("FieldNames: %v", err)
+	}
+	if len(names) != 1 || names[0] != "Año" {
+		t.Errorf("FieldNames = %q, want [Año]", names)
+	}
+	val, err := ff.GetValue("Año")
+	if err != nil {
+		t.Fatalf("GetValue: %v", err)
+	}
+	if val != "Sí — “claro”" {
+		t.Errorf("GetValue = %q", val)
+	}
+	if err := ff.SetValue("Año", "Não"); err != nil {
+		t.Fatalf("SetValue: %v", err)
+	}
+	if val, _ := ff.GetValue("Año"); val != "Não" {
+		t.Errorf("GetValue after SetValue = %q, want Não", val)
+	}
+}

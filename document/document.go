@@ -733,7 +733,7 @@ func (d *Document) WriteToWithContext(ctx context.Context, w io.Writer, opts Wri
 	// (ISO 32000-2 §14.9.2). Required for PDF/A Level A
 	// (ISO 19005-2 §6.7.2) when per-structure Lang is not set.
 	if d.Info.Language != "" {
-		catalog.Set("Lang", core.NewPdfLiteralString(d.Info.Language))
+		catalog.Set("Lang", core.NewPdfTextString(d.Info.Language))
 	}
 
 	pagesDict := core.NewPdfDictionary()
@@ -931,7 +931,7 @@ func (d *Document) WriteToWithContext(ctx context.Context, w io.Writer, opts Wri
 			case "Text":
 				// Sticky note annotation (ISO 32000 §12.5.6.4).
 				if ann.contents != "" {
-					annotDict.Set("Contents", core.NewPdfLiteralString(ann.contents))
+					annotDict.Set("Contents", core.NewPdfTextString(ann.contents))
 				}
 				if ann.name != "" {
 					annotDict.Set("Name", core.NewPdfName(ann.name))
@@ -943,7 +943,7 @@ func (d *Document) WriteToWithContext(ctx context.Context, w io.Writer, opts Wri
 			case "Highlight", "Underline", "Squiggly", "StrikeOut":
 				// Text markup annotations (ISO 32000 §12.5.6.10).
 				if ann.contents != "" {
-					annotDict.Set("Contents", core.NewPdfLiteralString(ann.contents))
+					annotDict.Set("Contents", core.NewPdfTextString(ann.contents))
 				}
 				// QuadPoints: required for text markup annotations.
 				qp := ann.quadPoints
