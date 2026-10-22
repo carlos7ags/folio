@@ -57,6 +57,11 @@ func (r *Renderer) renderWithPlans() []PageResult {
 	pageIdx := 0
 	atPageTop := true
 
+	// bodyPending are the floats placed on the current page since the last
+	// in-flow placement. If the in-flow element after them moves to the next
+	// page whole, they move with it (see rollbackFloats).
+	var bodyPending []Element
+
 	flushPage := func() {
 		// Capture string-set values from placed blocks before drawing.
 		// This updates running string state used by margin box string() refs.
@@ -81,6 +86,7 @@ func (r *Renderer) renderWithPlans() []PageResult {
 		remainingHeight = usableHeight
 		curY = 0
 		atPageTop = true
+		bodyPending = nil
 	}
 
 	// Float tracking: active floats reduce available width for subsequent elements.
@@ -119,6 +125,36 @@ func (r *Renderer) renderWithPlans() []PageResult {
 		floats = alive
 	}
 
+	// floatMark snapshots the page state just before the first pending
+	// float was placed.
+	type floatMark struct {
+		blocks          int
+		curY, remaining float64
+		atPageTop       bool
+		floats          []activeFloat
+	}
+	var bodyMark floatMark
+
+	// rollbackFloats un-places the pending floats so they move to the next
+	// page with the in-flow element being deferred, rather than staying alone
+	// at the page bottom while the content they float beside starts the next
+	// page without their offset. It returns the floats to re-queue ahead of
+	// that element. When the floats were placed at the top of the page,
+	// nothing is rolled back: moving them would only repeat the same layout
+	// on the next page.
+	rollbackFloats := func() []Element {
+		if len(bodyPending) == 0 || bodyMark.atPageTop {
+			return nil
+		}
+		moved := bodyPending
+		curBlocks = curBlocks[:bodyMark.blocks]
+		curY, remainingHeight = bodyMark.curY, bodyMark.remaining
+		atPageTop = bodyMark.atPageTop
+		floats = bodyMark.floats
+		bodyPending = nil
+		return moved
+	}
+
 	// Initialize first page.
 	_ = pageIdx // used in flushPage closure
 
@@ -149,7 +185,18 @@ func (r *Renderer) renderWithPlans() []PageResult {
 			curY = 0
 			floats = nil
 			atPageTop = true
+			bodyPending = nil
 			continue
+		}
+
+		if _, ok := elem.(*Float); ok && len(bodyPending) == 0 {
+			bodyMark = floatMark{
+				blocks:    len(curBlocks),
+				curY:      curY,
+				remaining: remainingHeight,
+				atPageTop: atPageTop,
+				floats:    append([]activeFloat(nil), floats...),
+			}
 		}
 
 		// CSS clear: advance past active floats before placing this element.
@@ -256,8 +303,11 @@ func (r *Renderer) renderWithPlans() []PageResult {
 			curBlocks = append(curBlocks, plan.Blocks...)
 			curY += plan.Consumed
 			remainingHeight -= plan.Consumed
-			if !isFloat {
+			if isFloat {
+				bodyPending = append(bodyPending, elem)
+			} else {
 				consumeFloatHeight(plan.Consumed)
+				bodyPending = nil
 			}
 			atPageTop = false
 
@@ -266,9 +316,10 @@ func (r *Renderer) renderWithPlans() []PageResult {
 			// together and we're not at the top of a fresh page, move
 			// the whole element to the next page instead of splitting.
 			if kt, ok := baseElement(elem).(interface{ KeepTogether() bool }); ok && kt.KeepTogether() && !atPageTop {
+				moved := rollbackFloats()
 				startNewPage()
 				floats = nil
-				queue = append([]Element{elem}, queue...)
+				queue = append(append(moved, elem), queue...)
 				continue
 			}
 
@@ -288,9 +339,13 @@ func (r *Renderer) renderWithPlans() []PageResult {
 
 		case LayoutNothing:
 			if !atPageTop {
+				var moved []Element
+				if !isFloatElem {
+					moved = rollbackFloats()
+				}
 				startNewPage()
 				floats = nil
-				queue = append([]Element{elem}, queue...)
+				queue = append(append(moved, elem), queue...)
 			} else {
 				forcePlan := elem.PlanLayout(LayoutArea{Width: availWidth, Height: 1e9})
 				for i := range forcePlan.Blocks {
