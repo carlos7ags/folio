@@ -745,10 +745,23 @@ func (l *List) planAt(area LayoutArea, baseIndent float64) LayoutPlan {
 					switch {
 					case capturedRTL:
 						// RTL: marker on the right, text indented from the right.
+						// drawTextLine only consults align for justification —
+						// every other alignment has to arrive already applied to
+						// x, the way paragraph layout does it. Passing absX with
+						// AlignRight left every list item stranded against the
+						// left margin with its bullet a column away.
+						textBoxW := capturedMaxW - capturedIndent
 						if len(capturedMarker) > 0 {
-							drawTextLine(ctx, capturedMarker, absX+capturedMaxW-capturedIndent, baselineY, capturedIndent, AlignRight, true)
+							// Right-align the marker inside its gutter so a gap
+							// separates it from the text, as a browser renders it.
+							markerX := absX + capturedMaxW - lineWidth(capturedMarker)
+							drawTextLine(ctx, capturedMarker, markerX, baselineY, capturedIndent, AlignRight, true)
 						}
-						drawTextLine(ctx, capturedWords, absX, baselineY, capturedMaxW-capturedIndent, AlignRight, capturedIsLast)
+						textX := absX + textBoxW - lineWidth(capturedWords)
+						if textX < absX {
+							textX = absX
+						}
+						drawTextLine(ctx, capturedWords, textX, baselineY, textBoxW, AlignRight, capturedIsLast)
 					case capturedInside:
 						// Inside: marker is inline at the content edge; the first
 						// line's text follows it, wrapped lines align under it.
