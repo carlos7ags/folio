@@ -195,6 +195,12 @@ func parseFontEntry(fd *core.PdfDictionary, res *resolver) *FontEntry {
 		}
 	}
 
+	// A symbolic standard font (Symbol, ZapfDingbats) selects glyphs
+	// through its built-in encoding, not a Latin one (ISO 32000-1
+	// §9.6.6.1); builtin is nil for every other font.
+	baseName := getBaseFont(fd)
+	builtin := standardBuiltinEncoding(baseName)
+
 	// 2. /Encoding — for simple fonts.
 	if encObj := fd.Get("Encoding"); encObj != nil {
 		encObj = resolveWith(res, encObj)
@@ -209,9 +215,16 @@ func parseFontEntry(fd *core.PdfDictionary, res *resolver) *FontEntry {
 				fe.encoding = standardEncoding
 			}
 		case *core.PdfDictionary:
-			fe.encoding = parseEncodingDict(enc, res)
+			fe.encoding = parseEncodingDict(enc, res, builtin)
 		}
 		if fe.encoding != nil {
+			if builtin != nil && fe.widths == nil {
+				// No /Widths: index the font's widths by built-in code.
+				// Codes remapped by /Differences keep the built-in glyph's
+				// width, the closest available without glyph-name metrics.
+				fe.firstChar = 0
+				fe.widths = font.StandardFontByteWidths(baseName)
+			}
 			return fe
 		}
 	}
@@ -226,12 +239,16 @@ func parseFontEntry(fd *core.PdfDictionary, res *resolver) *FontEntry {
 
 	// 4. Standard font recognition — if no encoding was declared in the PDF,
 	// standard Type1 fonts (Helvetica, Times, Courier, etc.) use
-	// winAnsiEncoding by default and have well-known glyph widths.
+	// winAnsiEncoding by default, and Symbol and ZapfDingbats use their
+	// built-in encodings; all have well-known glyph widths.
 	// PDF viewers are required to know these metrics (ISO 32000 §9.6.2.2),
 	// so PDFs typically omit /Widths for standard fonts.
-	if baseName := getBaseFont(fd); baseName != "" {
+	if baseName != "" {
 		if byteWidths := font.StandardFontByteWidths(baseName); byteWidths != nil {
 			fe.encoding = winAnsiEncoding
+			if builtin != nil {
+				fe.encoding = builtin
+			}
 			fe.firstChar = 0
 			fe.widths = byteWidths
 			return fe
@@ -242,7 +259,10 @@ func parseFontEntry(fd *core.PdfDictionary, res *resolver) *FontEntry {
 }
 
 // parseEncodingDict handles /Encoding dictionaries with /BaseEncoding and /Differences.
-func parseEncodingDict(d *core.PdfDictionary, res *resolver) *Encoding {
+// builtin is the font's built-in encoding, used as the base when the
+// dictionary names none; nil means StandardEncoding (the built-in encoding
+// of the Latin standard fonts).
+func parseEncodingDict(d *core.PdfDictionary, res *resolver, builtin *Encoding) *Encoding {
 	// Start with base encoding.
 	var base *Encoding
 	if bn, ok := d.Get("BaseEncoding").(*core.PdfName); ok {
@@ -254,6 +274,9 @@ func parseEncodingDict(d *core.PdfDictionary, res *resolver) *Encoding {
 		case "StandardEncoding":
 			base = standardEncoding
 		}
+	}
+	if base == nil {
+		base = builtin
 	}
 	if base == nil {
 		base = standardEncoding
@@ -570,4 +593,17 @@ func resolveWith(res *resolver, obj core.PdfObject) core.PdfObject {
 		return obj
 	}
 	return resolved
+}
+
+// standardBuiltinEncoding returns the built-in encoding of the named
+// symbolic standard font (Symbol or ZapfDingbats), or nil for any other
+// font.
+func standardBuiltinEncoding(baseName string) *Encoding {
+	table := font.StandardFontBuiltinEncoding(baseName)
+	if table == nil {
+		return nil
+	}
+	var e Encoding
+	copy(e.table[:], table)
+	return &e
 }

@@ -226,7 +226,7 @@ func drawTextLine(ctx DrawContext, words []Word, x, baselineY, maxWidth float64,
 			if i < len(words)-1 {
 				next := words[i+1]
 				sharedDecoration := next.Decoration & word.Decoration
-				sameLink := word.LinkURI == next.LinkURI
+				sameLink := word.LinkURI == next.LinkURI && word.LinkDest == next.LinkDest
 				sameColor := word.Color == next.Color
 				if word.DecorationColor != nil && next.DecorationColor != nil {
 					sameColor = *word.DecorationColor == *next.DecorationColor
@@ -250,14 +250,15 @@ func drawTextLine(ctx DrawContext, words []Word, x, baselineY, maxWidth float64,
 }
 
 // drawWordStandard emits a standard-font word with optional TJ kerning.
-// Text is encoded to WinAnsiEncoding for standard PDF fonts.
+// Text is encoded with the font's own encoding: WinAnsiEncoding, or the
+// built-in encoding for Symbol and ZapfDingbats.
 func drawWordStandard(stream *content.Stream, word Word) {
 	if word.Font == nil {
 		return
 	}
 	runes := []rune(word.Text)
 	if len(runes) < 2 {
-		stream.ShowText(font.WinAnsiEncode(word.Text))
+		stream.ShowText(word.Font.Encode(word.Text))
 		return
 	}
 
@@ -269,19 +270,19 @@ func drawWordStandard(stream *content.Stream, word Word) {
 		kern := word.Font.Kern(runes[i-1], runes[i])
 		if kern != 0 {
 			hasKerning = true
-			elements = append(elements, content.TextArrayElement{Text: font.WinAnsiEncode(string(runes[start:i]))})
+			elements = append(elements, content.TextArrayElement{Text: word.Font.Encode(string(runes[start:i]))})
 			elements = append(elements, content.TextArrayElement{Adjustment: -kern, IsAdjustment: true})
 			start = i
 		}
 	}
 
 	if !hasKerning {
-		stream.ShowText(font.WinAnsiEncode(word.Text))
+		stream.ShowText(word.Font.Encode(word.Text))
 		return
 	}
 
 	if start < len(runes) {
-		elements = append(elements, content.TextArrayElement{Text: font.WinAnsiEncode(string(runes[start:]))})
+		elements = append(elements, content.TextArrayElement{Text: word.Font.Encode(string(runes[start:]))})
 	}
 	stream.ShowTextArray(elements)
 }

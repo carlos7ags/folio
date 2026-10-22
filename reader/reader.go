@@ -822,13 +822,16 @@ func (p *PageInfo) processContent() (*ContentProcessor, error) {
 
 // formLookup returns the Do resolver for this page's content. A form's names
 // resolve in its own /Resources, or in its caller's when it has none
-// (ISO 32000-1 §7.8.3); fonts are built once per resource dictionary.
+// (ISO 32000-1 §7.8.3); fonts are built once per resource dictionary and
+// each form's content is parsed once, however many times it is drawn.
 func (p *PageInfo) formLookup(pageRes *core.PdfDictionary, pageFonts FontCache) formLookup {
 	fontsByRes := map[*core.PdfDictionary]FontCache{pageRes: pageFonts}
-	return func(res *core.PdfDictionary, name string) ([]ContentOp, *core.PdfDictionary, FontCache) {
-		form := p.formXObject(res, name)
+	opsByForm := map[any][]ContentOp{}
+	return func(res *core.PdfDictionary, name string) ([]ContentOp, *core.PdfDictionary, FontCache, [6]float64) {
+		identity := [6]float64{1, 0, 0, 1, 0, 0}
+		form, key := p.formXObject(res, name)
 		if form == nil || len(form.Data) == 0 {
-			return nil, nil, nil
+			return nil, nil, nil, identity
 		}
 		formRes := res
 		if obj := form.Dict.Get("Resources"); obj != nil {
@@ -841,8 +844,31 @@ func (p *PageInfo) formLookup(pageRes *core.PdfDictionary, pageFonts FontCache) 
 			fonts = buildFontCacheWithShared(formRes, p.reader.resolver, p.reader.getFontCache())
 			fontsByRes[formRes] = fonts
 		}
-		return ParseContentStream(form.Data), formRes, fonts
+		ops, ok := opsByForm[key]
+		if !ok {
+			ops = ParseContentStream(form.Data)
+			opsByForm[key] = ops
+		}
+		return ops, formRes, fonts, formMatrix(p.reader.resolver, form)
 	}
+}
+
+// formMatrix returns a form's /Matrix, or the identity when it is absent
+// or malformed.
+func formMatrix(r *resolver, form *core.PdfStream) [6]float64 {
+	m := [6]float64{1, 0, 0, 1, 0, 0}
+	arr, ok := resolveWith(r, form.Dict.Get("Matrix")).(*core.PdfArray)
+	if !ok || arr.Len() != 6 {
+		return m
+	}
+	for i := range m {
+		n, ok := resolveWith(r, arr.At(i)).(*core.PdfNumber)
+		if !ok {
+			return [6]float64{1, 0, 0, 1, 0, 0}
+		}
+		m[i] = n.FloatValue()
+	}
+	return m
 }
 
 // ExtractTaggedText extracts text using the structure tree for logical
@@ -901,31 +927,37 @@ func (p *PageInfo) ExtractTextWithStrategy(strategy ExtractionStrategy) (string,
 }
 
 // formXObject returns the Form XObject named name in res, or nil when the
-// name is missing or not a form.
-func (p *PageInfo) formXObject(res *core.PdfDictionary, name string) *core.PdfStream {
+// name is missing or not a form, together with a key that identifies the
+// form across lookups.
+func (p *PageInfo) formXObject(res *core.PdfDictionary, name string) (*core.PdfStream, any) {
 	if res == nil {
-		return nil
+		return nil, nil
 	}
 	xobjObj := res.Get("XObject")
 	if xobjObj == nil {
-		return nil
+		return nil, nil
 	}
 	xobjDict, ok := resolveWith(p.reader.resolver, xobjObj).(*core.PdfDictionary)
 	if !ok {
-		return nil
+		return nil, nil
 	}
 	formObj := xobjDict.Get(name)
 	if formObj == nil {
-		return nil
+		return nil, nil
 	}
 	stream, ok := resolveWith(p.reader.resolver, formObj).(*core.PdfStream)
 	if !ok {
-		return nil
+		return nil, nil
 	}
 	if subtype, _ := stream.Dict.Get("Subtype").(*core.PdfName); subtype == nil || subtype.Value != "Form" {
-		return nil
+		return nil, nil
 	}
-	return stream
+	// Key the form by its object identity: the resolver may evict and
+	// re-resolve a stream to a fresh pointer on large files.
+	if ref, ok := formObj.(*core.PdfIndirectReference); ok {
+		return stream, [2]int{ref.Num(), ref.Gen()}
+	}
+	return stream, stream
 }
 
 // getFontCache returns the shared font cache, initializing it lazily.

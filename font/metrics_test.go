@@ -85,10 +85,11 @@ func TestMeasureStringUnknownCharFallback(t *testing.T) {
 }
 
 func TestMeasureStringSymbolWidths(t *testing.T) {
-	// Symbol font now has real width tables. ASCII 'a','b','c' are not in the
-	// Symbol encoding, so they fall through to the default width (250).
+	// Symbol has no Latin letters: 'a','b','c' pass through as raw codes
+	// 0x61-0x63, so they measure as the glyphs those codes select in the
+	// built-in encoding (α 631, β 549, χ 549).
 	got := Symbol.MeasureString("abc", 10)
-	expected := 7.5 // 3 * 250/1000 * 10
+	expected := 17.29 // (631 + 549 + 549)/1000 * 10
 	if math.Abs(got-expected) > 0.001 {
 		t.Errorf("expected %.3f, got %.3f", expected, got)
 	}

@@ -169,7 +169,14 @@ func (c *converter) populateList(n *html.Node, list *layout.List, style computed
 		// and indentation for the common case. Use if/else (not continue) so
 		// the shared counter pop below runs for both paths.
 		if !hasBox && !liHasBlockFlowChildren(c, child, liStyle) {
-			runs := c.collectListItemRuns(child, style)
+			// collectListItemRuns styles bare text with the list's style;
+			// white-space is decided per item from the <li>'s computed value
+			// (which inherits the list's nowrap/pre unless the <li> sets its
+			// own), so a `white-space:normal` item in a nowrap list wraps.
+			// The layout list makes an item nowrap when all its text runs are.
+			runStyle := style
+			runStyle.WhiteSpace = liStyle.WhiteSpace
+			runs := c.collectListItemRuns(child, runStyle)
 			if nestedList != nil {
 				if len(runs) == 0 {
 					runs = []layout.TextRun{{Text: " ", Font: font.Helvetica, FontSize: style.FontSize}}
@@ -196,7 +203,12 @@ func (c *converter) populateList(n *html.Node, list *layout.List, style computed
 				for _, ci := range nestedStyle.CounterIncrement {
 					c.incrementCounter(ci.Name, ci.Value)
 				}
-				c.populateList(nestedList, sub, style)
+				// The nested items inherit the nested list's white-space
+				// (other inherited properties keep the outer list's style,
+				// as before).
+				nestedParent := style
+				nestedParent.WhiteSpace = nestedStyle.WhiteSpace
+				c.populateList(nestedList, sub, nestedParent)
 				for _, cr := range nestedStyle.CounterReset {
 					c.popCounter(cr.Name)
 				}

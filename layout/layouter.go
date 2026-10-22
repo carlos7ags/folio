@@ -9,6 +9,16 @@ import "github.com/carlos7ags/folio/content"
 type LayoutArea struct {
 	Width  float64 // available width in PDF points
 	Height float64 // remaining height on the current page
+
+	// AtFragmentTop reports that nothing has been placed above this area in
+	// the current fragmentainer (page), so moving the element to the next
+	// page would not give it more room. A container that would otherwise
+	// defer content which cannot fit (returning LayoutNothing so it restarts
+	// on a fresh page) must instead make progress here: place the oversized
+	// child — splitting it, or letting an unsplittable one overflow — and
+	// paginate what follows. Set by the renderer at the top of a page and
+	// propagated by containers to their first in-flow child.
+	AtFragmentTop bool
 }
 
 // LayoutStatus indicates how much of an element fit in the available area.

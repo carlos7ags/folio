@@ -251,8 +251,9 @@ func (r *Renderer) renderWithPlans() []PageResult {
 			planWidth = maxWidth
 		}
 		area := LayoutArea{
-			Width:  planWidth,
-			Height: remainingHeight,
+			Width:         planWidth,
+			Height:        remainingHeight,
+			AtFragmentTop: atPageTop,
 		}
 
 		plan := elem.PlanLayout(area)

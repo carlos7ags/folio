@@ -165,11 +165,11 @@ func TestParagraphLineHeight(t *testing.T) {
 
 // TestParagraphLeadingNormalUsesFontMetrics is the regression test asserting
 // that line-height:normal is derived from the embedded font's own vertical
-// metrics (ascent+descent+line-gap), not a flat fontSize*1.2 — Poppins
-// declares an unusually large line-gap, so its normal leading is well above
-// the 1.2 default other fonts fall back to.
+// metrics (ascent+descent+line-gap), not a flat fontSize*1.2. The synthetic
+// fixture's hhea metrics sum to 1.5em (see
+// font/testdata/build_metrics_fixture.go), well above the 1.2 default.
 func TestParagraphLeadingNormalUsesFontMetrics(t *testing.T) {
-	path, err := filepath.Abs("../font/testdata/Poppins-Bold.ttf")
+	path, err := filepath.Abs("../font/testdata/synthetic_metrics_hhea.ttf")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -180,9 +180,9 @@ func TestParagraphLeadingNormalUsesFontMetrics(t *testing.T) {
 	ef := font.NewEmbeddedFont(face)
 
 	const fontSize = 11
-	want := ef.NormalLineHeight(fontSize)
-	if want <= fontSize*1.2 {
-		t.Fatalf("test fixture assumption broken: Poppins's normal leading (%v) should exceed the flat 1.2 default (%v)", want, fontSize*1.2)
+	const want = 16.5 // 1.5em
+	if got := ef.NormalLineHeight(fontSize); math.Abs(got-want) > 1e-9 {
+		t.Fatalf("fixture NormalLineHeight(%v) = %v, want %v", fontSize, got, want)
 	}
 
 	p := NewParagraphEmbedded("Hello", ef, fontSize).SetLeading(LeadingNormal)
@@ -208,7 +208,7 @@ func TestParagraphLeadingNormalUsesFontMetrics(t *testing.T) {
 // under-size the line box when a smaller-font embedded run needs more
 // leading than a larger plain-font run).
 func TestParagraphLeadingNormalMixedFontsTakesMaxRegardlessOfOrder(t *testing.T) {
-	path, err := filepath.Abs("../font/testdata/Poppins-Bold.ttf")
+	path, err := filepath.Abs("../font/testdata/synthetic_metrics_hhea.ttf")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -219,9 +219,9 @@ func TestParagraphLeadingNormalMixedFontsTakesMaxRegardlessOfOrder(t *testing.T)
 	ef := font.NewEmbeddedFont(face)
 
 	const fontSize = 12
-	wantHeight := ef.NormalLineHeight(fontSize)
-	if wantHeight <= fontSize*1.2 {
-		t.Fatalf("test fixture assumption broken: Poppins's normal leading (%v) should exceed the flat 1.2 default (%v)", wantHeight, fontSize*1.2)
+	const wantHeight = 18.0 // fixture's 1.5em, above Helvetica's 1.2em
+	if got := ef.NormalLineHeight(fontSize); math.Abs(got-wantHeight) > 1e-9 {
+		t.Fatalf("fixture NormalLineHeight(%v) = %v, want %v", fontSize, got, wantHeight)
 	}
 
 	standardRun := TextRun{Text: "Std ", Font: font.Helvetica, FontSize: fontSize}
@@ -257,7 +257,7 @@ func TestParagraphLeadingNormalMixedFontsTakesMaxRegardlessOfOrder(t *testing.T)
 // — a standard-font run must contribute to the max, not be excluded from it
 // just because it has no embedded vertical metrics to consult.
 func TestParagraphLeadingNormalLargeStandardFontNotUndersized(t *testing.T) {
-	path, err := filepath.Abs("../font/testdata/Poppins-Bold.ttf")
+	path, err := filepath.Abs("../font/testdata/synthetic_metrics_hhea.ttf")
 	if err != nil {
 		t.Fatal(err)
 	}

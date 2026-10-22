@@ -200,6 +200,9 @@ func (p *Paragraph) MinWidth() float64 {
 	for _, run := range p.runs {
 		measurer := runMeasurer(run)
 		for _, w := range splitWords(run.Text) {
+			if w == lineBreakMarker {
+				continue
+			}
 			ww := measurer.MeasureString(w, run.FontSize)
 			if run.LetterSpacing != 0 {
 				if n := utf8.RuneCountInString(w); n > 1 {
@@ -217,13 +220,24 @@ func (p *Paragraph) MinWidth() float64 {
 }
 
 // MaxWidth implements Measurable. Returns the width of all text on a single
-// line (the natural width without wrapping).
+// line (the natural width without wrapping). Forced line breaks (a
+// preserved newline under white-space:pre/pre-wrap/pre-line, or a <br> run)
+// end a line, so the result is the widest such line. Each line keeps the
+// same trailing inter-run space a single-line paragraph is measured with.
 func (p *Paragraph) MaxWidth() float64 {
 	if p.maxWValid {
 		return p.cachedMaxW
 	}
-	total := 0.0
+	total, widest := 0.0, 0.0
+	endLine := func() {
+		widest = max(widest, total)
+		total = 0
+	}
 	for _, run := range p.runs {
+		if run.IsLineBreak {
+			endLine()
+			continue
+		}
 		// Inline elements (e.g. a nested inline-block) participate in the
 		// same line as adjacent text. Treat them like a non-breaking word
 		// that contributes its own max-content width plus the same
@@ -240,6 +254,10 @@ func (p *Paragraph) MaxWidth() float64 {
 		words := splitWords(run.Text)
 		spaceW := measurer.MeasureString(" ", run.FontSize) + 2*run.LetterSpacing
 		for i, w := range words {
+			if w == lineBreakMarker {
+				endLine()
+				continue
+			}
 			ww := measurer.MeasureString(w, run.FontSize)
 			if run.LetterSpacing != 0 {
 				if n := utf8.RuneCountInString(w); n > 1 {
@@ -256,9 +274,10 @@ func (p *Paragraph) MaxWidth() float64 {
 			total += spaceW
 		}
 	}
-	p.cachedMaxW = total
+	endLine()
+	p.cachedMaxW = widest
 	p.maxWValid = true
-	return total
+	return widest
 }
 
 // inlineElementMaxWidth reports the max-content width of an inline element

@@ -153,8 +153,15 @@ func (c *converter) buildParagraphFromRuns(runs []layout.TextRun, style computed
 	// all of its text runs come from a nowrap context. (A paragraph mixing
 	// nowrap and wrapping runs keeps wrapping — folio's nowrap is a
 	// paragraph-level flag, so per-run nowrap on part of a mixed line is a
-	// known limitation.)
-	if style.WhiteSpace == "nowrap" || allRunsNoWrap(runs) {
+	// known limitation.) `pre` suppresses soft wrapping the same way;
+	// preserved newlines still force breaks.
+	//
+	// Known limitation: because the flag is paragraph-level, nowrap/pre on
+	// the block also suppresses wrapping of descendant inline content that
+	// sets white-space:normal (e.g. <div style="white-space:nowrap">a
+	// <span style="white-space:normal">long text</span></div> never wraps
+	// inside the span, though a browser would).
+	if whiteSpaceNoWrap(style.WhiteSpace) || allRunsNoWrap(runs) {
 		p.SetNoWrap(true)
 	}
 	if style.Orphans > 0 {
@@ -193,8 +200,12 @@ func (c *converter) convertText(n *html.Node, style computedStyle) []layout.Elem
 		WordSpacing:     style.WordSpacing,
 		BaselineShift:   baselineShiftFromStyle(style),
 		TextShadow:      textShadowFromStyle(style),
+		NoWrap:          whiteSpaceNoWrap(style.WhiteSpace),
 	}
 	p := layout.NewStyledParagraph(run)
+	if run.NoWrap {
+		p.SetNoWrap(true)
+	}
 	if style.TextAlignSet {
 		p.SetAlign(resolveTextAlign(style))
 	}

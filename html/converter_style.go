@@ -132,10 +132,22 @@ func (c *converter) computeElementStyle(n *html.Node, parent computedStyle) comp
 	// font-size (e.g. `line-height:20px; font-size:11px` produced 1.25× — the
 	// default 16px basis — instead of 20/11 = 1.82×, so the glyph rode high in
 	// a line box that was too short). Resolving here makes the used line
-	// height independent of declaration order. Multiplier/percentage/em/normal
-	// values are font-size-independent, so this is a no-op for them.
+	// height independent of declaration order (em/percentage likewise
+	// resolve against the final font-size).
+	//
+	// A length/percentage/em line-height computes to an absolute length
+	// that descendants inherit unchanged (CSS Inline Layout L3 §4.3), so an
+	// inherited absolute value is likewise re-expressed as a multiplier of
+	// THIS element's font-size: `<div style="line-height:20px"><p
+	// style="font-size:40px">` keeps a 15pt line box, not 20/12 × 30pt.
 	if style.lineHeightRaw != "" {
-		style.LineHeight = parseLineHeight(style.lineHeightRaw, style.FontSize)
+		style.setLineHeight(parseLineHeightSpec(style.lineHeightRaw, style.FontSize))
+	} else if style.lineHeightAbsSet {
+		if style.FontSize > 0 {
+			style.LineHeight = style.lineHeightAbs / style.FontSize
+		} else {
+			style.LineHeight = layout.LeadingNormal
+		}
 	}
 
 	return style

@@ -271,7 +271,13 @@ var cssProperties = []cssProperty{
 			// element's final font-size (a length line-height declared before
 			// font-size would otherwise use a stale font-size — see the field
 			// doc on computedStyle.lineHeightRaw).
-			s.LineHeight = parseLineHeight(value, s.FontSize)
+			lh := parseLineHeightSpec(value, s.FontSize)
+			if lh.kind == lineHeightInvalid {
+				// Invalid (e.g. negative): drop the declaration so the
+				// cascaded/inherited value stays in effect.
+				return
+			}
+			s.setLineHeight(lh)
 			s.lineHeightRaw = value
 		},
 	},
@@ -1459,7 +1465,12 @@ var cssProperties = []cssProperty{
 		Name: "font", Category: "Typography",
 		Values: []string{"<font-style>? <font-weight>? <font-size>[/<line-height>]? <font-family>"},
 		Apply: func(s *computedStyle, value string) {
-			fs, fw, sz, lh, ff := parseFontShorthand(value, s.FontSize)
+			fs, fw, sz, lh, ff, invalidLH := parseFontShorthandFull(value, s.FontSize)
+			if invalidLH {
+				// An invalid `/line-height` part (e.g. negative) makes the
+				// whole shorthand invalid; drop it.
+				return
+			}
 			if fs != "" {
 				s.FontStyle = fs
 			}
@@ -1469,13 +1480,19 @@ var cssProperties = []cssProperty{
 			if sz > 0 {
 				s.FontSize = sz
 			}
-			if lh != 0 {
-				s.LineHeight = lh
-				// The shorthand's line-height was parsed against the
-				// shorthand's own font-size (self-consistent), so clear any
-				// pending standalone raw value — this shorthand is the
-				// winning line-height declaration.
-				s.lineHeightRaw = ""
+			if lh.kind != lineHeightInvalid {
+				s.setLineHeight(lh)
+				// This shorthand is now the winning line-height declaration.
+				// A length/percentage/em part resolves against the element's
+				// FINAL font-size (a later `font-size` declaration wins, as
+				// with the standalone property), so keep its source text for
+				// computeElementStyle to re-resolve; a number or `normal` is
+				// font-size-independent and clears any pending raw value.
+				if lh.kind == lineHeightLength {
+					s.lineHeightRaw = lh.raw
+				} else {
+					s.lineHeightRaw = ""
+				}
 			}
 			if ff != "" {
 				s.FontFamily = ff

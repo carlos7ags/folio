@@ -94,7 +94,7 @@ func (d *Document) applyWatermark(p *Page) {
 	cy := ps.Height/2 - (textWidth/2)*sinA
 	wmStream.SetTextMatrix(cosA, sinA, -sinA, cosA, cx, cy)
 
-	wmStream.ShowText(font.WinAnsiEncode(wm.Text))
+	wmStream.ShowText(font.Helvetica.Encode(wm.Text))
 	wmStream.EndText()
 	wmStream.RestoreState()
 

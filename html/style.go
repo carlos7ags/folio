@@ -31,11 +31,21 @@ type computedStyle struct {
 	// whatever font-size was current when the declaration ran, which is wrong
 	// when `font-size` is declared after `line-height` in the same rule.
 	lineHeightRaw string
-	LetterSpacing float64 // extra space between characters (points)
-	WordSpacing   float64 // extra space between words (points)
-	TextIndent    float64 // first-line indent (points)
-	WordBreak     string  // "normal", "break-all"
-	Hyphens       string  // "none", "manual", "auto"
+	// lineHeightAbs is the computed absolute line height in points when the
+	// winning line-height (declared here or inherited) is a <length>,
+	// <percentage>, em, or length-form calc; lineHeightAbsSet marks it
+	// valid. Per CSS Inline Layout L3 §4.3 such values compute to an
+	// absolute length that descendants inherit unchanged, whereas a
+	// unitless number inherits as a factor of each descendant's own
+	// font-size. computeElementStyle re-derives LineHeight (a multiplier)
+	// from this after the cascade, against the element's final font-size.
+	lineHeightAbs    float64
+	lineHeightAbsSet bool
+	LetterSpacing    float64 // extra space between characters (points)
+	WordSpacing      float64 // extra space between words (points)
+	TextIndent       float64 // first-line indent (points)
+	WordBreak        string  // "normal", "break-all"
+	Hyphens          string  // "none", "manual", "auto"
 
 	// Box model
 	MarginTopAuto   bool // true if margin-top: auto (for flex layout)
@@ -509,6 +519,8 @@ func (s *computedStyle) inherit() computedStyle {
 		TextTransform:        s.TextTransform,
 		WhiteSpace:           s.WhiteSpace,
 		LineHeight:           s.LineHeight,
+		lineHeightAbs:        s.lineHeightAbs,
+		lineHeightAbsSet:     s.lineHeightAbsSet,
 		LetterSpacing:        s.LetterSpacing,
 		WordSpacing:          s.WordSpacing,
 		TextIndent:           s.TextIndent,
@@ -638,4 +650,22 @@ func resolveBoxSide(length *cssLength, containerWidth, fontSize float64) float64
 		return 0
 	}
 	return length.toPoints(containerWidth, fontSize)
+}
+
+// setLineHeight applies a valid parsed line-height to the style. A length
+// records the absolute value (inherited by descendants) and its multiplier
+// at the current font-size; a number or `normal` clears any absolute value
+// so descendants re-multiply their own font-size. Invalid specs are ignored.
+func (s *computedStyle) setLineHeight(lh lineHeightSpec) {
+	m, ok := lh.multiplier(s.FontSize)
+	if !ok {
+		return
+	}
+	s.LineHeight = m
+	s.lineHeightAbsSet = lh.kind == lineHeightLength
+	if s.lineHeightAbsSet {
+		s.lineHeightAbs = lh.value
+	} else {
+		s.lineHeightAbs = 0
+	}
 }

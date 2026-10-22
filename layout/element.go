@@ -292,6 +292,11 @@ type Line struct {
 	separatorRef *separatorLayoutRef // non-nil if this line is a horizontal rule
 	linkRef      *linkLayoutRef      // non-nil if this line is a clickable link
 
+	// logicalWords holds a paragraph line's words in logical (reading)
+	// order before bidi reordering; Words is the visual order. Nil when
+	// the line did not come from Paragraph.Layout.
+	logicalWords []Word
+
 	// Box model fields.
 	SpaceBefore  float64 // extra vertical space before this line (points)
 	SpaceAfterV  float64 // extra vertical space after this line (points)
@@ -373,4 +378,13 @@ type Word struct {
 	// words leave this field nil; only Devanagari (and future Indic)
 	// words set it, so the existing rune-based path is undisturbed.
 	GIDs []uint16
+
+	// logicalText is set by resolveLineBidi when it rewrote Text into
+	// visual (painting) order: it holds Text as it was before, in logical
+	// order. visualRTL reports that Text is exactly logicalText reversed
+	// by grapheme cluster with brackets mirrored (a uniformly RTL word),
+	// so passes that need logical order — kashida insertion — can undo
+	// and redo the transform. Both are zero for words bidi left alone.
+	logicalText string
+	visualRTL   bool
 }

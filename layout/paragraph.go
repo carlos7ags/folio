@@ -415,6 +415,9 @@ func (p *Paragraph) Layout(maxWidth float64) []Line {
 	resolvedDirL := DirectionLTR
 	for i, line := range lines {
 		reordered, dir := resolveLineBidi(line.Words, p.direction)
+		// Keep the logical-order words so SplitAfterLine can rebuild
+		// head/tail paragraphs from reading order (flattenLineWords).
+		lines[i].logicalWords = line.Words
 		lines[i].Words = reordered
 		if i == 0 {
 			resolvedDirL = dir

@@ -150,7 +150,7 @@ func (m *Modifier) AddPageWithText(width, height float64, text string, f *font.S
 	stream.BeginText()
 	stream.SetFont("F1", fontSize)
 	stream.MoveText(x, y)
-	stream.ShowText(text)
+	stream.ShowText(f.Encode(text))
 	stream.EndText()
 
 	contentStream := stream.ToPdfStream()

@@ -206,3 +206,15 @@ func TestInlineExternalLinkStillEmitsURI(t *testing.T) {
 		t.Errorf("uri = %q, want https://example.com/docs", annots[0].uri)
 	}
 }
+
+// TestAnchorTargetInsideTableCell guards the target side: table cells are
+// drawn outside the plan renderer, so an id on an element inside a cell
+// must still be registered as a named destination.
+func TestAnchorTargetInsideTableCell(t *testing.T) {
+	_, r := htmlRoundtrip(t, `<html><body><p><a href="#in-cell">jump</a></p>
+		<table><tr><td><p id="in-cell">target</p></td></tr></table>
+	</body></html>`, document.PageSizeLetter)
+	if dest := resolveNamedDest(t, r, "in-cell"); dest.Len() < 2 {
+		t.Errorf("destination too short: %d elements", dest.Len())
+	}
+}

@@ -375,10 +375,12 @@ func (r *Renderer) drawMarginBoxes(ctx *DrawContext, pageIdx int, margins Margin
 		if box.Embedded != nil {
 			// Embedded fonts require Identity-H GID encoding; route through
 			// the shared embedded-word drawer so glyph subsetting is recorded
-			// via EncodeString. Raw ShowText is only valid for standard fonts.
+			// via EncodeString.
 			drawWordEmbedded(ctx.Stream, word)
 		} else {
-			ctx.Stream.ShowText(text)
+			// Standard fonts show bytes in the font's own encoding
+			// (WinAnsi, or built-in for Symbol and ZapfDingbats).
+			ctx.Stream.ShowText(word.Font.Encode(text))
 		}
 		ctx.Stream.EndText()
 		if r.tagged {

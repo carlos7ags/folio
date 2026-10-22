@@ -4,75 +4,55 @@
 package font
 
 import (
-	"os"
+	"math"
 	"testing"
 )
 
-// TestNormalLineHeightAcrossFonts is a fast (no Chrome/poppler needed)
-// regression guard for CSS line-height:normal resolution across multiple font families and both
-// TTF/glyf (Roboto, Open Sans, Noto Sans, Inter*) and OTF/CFF
-// (NimbusSans, Inter) outlines, so a fix that only happens to work for
-// Poppins's particular metrics doesn't regress another font. The
-// authoritative cross-check against a real browser lives in the
-// folio-repro parity harness (gap-01/gap-02 cases per font); this test
-// just guards the arithmetic in isolation.
-func TestNormalLineHeightAcrossFonts(t *testing.T) {
-	files := []string{
-		"Poppins-Bold.ttf",
-		"NimbusSans-Regular.otf",
-		"NimbusSans-Bold.otf",
-		"Inter-Regular.otf",
-		"Inter-Bold.otf",
-		"NotoSans-Regular.ttf",
-		"NotoSans-Bold.ttf",
-		"OpenSans-Regular.ttf",
-		"OpenSans-Bold.ttf",
-		"Roboto-Regular.ttf",
-		"Roboto-Bold.ttf",
+// TestNormalLineHeightMetricSelection pins CSS line-height:normal resolution
+// against the synthetic_metrics_*.ttf fixtures (see
+// testdata/build_metrics_fixture.go), which share hhea 1050/-350/100 and OS/2
+// typo 900/-250/150 at upem 1000 and differ only in the OS/2
+// USE_TYPO_METRICS bit. The hhea metrics must be used unless the bit is set:
+//
+//	hhea: (1050 + 350 + 100) / 1000 = 1.5em
+//	typo: ( 900 + 250 + 150) / 1000 = 1.3em
+//
+// usWinAscent/usWinDescent (1200/400) must never be consulted.
+func TestNormalLineHeightMetricSelection(t *testing.T) {
+	tests := []struct {
+		file                     string
+		ascent, descent, lineGap int
+		wantEm                   float64
+	}{
+		{"testdata/synthetic_metrics_hhea.ttf", 1050, -350, 100, 1.5},
+		{"testdata/synthetic_metrics_typo.ttf", 900, -250, 150, 1.3},
 	}
+	for _, tc := range tests {
+		t.Run(tc.file, func(t *testing.T) {
+			face, err := LoadFont(tc.file)
+			if err != nil {
+				t.Fatalf("load: %v", err)
+			}
+			if got := face.Ascent(); got != tc.ascent {
+				t.Errorf("Ascent = %d, want %d", got, tc.ascent)
+			}
+			if got := face.Descent(); got != tc.descent {
+				t.Errorf("Descent = %d, want %d", got, tc.descent)
+			}
+			lg, ok := face.(lineGapper)
+			if !ok {
+				t.Fatalf("%T does not expose LineGap", face)
+			}
+			if got := lg.LineGap(); got != tc.lineGap {
+				t.Errorf("LineGap = %d, want %d", got, tc.lineGap)
+			}
 
-	for _, name := range files {
-		t.Run(name, func(t *testing.T) {
-			data, err := os.ReadFile("testdata/" + name)
-			if err != nil {
-				t.Fatalf("read: %v", err)
-			}
-			face, err := ParseFont(data)
-			if err != nil {
-				t.Fatalf("parse: %v", err)
-			}
 			ef := NewEmbeddedFont(face)
-
-			const fontSize = 11.0
-			nlh := ef.NormalLineHeight(fontSize)
-			if nlh <= 0 {
-				t.Fatalf("NormalLineHeight(%v) = %v, want > 0", fontSize, nlh)
-			}
-
-			// Sanity bound: normal leading is always somewhat larger than
-			// the em size but not absurdly so. A wrong scale (e.g. missing
-			// /UnitsPerEm division, or reading the wrong table) would blow
-			// past this by an order of magnitude.
-			ratio := nlh / fontSize
-			if ratio < 0.8 || ratio > 3.0 {
-				t.Errorf("NormalLineHeight/fontSize ratio = %.3f, want within [0.8, 3.0]", ratio)
-			}
-
-			// Must scale linearly with font size.
-			doubled := ef.NormalLineHeight(fontSize * 2)
-			if diff := doubled - nlh*2; diff > 0.01 || diff < -0.01 {
-				t.Errorf("NormalLineHeight(2x) = %v, want ~%v (2x linear scaling)", doubled, nlh*2)
-			}
-
-			// MeasureString must be positive and monotonically
-			// non-decreasing as text grows.
-			short := ef.MeasureString("Hello", fontSize)
-			long := ef.MeasureString("Hello World", fontSize)
-			if short <= 0 {
-				t.Errorf("MeasureString(%q) = %v, want > 0", "Hello", short)
-			}
-			if long <= short {
-				t.Errorf("MeasureString(%q) = %v, want > MeasureString(%q) = %v", "Hello World", long, "Hello", short)
+			for _, size := range []float64{10, 11, 22} {
+				want := tc.wantEm * size
+				if got := ef.NormalLineHeight(size); math.Abs(got-want) > 1e-9 {
+					t.Errorf("NormalLineHeight(%v) = %v, want %v", size, got, want)
+				}
 			}
 		})
 	}

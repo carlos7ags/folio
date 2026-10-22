@@ -5,6 +5,7 @@ package layout
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/carlos7ags/folio/font"
 )
@@ -410,6 +411,13 @@ func (l *List) MinWidth() float64 {
 			}
 			continue
 		}
+		if l.itemNoWrap(item) {
+			// No soft wrap opportunity: the item is as wide as its text.
+			if w := l.itemParagraph(item).MaxWidth(); w > maxW {
+				maxW = w
+			}
+			continue
+		}
 		text := l.itemText(item)
 		for _, w := range splitWords(text) {
 			ww := measurer.MeasureString(w, l.fontSize)
@@ -449,13 +457,38 @@ func (l *List) itemParagraph(item listItem) *Paragraph {
 	if item.contPara != nil {
 		return item.contPara
 	}
-	if len(item.runs) > 0 {
-		return NewStyledParagraph(item.runs...)
+	var p *Paragraph
+	switch {
+	case len(item.runs) > 0:
+		p = NewStyledParagraph(item.runs...)
+	case l.embedded != nil:
+		p = NewParagraphEmbedded(item.text, l.embedded, l.fontSize)
+	default:
+		p = NewParagraph(item.text, l.font, l.fontSize)
 	}
-	if l.embedded != nil {
-		return NewParagraphEmbedded(item.text, l.embedded, l.fontSize)
+	if l.itemNoWrap(item) {
+		p.SetNoWrap(true)
 	}
-	return NewParagraph(item.text, l.font, l.fontSize)
+	return p
+}
+
+// itemNoWrap reports whether a text item must not soft-wrap (CSS
+// white-space:nowrap/pre on the item): every non-blank text run of the item
+// carries [TextRun.NoWrap]. Lines then break only at forced breaks, and an
+// over-wide item overflows instead of wrapping (see [Paragraph.SetNoWrap]).
+// The decision is per item, so items of one list may differ.
+func (l *List) itemNoWrap(item listItem) bool {
+	sawText := false
+	for _, r := range item.runs {
+		if r.InlineElement != nil || r.IsLineBreak || strings.TrimSpace(r.Text) == "" {
+			continue
+		}
+		sawText = true
+		if !r.NoWrap {
+			return false
+		}
+	}
+	return sawText
 }
 
 // effectiveIndent returns the left indent that defines the marker gutter (for
@@ -720,7 +753,13 @@ func (l *List) planAt(area LayoutArea, baseIndent float64) LayoutPlan {
 			}
 			fitCount = j + 1
 
-			capturedWords := wl
+			// Reorder the line into visual order (UAX #9) the way
+			// paragraph layout does, with the list's direction as the
+			// base. wl itself stays in logical order; a page split
+			// re-lays textPara via SplitAfterLine, which rebuilds the
+			// tail from logical words.
+			visualWords, _ := resolveLineBidi(wl, textPara.direction)
+			capturedWords := visualWords
 			capturedHeight := lineHeight
 			capturedMaxW := area.Width
 			capturedIndent := totalIndent
@@ -744,9 +783,9 @@ func (l *List) planAt(area LayoutArea, baseIndent float64) LayoutPlan {
 			}
 
 			block := PlacedBlock{
-				X: 0, Y: curY, Width: lineWidth(wl), Height: lineHeight,
+				X: 0, Y: curY, Width: lineWidth(visualWords), Height: lineHeight,
 				Tag:   "LI",
-				Links: linkSpans(wl),
+				Links: linkSpans(visualWords),
 				Draw: func(ctx DrawContext, absX, absTopY float64) {
 					baselineY := absTopY - computeBaseline(capturedWords, capturedHeight)
 					switch {

@@ -801,21 +801,19 @@ func TestWhiteSpaceNowrapMixedContentStillWraps(t *testing.T) {
 	}
 }
 
-// TestWhiteSpaceNowrapAcrossFonts is a fast (no Chrome/poppler needed)
-// regression guard across multiple font families and both TTF/glyf and
-// OTF/CFF outlines, so the nowrap fix isn't accidentally coupled to Poppins
-// specifically. No box-model properties are set on the element (no width,
-// no background) so it stays a bare Paragraph rather than being wrapped in
-// a Div — a Div's PlanLayout reports 1 top-level block regardless of how
-// many lines its inner paragraph wrapped into, which would make this
-// assertion pass even without the fix.
+// TestWhiteSpaceNowrapAcrossFonts is a fast regression guard that the nowrap
+// fix holds for embedded @font-face fonts, not just the standard 14. It uses
+// the synthetic metrics fixtures (font/testdata/build_metrics_fixture.go),
+// whose glyph advances make the token below ~345pt wide at 12pt. No
+// box-model properties are set on the element (no width, no background) so
+// it stays a bare Paragraph rather than being wrapped in a Div — a Div's
+// PlanLayout reports 1 top-level block regardless of how many lines its
+// inner paragraph wrapped into, which would make this assertion pass even
+// without the fix.
 func TestWhiteSpaceNowrapAcrossFonts(t *testing.T) {
 	files := []string{
-		"NimbusSans-Bold.otf",
-		"Inter-Bold.otf",
-		"NotoSans-Bold.ttf",
-		"OpenSans-Bold.ttf",
-		"Roboto-Bold.ttf",
+		"synthetic_metrics_hhea.ttf",
+		"synthetic_metrics_typo.ttf",
 	}
 	for _, name := range files {
 		t.Run(name, func(t *testing.T) {
@@ -843,10 +841,19 @@ func TestWhiteSpaceNowrapAcrossFonts(t *testing.T) {
 			if len(elems) == 0 {
 				t.Fatal("expected elements")
 			}
-			// The unbroken token measures ~270-295pt across these fonts at
-			// this font-size; constrain to well below that so it must
-			// genuinely overflow (not just fit) to exercise the nowrap
-			// guard — a wider area would pass even with nowrap reverted.
+			p, ok := elems[0].(*layout.Paragraph)
+			if !ok {
+				t.Fatalf("expected *Paragraph, got %T", elems[0])
+			}
+			lines := p.Layout(150)
+			if len(lines) == 0 || len(lines[0].Words) == 0 || lines[0].Words[0].Embedded == nil {
+				t.Fatal("expected the @font-face fixture to be embedded")
+			}
+			// The token is far wider than 150pt, so it must genuinely
+			// overflow (not just fit) to exercise the nowrap guard.
+			if lines[0].Width <= 150 {
+				t.Fatalf("token width %.1f does not overflow 150pt; fixture too narrow", lines[0].Width)
+			}
 			plan := elems[0].PlanLayout(layout.LayoutArea{Width: 150, Height: 1000})
 			if len(plan.Blocks) != 1 {
 				t.Errorf("white-space:nowrap should keep the token on one overflowing line, got %d blocks", len(plan.Blocks))
@@ -859,54 +866,59 @@ func TestWhiteSpaceNowrapAcrossFonts(t *testing.T) {
 
 // TestLineHeightNormalUsesFontMetrics asserts that `line-height: normal` on
 // an element using an embedded @font-face resolves from that font's own
-// vertical metrics, not a flat fontSize*1.2. Poppins declares an unusually
-// large line-gap, so its resolved leading is well above the old flat
-// default.
+// vertical metrics, not a flat fontSize*1.2, and that the hhea metrics are
+// used unless the OS/2 USE_TYPO_METRICS bit is set. The fixtures share hhea
+// 1050/-350/100 and typo 900/-250/150 at upem 1000 (see
+// font/testdata/build_metrics_fixture.go), so at 11pt normal is
+// 1.5em = 16.5pt (hhea) or 1.3em = 14.3pt (typo).
 func TestLineHeightNormalUsesFontMetrics(t *testing.T) {
-	ttfData, err := os.ReadFile("../font/testdata/Poppins-Bold.ttf")
-	if err != nil {
-		t.Fatal(err)
+	tests := []struct {
+		file string
+		want float64
+	}{
+		{"synthetic_metrics_hhea.ttf", 16.5},
+		{"synthetic_metrics_typo.ttf", 14.3},
 	}
-	b64 := base64.StdEncoding.EncodeToString(ttfData)
+	for _, tc := range tests {
+		t.Run(tc.file, func(t *testing.T) {
+			ttfData, err := os.ReadFile("../font/testdata/" + tc.file)
+			if err != nil {
+				t.Fatal(err)
+			}
+			b64 := base64.StdEncoding.EncodeToString(ttfData)
 
-	src := `<html><head><style>
+			src := `<html><head><style>
 		@font-face {
-			font-family: 'Poppins';
+			font-family: 'Fixture';
 			src: url(data:font/truetype;base64,` + b64 + `) format('truetype');
 		}
-		p { font-family: 'Poppins'; font-size: 11pt; line-height: normal; }
+		p { font-family: 'Fixture'; font-size: 11pt; line-height: normal; }
 	</style></head><body>
-		<p>Hello Poppins</p>
+		<p>Hello Fixture</p>
 	</body></html>`
 
-	elems, err := Convert(src, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(elems) == 0 {
-		t.Fatal("expected elements")
-	}
-	p, ok := elems[0].(*layout.Paragraph)
-	if !ok {
-		t.Fatalf("expected *Paragraph, got %T", elems[0])
-	}
-	lines := p.Layout(500)
-	if len(lines) == 0 || len(lines[0].Words) == 0 {
-		t.Fatal("no words")
-	}
-	ef := lines[0].Words[0].Embedded
-	if ef == nil {
-		t.Fatal("expected embedded font (Poppins @font-face was not loaded)")
-	}
-
-	const fontSize = 11.0
-	want := ef.NormalLineHeight(fontSize)
-	flatDefault := fontSize * 1.2
-	if want <= flatDefault {
-		t.Fatalf("test fixture assumption broken: Poppins's normal leading (%v) should exceed the flat default (%v)", want, flatDefault)
-	}
-	if math.Abs(lines[0].Height-want) > 0.001 {
-		t.Errorf("expected font-metric-derived height %.3f, got %.3f (flat 1.2 default would be %.3f)", want, lines[0].Height, flatDefault)
+			elems, err := Convert(src, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(elems) == 0 {
+				t.Fatal("expected elements")
+			}
+			p, ok := elems[0].(*layout.Paragraph)
+			if !ok {
+				t.Fatalf("expected *Paragraph, got %T", elems[0])
+			}
+			lines := p.Layout(500)
+			if len(lines) == 0 || len(lines[0].Words) == 0 {
+				t.Fatal("no words")
+			}
+			if lines[0].Words[0].Embedded == nil {
+				t.Fatal("expected embedded font (@font-face fixture was not loaded)")
+			}
+			if math.Abs(lines[0].Height-tc.want) > 0.001 {
+				t.Errorf("line height = %.3f, want %.3f (flat 1.2 default would be %.3f)", lines[0].Height, tc.want, 11*1.2)
+			}
+		})
 	}
 }
 

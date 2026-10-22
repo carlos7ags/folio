@@ -543,21 +543,23 @@ func locateSignatures(pdf []byte) ([]sigLocation, error) {
 		}
 		dictStart := searchFrom + idx
 
-		const brMarker = "/ByteRange "
-		brIdx := bytes.Index(pdf[dictStart:], []byte(brMarker))
-		if brIdx < 0 {
+		entries, dictEnd, err := scanDictEntries(pdf, dictStart)
+		if err != nil {
+			return nil, err
+		}
+
+		brStart, ok := entries["ByteRange"]
+		if !ok {
 			return nil, errors.New("sign: signature dictionary missing /ByteRange")
 		}
-		brStart := dictStart + brIdx + len(brMarker)
-
-		br, brEnd, err := parseByteRangeArray(pdf, brStart)
+		br, _, err := parseByteRangeArray(pdf, brStart)
 		if err != nil {
 			return nil, err
 		}
 
-		contentsStart, err := findContentsHexStart(pdf, brEnd)
-		if err != nil {
-			return nil, err
+		contentsStart, ok := entries["Contents"]
+		if !ok || pdf[contentsStart] != '<' {
+			return nil, errors.New("sign: signature dictionary missing /Contents")
 		}
 
 		relEnd := bytes.IndexByte(pdf[contentsStart+1:], '>')
@@ -572,18 +574,17 @@ func locateSignatures(pdf []byte) ([]sigLocation, error) {
 			return nil, fmt.Errorf("sign: decode /Contents hex: %w", err)
 		}
 
-		dictFields := pdf[dictStart:brStart]
 		locs = append(locs, sigLocation{
-			name:          extractLiteralString(dictFields, "Name"),
-			reason:        extractLiteralString(dictFields, "Reason"),
-			location:      extractLiteralString(dictFields, "Location"),
+			name:          textStringEntry(pdf, entries, "Name"),
+			reason:        textStringEntry(pdf, entries, "Reason"),
+			location:      textStringEntry(pdf, entries, "Location"),
 			byteRange:     br,
 			contentsStart: contentsStart,
 			contentsEnd:   contentsEnd,
 			der:           der,
 		})
 
-		searchFrom = contentsEnd
+		searchFrom = dictEnd
 	}
 
 	return locs, nil
@@ -600,27 +601,104 @@ func isPdfWhitespace(b byte) bool {
 	}
 }
 
-// findContentsHexStart finds "/Contents" at or after from, followed by
-// optional PDF whitespace then '<', and returns the offset of '<'. A
-// conforming writer may emit "/Contents<" with no space or with several
-// whitespace bytes; "/Contents" appearing elsewhere (e.g. inside a string)
-// is skipped by resuming the search just past the match.
-func findContentsHexStart(pdf []byte, from int) (int, error) {
-	const marker = "/Contents"
-	for searchFrom := from; ; {
-		idx := bytes.Index(pdf[searchFrom:], []byte(marker))
-		if idx < 0 {
-			return 0, errors.New("sign: signature dictionary missing /Contents")
-		}
-		pos := searchFrom + idx + len(marker)
-		for pos < len(pdf) && isPdfWhitespace(pdf[pos]) {
-			pos++
-		}
-		if pos < len(pdf) && pdf[pos] == '<' {
-			return pos, nil
-		}
-		searchFrom = searchFrom + idx + len(marker)
+// isPdfDelimiter reports whether b is a PDF delimiter character per
+// ISO 32000-1 §7.2.2.
+func isPdfDelimiter(b byte) bool {
+	switch b {
+	case '(', ')', '<', '>', '[', ']', '{', '}', '/', '%':
+		return true
+	default:
+		return false
 	}
+}
+
+// scanDictEntries tokenizes the dictionary whose "<<" is at pdf[start]
+// and returns, for each top-level key, the offset of the first byte of
+// its value, plus the offset just past the closing ">>". Literal strings
+// (with balanced parentheses), hex strings, arrays and nested
+// dictionaries are skipped as whole tokens, so a key spelled inside a
+// string value — a /Reason of "/ByteRange [...]" — is never taken for a
+// real entry. A name at the top level is a key unless it directly follows
+// a key (then it is that key's value, as in /Type /Sig). The first
+// occurrence of a duplicated key wins.
+func scanDictEntries(pdf []byte, start int) (map[string]int, int, error) {
+	if start+1 >= len(pdf) || pdf[start] != '<' || pdf[start+1] != '<' {
+		return nil, 0, errors.New("sign: signature dictionary does not start with '<<'")
+	}
+	entries := make(map[string]int)
+	depth := 1 // nesting of << >> and [ ]; 1 is the signature dictionary
+	afterKey := false
+	pos := start + 2
+	for pos < len(pdf) {
+		c := pdf[pos]
+		switch {
+		case isPdfWhitespace(c):
+			pos++
+			continue
+		case c == '%':
+			for pos < len(pdf) && pdf[pos] != '\r' && pdf[pos] != '\n' {
+				pos++
+			}
+			continue
+		case c == '/':
+			end := pos + 1
+			for end < len(pdf) && !isPdfWhitespace(pdf[end]) && !isPdfDelimiter(pdf[end]) {
+				end++
+			}
+			if depth == 1 && !afterKey {
+				valStart := end
+				for valStart < len(pdf) && isPdfWhitespace(pdf[valStart]) {
+					valStart++
+				}
+				if valStart >= len(pdf) {
+					return nil, 0, errors.New("sign: signature dictionary is not terminated")
+				}
+				key := string(pdf[pos+1 : end])
+				if _, dup := entries[key]; !dup {
+					entries[key] = valStart
+				}
+				afterKey = true
+				pos = end
+				continue
+			}
+			pos = end
+		case c == '(':
+			_, end, ok := parseLiteralString(pdf, pos)
+			if !ok {
+				return nil, 0, errors.New("sign: signature dictionary has an unterminated string")
+			}
+			pos = end
+		case c == '<' && pos+1 < len(pdf) && pdf[pos+1] == '<':
+			depth++
+			pos += 2
+		case c == '<':
+			rel := bytes.IndexByte(pdf[pos:], '>')
+			if rel < 0 {
+				return nil, 0, errors.New("sign: signature dictionary has an unterminated hex string")
+			}
+			pos += rel + 1
+		case c == '>' && pos+1 < len(pdf) && pdf[pos+1] == '>':
+			depth--
+			pos += 2
+			if depth == 0 {
+				return entries, pos, nil
+			}
+		case c == '[':
+			depth++
+			pos++
+		case c == ']':
+			depth--
+			pos++
+		default:
+			// Number, keyword (true, R, ...) or stray delimiter.
+			pos++
+			for pos < len(pdf) && !isPdfWhitespace(pdf[pos]) && !isPdfDelimiter(pdf[pos]) {
+				pos++
+			}
+		}
+		afterKey = false
+	}
+	return nil, 0, errors.New("sign: signature dictionary is not terminated")
 }
 
 // decodePdfHex decodes a PDF hex string's content (the bytes between < and
@@ -667,33 +745,65 @@ func parseByteRangeArray(pdf []byte, start int) ([4]int, int, error) {
 	return br, end + 1, nil
 }
 
-// extractLiteralString reads the PDF literal string value of "/key (...)"
-// within region and decodes it as a text string. It handles the escapes
-// ISO 32000-1 §7.3.4.2 defines (\n \r \t \b \f \( \) \\, octal \ddd
-// and a backslash before an end-of-line), so a UTF-16BE value
-// written by textStringLiteral round-trips, then converts a value with a
-// byte-order mark to UTF-8 (see [core.DecodeTextString]). It returns ""
-// if key is not present.
-func extractLiteralString(region []byte, key string) string {
-	marker := []byte("/" + key + " (")
-	idx := bytes.Index(region, marker)
-	if idx < 0 {
+// textStringEntry decodes the text-string value of key from a
+// dictionary scanned by scanDictEntries — a literal string, or a hex
+// string as textStringToken writes for non-ASCII text — to UTF-8 (see
+// [core.DecodeTextString]). It returns "" if key is absent or its value
+// is not a string.
+func textStringEntry(pdf []byte, entries map[string]int, key string) string {
+	pos, ok := entries[key]
+	if !ok {
 		return ""
 	}
-	pos := idx + len(marker)
-	var out []byte
-	for pos < len(region) {
-		c := region[pos]
-		if c == ')' {
-			break
+	switch pdf[pos] {
+	case '(':
+		raw, _, ok := parseLiteralString(pdf, pos)
+		if !ok {
+			return ""
 		}
-		if c != '\\' || pos+1 >= len(region) {
+		return core.DecodeTextString(string(raw))
+	case '<':
+		rel := bytes.IndexByte(pdf[pos:], '>')
+		if rel < 0 {
+			return ""
+		}
+		raw, err := decodePdfHex(pdf[pos+1 : pos+rel])
+		if err != nil {
+			return ""
+		}
+		return core.DecodeTextString(string(raw))
+	default:
+		return ""
+	}
+}
+
+// parseLiteralString reads the literal string whose '(' is at b[start]
+// and returns its unescaped bytes and the offset just past the closing
+// ')'. It handles the escapes ISO 32000-1 §7.3.4.2 defines (\n \r \t
+// \b \f \( \) \\, octal \ddd and a backslash before an end-of-line)
+// and balanced unescaped parentheses, which are part of the string. ok is
+// false if the string is not terminated.
+func parseLiteralString(b []byte, start int) (out []byte, end int, ok bool) {
+	pos := start + 1
+	depth := 1
+	for pos < len(b) {
+		c := b[pos]
+		switch c {
+		case '(':
+			depth++
+		case ')':
+			depth--
+			if depth == 0 {
+				return out, pos + 1, true
+			}
+		}
+		if c != '\\' || pos+1 >= len(b) {
 			out = append(out, c)
 			pos++
 			continue
 		}
 		pos++
-		e := region[pos]
+		e := b[pos]
 		switch {
 		case e == 'n':
 			out = append(out, '\n')
@@ -707,15 +817,15 @@ func extractLiteralString(region []byte, key string) string {
 			out = append(out, '\f')
 		case e >= '0' && e <= '7':
 			v := 0
-			for n := 0; n < 3 && pos < len(region) && region[pos] >= '0' && region[pos] <= '7'; n++ {
-				v = v*8 + int(region[pos]-'0')
+			for n := 0; n < 3 && pos < len(b) && b[pos] >= '0' && b[pos] <= '7'; n++ {
+				v = v*8 + int(b[pos]-'0')
 				pos++
 			}
 			out = append(out, byte(v))
 			continue
 		case e == '\r':
 			// Line continuation: drop the backslash and the EOL.
-			if pos+1 < len(region) && region[pos+1] == '\n' {
+			if pos+1 < len(b) && b[pos+1] == '\n' {
 				pos++
 			}
 		case e == '\n':
@@ -726,7 +836,7 @@ func extractLiteralString(region []byte, key string) string {
 		}
 		pos++
 	}
-	return core.DecodeTextString(string(out))
+	return nil, 0, false
 }
 
 // byteRangeCoversFile reports whether br spans the entire file with no gap

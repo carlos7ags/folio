@@ -21,7 +21,13 @@ func referenceMeasureStandard(f *Standard, text string, fontSize float64) float6
 		return float64(len(text)) * 600.0 / 1000.0 * fontSize
 	}
 
+	// The per-glyph width rule (not the loop scaffolding this pins)
+	// measures symbolic fonts by the glyph Encode selects.
+	sym := f.symbolic()
 	lookupWidth := func(r rune) float64 {
+		if sym != nil {
+			return float64(sym.runeWidth(r))
+		}
 		w, ok := widths[r]
 		if !ok {
 			w = widths[0]

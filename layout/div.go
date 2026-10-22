@@ -647,6 +647,18 @@ func (d *Div) PlanLayout(area LayoutArea) LayoutPlan {
 		innerHeight = 0
 	}
 
+	// Padding (and margins) alone fill a whole fresh page, so the at-top
+	// force-placing below would take one child per page — and every
+	// continuation fragment, which repeats the padding, would do the same.
+	// Fragmenting gains nothing here: place the whole box in one go,
+	// overflowing the page, as an unsplittable box at the page top is. The
+	// unbounded re-plan has positive inner height, so this cannot recurse.
+	if innerHeight <= 0 && area.AtFragmentTop && area.Height < 1e9 &&
+		d.heightUnit == nil && d.aspectRatio == 0 &&
+		d.maxHeightUnit == nil && d.maxHeight == 0 && d.overflow != "hidden" {
+		return d.PlanLayout(LayoutArea{Width: area.Width, Height: 1e9})
+	}
+
 	// If the div has an explicit height, use it to constrain children
 	// so that percentage heights resolve against the container, not the
 	// remaining page height.
@@ -734,6 +746,16 @@ func (d *Div) PlanLayout(area LayoutArea) LayoutPlan {
 	paginateOverflow := d.heightUnit == nil && d.aspectRatio == 0 &&
 		d.maxHeightUnit == nil && d.maxHeight == 0 && d.overflow != "hidden"
 
+	// atTop reports whether this container sits at the top of its
+	// fragmentainer with no in-flow child placed yet, so deferring the
+	// current child to the next page gains it no room. Floats placed beside
+	// it do not change that: deferring would carry them along. At the top,
+	// content that does not fit is placed here instead of deferred —
+	// otherwise the container would return LayoutNothing and the renderer
+	// could only force-place it whole at unbounded height, drawing every
+	// sibling after the oversized child off the bottom of the page.
+	atTop := func() bool { return area.AtFragmentTop && fittedInFlow == 0 }
+
 	for idx, elem := range d.elements {
 		// Float child: place it beside same-side floats (stacking shift),
 		// register its extent, and consume no in-flow height.
@@ -744,6 +766,11 @@ func (d *Div) PlanLayout(area LayoutArea) LayoutPlan {
 					// A definite-height or clipping box contains its content
 					// instead of fragmenting it: place the float whole and let
 					// it overflow (or be clipped by) the box, as a browser does.
+					plan = elem.PlanLayout(LayoutArea{Width: innerWidth, Height: 1e9})
+				} else if plan.Status == LayoutNothing && atTop() {
+					// An unsplittable float taller than a whole page: the next
+					// page has no more room, so place it here (overflowing)
+					// rather than defer it forever.
 					plan = elem.PlanLayout(LayoutArea{Width: innerWidth, Height: 1e9})
 				}
 				if plan.Status == LayoutNothing {
@@ -807,15 +834,24 @@ func (d *Div) PlanLayout(area LayoutArea) LayoutPlan {
 				}
 			}
 
-			plan := elem.PlanLayout(LayoutArea{Width: avail, Height: remaining})
+			plan := elem.PlanLayout(LayoutArea{Width: avail, Height: remaining, AtFragmentTop: atTop()})
+			if plan.Status == LayoutNothing && paginateOverflow && atTop() {
+				// Nothing fits even at the top of a page: force-place this
+				// child (keeping the floats beside it) and paginate what
+				// follows, rather than relocate the whole container.
+				plan = elem.PlanLayout(LayoutArea{Width: avail, Height: 1e9})
+			}
 			xOff := d.padding.Left + leftOff
 			switch plan.Status {
 			case LayoutFull:
 				// An unsplittable child taller than the space left moves to
-				// the next page, as in the float-free path below. Guarded on
-				// having placed something (a float counts), so a lone child
-				// taller than a whole page is still drawn instead of looping.
-				if paginateOverflow && plan.Consumed > remaining+0.01 && (fittedInFlow > 0 || len(fittedBlocks) > 0) {
+				// the next page, as in the float-free path below. A placed
+				// float counts as progress mid-page — deferWith carries it to
+				// the next page with this child — but not at the top of a
+				// page, where deferring gains no room: there the oversized
+				// child is placed (overflowing) and the siblings after it
+				// paginate normally.
+				if paginateOverflow && plan.Consumed > remaining+0.01 && (fittedInFlow > 0 || (len(fittedBlocks) > 0 && !area.AtFragmentTop)) {
 					deferWith(idx, elem)
 					break
 				}
@@ -860,7 +896,13 @@ func (d *Div) PlanLayout(area LayoutArea) LayoutPlan {
 			continue
 		}
 
-		plan := elem.PlanLayout(LayoutArea{Width: innerWidth, Height: remaining})
+		plan := elem.PlanLayout(LayoutArea{Width: innerWidth, Height: remaining, AtFragmentTop: atTop()})
+		if plan.Status == LayoutNothing && paginateOverflow && atTop() {
+			// Nothing fits even at the top of a page: force-place this child
+			// and paginate its siblings, rather than relocate (and then
+			// force-place) the whole container with everything after it.
+			plan = elem.PlanLayout(LayoutArea{Width: innerWidth, Height: 1e9})
+		}
 
 		switch plan.Status {
 		case LayoutFull:
@@ -954,7 +996,10 @@ func (d *Div) PlanLayout(area LayoutArea) LayoutPlan {
 	// (paginateOverflow); a definite/clipping box keeps its contain semantics.
 	// A placed float counts as progress (len(fittedBlocks) > 0), but floats
 	// that deferWith un-placed do not: a container whose leading floats moved
-	// with its first in-flow child placed nothing and relocates whole.
+	// with its first in-flow child placed nothing and relocates whole. At the
+	// top of a page (area.AtFragmentTop) the first in-flow child is placed or
+	// force-placed above instead, so this only remains for content that
+	// produced nothing even at unbounded height.
 	if paginateOverflow && !allFit && fittedInFlow == 0 && len(fittedBlocks) == 0 {
 		return LayoutPlan{Status: LayoutNothing}
 	}

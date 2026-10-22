@@ -79,6 +79,13 @@ func (s *sigDictionary) Type() core.ObjectType { return core.ObjectTypeDictionar
 
 // WriteTo serializes the signature dictionary with placeholder /ByteRange
 // and /Contents values for later patching.
+//
+// The placeholders are written first, straight after /Type /Sig, so that
+// locatePlaceholders (which finds them by byte search) always matches
+// them before any caller-supplied text: a /Reason such as "/ByteRange "
+// can never be mistaken for the real entry. Non-ASCII text strings are
+// written in hex notation (see [textStringToken]), which cannot spell a
+// key at all.
 func (s *sigDictionary) WriteTo(w io.Writer) (int64, error) {
 	var total int64
 	write := func(str string) error {
@@ -89,32 +96,6 @@ func (s *sigDictionary) WriteTo(w io.Writer) (int64, error) {
 
 	if err := write("<< /Type /Sig"); err != nil {
 		return total, err
-	}
-	if err := write(fmt.Sprintf(" /Filter /%s", s.filter)); err != nil {
-		return total, err
-	}
-	if err := write(fmt.Sprintf(" /SubFilter /%s", s.subFilter)); err != nil {
-		return total, err
-	}
-	if s.name != "" {
-		if err := write(fmt.Sprintf(" /Name (%s)", textStringLiteral(s.name))); err != nil {
-			return total, err
-		}
-	}
-	if s.location != "" {
-		if err := write(fmt.Sprintf(" /Location (%s)", textStringLiteral(s.location))); err != nil {
-			return total, err
-		}
-	}
-	if s.reason != "" {
-		if err := write(fmt.Sprintf(" /Reason (%s)", textStringLiteral(s.reason))); err != nil {
-			return total, err
-		}
-	}
-	if s.contactInfo != "" {
-		if err := write(fmt.Sprintf(" /ContactInfo (%s)", textStringLiteral(s.contactInfo))); err != nil {
-			return total, err
-		}
 	}
 
 	// /ByteRange — fixed-width placeholder
@@ -131,6 +112,26 @@ func (s *sigDictionary) WriteTo(w io.Writer) (int64, error) {
 	}
 	if err := write(contentsPlaceholder); err != nil {
 		return total, err
+	}
+
+	if err := write(fmt.Sprintf(" /Filter /%s", s.filter)); err != nil {
+		return total, err
+	}
+	if err := write(fmt.Sprintf(" /SubFilter /%s", s.subFilter)); err != nil {
+		return total, err
+	}
+	for _, f := range []struct{ key, val string }{
+		{"Name", s.name},
+		{"Location", s.location},
+		{"Reason", s.reason},
+		{"ContactInfo", s.contactInfo},
+	} {
+		if f.val == "" {
+			continue
+		}
+		if err := write(fmt.Sprintf(" /%s %s", f.key, textStringToken(f.val))); err != nil {
+			return total, err
+		}
 	}
 
 	if err := write(" >>"); err != nil {
@@ -173,25 +174,17 @@ func patchContents(pdf []byte, ph signaturePlaceholder, sig []byte) error {
 	return nil
 }
 
-// textStringLiteral returns the body of a literal string holding s as a
-// PDF text string (ISO 32000-1 §7.9.2.2), without the enclosing
-// parentheses. /Name, /Reason, /Location and /ContactInfo are text
-// strings: pure-ASCII values are written as before, anything else as
-// UTF-16BE with the FE FF byte-order mark, escaped so the embedded NUL,
-// CR and delimiter bytes survive (see [core.EscapeLiteralString]).
-func textStringLiteral(s string) string {
-	for i := range len(s) {
-		if s[i] >= 0x80 {
-			return core.EscapeLiteralString(core.EncodeTextStringUTF16BE(s))
-		}
+// textStringToken returns s serialized as a PDF text string
+// (ISO 32000-1 §7.9.2.2), including its delimiters. /Name, /Reason,
+// /Location and /ContactInfo are text strings: ASCII values (see
+// [core.IsPDFDocASCII]) are written as escaped literal strings, anything
+// else as UTF-16BE with the FE FF byte-order mark in hex notation, e.g.
+// <FEFF00E9>. Raw UTF-16BE inside a literal string could spell PDF
+// syntax such as "/ByteRange " (U+2F42 U+7974 ... is "/ByteRange"),
+// which hex notation rules out.
+func textStringToken(s string) string {
+	if core.IsPDFDocASCII(s) {
+		return "(" + core.EscapeLiteralString(s) + ")"
 	}
-	return escapePdfString(s)
-}
-
-// escapePdfString escapes special characters for PDF literal strings.
-func escapePdfString(s string) string {
-	s = strings.ReplaceAll(s, "\\", "\\\\")
-	s = strings.ReplaceAll(s, "(", "\\(")
-	s = strings.ReplaceAll(s, ")", "\\)")
-	return s
+	return fmt.Sprintf("<%X>", core.EncodeTextStringUTF16BE(s))
 }

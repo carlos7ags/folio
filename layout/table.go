@@ -831,10 +831,16 @@ func (t *Table) buildGrid(colWidths []float64) []gridRow {
 			}
 			rowSpanCount := min(rowspan, len(t.rows)-rIdx)
 
-			// Compute span width.
+			// Compute span width. A spanning cell also covers the
+			// border-spacing gaps between the columns it spans (CSS 2.1
+			// §17.6.1), so add (colspan-1) gaps; otherwise its box stops
+			// short of the last spanned column's right edge.
 			spanW := 0.0
 			for c := col; c < col+colspan; c++ {
 				spanW += colWidths[c]
+			}
+			if colspan > 1 {
+				spanW += float64(colspan-1) * t.effectiveSpacingH()
 			}
 
 			gr.cells = append(gr.cells, gridCell{
@@ -2056,13 +2062,18 @@ func drawCellElementDirect(ctx DrawContext, gc gridCell, cellX, topY, rowHeight 
 }
 
 // recordBlockLinks converts a placed block's link areas into page-space
-// annotations. Cells are drawn directly rather than through the plan
-// renderer in render_plans.go, so without this a link inside a table cell
-// is painted as underlined text and nothing else — no clickable region
-// reaches the PDF. bx/by are the block's top-left in PDF coordinates.
+// annotations, and its fragment id into a named-destination target. Cells
+// are drawn directly rather than through the plan renderer in
+// render_plans.go, so without this a link inside a table cell is painted
+// as underlined text and nothing else — no clickable region reaches the
+// PDF — and an id inside a cell is never registered as a destination.
+// bx/by are the block's top-left in PDF coordinates.
 func recordBlockLinks(ctx DrawContext, block PlacedBlock, bx, by float64) {
-	if ctx.Page == nil || len(block.Links) == 0 {
+	if ctx.Page == nil {
 		return
+	}
+	if block.AnchorName != "" {
+		ctx.Page.Anchors = append(ctx.Page.Anchors, AnchorInfo{Name: block.AnchorName, Y: by})
 	}
 	for _, link := range block.Links {
 		// Use the precise per-line span when the paragraph computed one,

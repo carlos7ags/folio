@@ -77,11 +77,17 @@ func (p *Paragraph) SplitAfterLine(n int, maxWidth float64) (head, tail *Paragra
 func flattenLineWords(lines []Line) []Word {
 	total := 0
 	for _, line := range lines {
-		total += len(line.Words)
+		total += max(len(line.Words), len(line.logicalWords))
 	}
 	words := make([]Word, 0, total)
 	for i, line := range lines {
-		for j, w := range line.Words {
+		lw := line.Words
+		if line.logicalWords != nil {
+			// Rebuild from reading order: line.Words is in visual order
+			// with RTL glyphs reversed (see Paragraph.Layout).
+			lw = line.logicalWords
+		}
+		for j, w := range lw {
 			if i > 0 && j == 0 {
 				w.LineBreak = true
 			}
@@ -108,6 +114,12 @@ func (p *Paragraph) PlanLayout(area LayoutArea) LayoutPlan {
 	// Bidi reordering: resolve the paragraph's base direction and
 	// reorder each line's words into visual order for correct
 	// left-to-right rendering of RTL and mixed-direction text.
+	//
+	// logicalLines keeps each line's words in logical (reading) order
+	// with their logical text: a page-split overflow paragraph must be
+	// rebuilt from these, not from the visual lines — re-laying visual
+	// words would reverse RTL text and word order a second time.
+	logicalLines := slices.Clone(wordLines)
 	resolvedDir := DirectionLTR
 	for i, wl := range wordLines {
 		reordered, dir := resolveLineBidi(wl, p.direction)
@@ -135,7 +147,11 @@ func (p *Paragraph) PlanLayout(area LayoutArea) LayoutPlan {
 		for i, wl := range wordLines {
 			widths[i] = lineWidth(wl)
 		}
-		wordLines, _, _ = applyEllipsisWords(wordLines, widths, area.Width)
+		var truncated bool
+		wordLines, _, truncated = applyEllipsisWords(wordLines, widths, area.Width)
+		if truncated {
+			logicalLines = nil
+		}
 	}
 
 	// Compute heights and split at available height.
@@ -314,7 +330,11 @@ func (p *Paragraph) PlanLayout(area LayoutArea) LayoutPlan {
 	// Build overflow paragraph from remaining words.
 	var overflowWords []Word
 	for i := splitIdx; i < len(infos); i++ {
-		overflowWords = append(overflowWords, infos[i].words...)
+		if i < len(logicalLines) {
+			overflowWords = append(overflowWords, logicalLines[i]...)
+		} else {
+			overflowWords = append(overflowWords, infos[i].words...)
+		}
 	}
 	overflow := p.cloneWithWords(overflowWords)
 	overflow.spaceBefore = 0 // no spaceBefore on continuation

@@ -335,19 +335,16 @@ func locatePlaceholders(pdf []byte, sigDictObjNum int) (signaturePlaceholder, er
 
 	searchArea := pdf[objStart:]
 
-	brMarker := []byte("/ByteRange ")
-	brIdx := bytes.Index(searchArea, brMarker)
+	// Both signature WriteTo methods emit the unpatched placeholders
+	// back to back, ahead of any caller-supplied string, so match the
+	// whole sequence rather than the first "/ByteRange " in the object.
+	const brMarker = "/ByteRange "
+	brIdx := bytes.Index(searchArea, []byte(brMarker+byteRangePlaceholder+" /Contents <"))
 	if brIdx < 0 {
 		return ph, errors.New("sign: could not find /ByteRange placeholder")
 	}
 	ph.ByteRangeOffset = objStart + brIdx + len(brMarker)
-
-	contentsMarker := []byte("/Contents <")
-	cIdx := bytes.Index(searchArea, contentsMarker)
-	if cIdx < 0 {
-		return ph, errors.New("sign: could not find /Contents placeholder")
-	}
-	ph.ContentsOffset = objStart + cIdx + len("/Contents ")
+	ph.ContentsOffset = ph.ByteRangeOffset + len(byteRangePlaceholder) + len(" /Contents ")
 	ph.ContentsLen = len(contentsPlaceholder)
 
 	return ph, nil

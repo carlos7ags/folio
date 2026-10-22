@@ -199,7 +199,8 @@ func (c *converter) loadFallbackFont(p, lang string) (font.Face, error) {
 }
 
 // resolveFontForText returns the best font for the given text. If the text
-// can be encoded in WinAnsiEncoding, returns the standard font. Otherwise,
+// can be encoded by the standard font (WinAnsiEncoding, or the built-in
+// encoding of Symbol and ZapfDingbats), returns the standard font. Otherwise,
 // tries the embedded fonts from @font-face, then the system fallback font.
 func (c *converter) resolveFontForText(style computedStyle, text string) (*font.Standard, *font.EmbeddedFont) {
 	stdFont, embFont := c.resolveFontPair(style)
@@ -209,12 +210,12 @@ func (c *converter) resolveFontForText(style computedStyle, text string) (*font.
 		return nil, embFont
 	}
 
-	// Standard font — check if text fits in WinAnsiEncoding.
-	if font.CanEncodeWinAnsi(text) {
+	// Standard font — check if text fits in its encoding.
+	if stdFont.CanEncode(text) {
 		return stdFont, nil
 	}
 
-	// Text has non-WinAnsi characters — try fallback.
+	// Text has characters the standard font cannot encode — try fallback.
 	if fb := c.getFallbackFont(); fb != nil {
 		return nil, fb
 	}
@@ -275,8 +276,8 @@ func applyUnicodeBidi(text string, style computedStyle) string {
 }
 
 // splitTextByFont splits a text string into one or more TextRuns at script
-// boundaries where the font needs to change. Characters encodable in
-// WinAnsiEncoding use the standard font; characters that need a fallback
+// boundaries where the font needs to change. Characters the standard font
+// can encode use the standard font; characters that need a fallback
 // (Hebrew, Arabic, CJK, etc.) use the embedded fallback font. This enables
 // mixed-script text like "Hello שלום" to render correctly when the standard
 // font lacks Hebrew glyphs but the fallback font covers both scripts.
@@ -297,8 +298,8 @@ func (c *converter) splitTextByFont(text string, style computedStyle) []layout.T
 		return []layout.TextRun{c.makeTextRun(text, nil, embFont, style)}
 	}
 
-	// If all text fits in WinAnsi, use standard font — no split.
-	if font.CanEncodeWinAnsi(text) {
+	// If all text fits in the standard font's encoding — no split.
+	if stdFont.CanEncode(text) {
 		return []layout.TextRun{c.makeTextRun(text, stdFont, nil, style)}
 	}
 
@@ -308,18 +309,19 @@ func (c *converter) splitTextByFont(text string, style computedStyle) []layout.T
 		return []layout.TextRun{c.makeTextRun(text, stdFont, nil, style)}
 	}
 
-	// Split at boundaries between WinAnsi-encodable and non-WinAnsi characters.
+	// Split at boundaries between characters the standard font can and
+	// cannot encode.
 	// Consecutive characters that share the same "needs fallback" status are
 	// grouped into a single run to minimize run count.
 	runes := []rune(text)
 	var runs []layout.TextRun
 	start := 0
-	startNeedsFallback := !font.CanEncodeWinAnsiRune(runes[0])
+	startNeedsFallback := !stdFont.CanEncodeRune(runes[0])
 
 	for i := 1; i <= len(runes); i++ {
 		needsFallback := false
 		if i < len(runes) {
-			needsFallback = !font.CanEncodeWinAnsiRune(runes[i])
+			needsFallback = !stdFont.CanEncodeRune(runes[i])
 		}
 		// Emit a run at boundaries or at end of string.
 		if i == len(runes) || needsFallback != startNeedsFallback {
@@ -353,6 +355,6 @@ func (c *converter) makeTextRun(text string, std *font.Standard, emb *font.Embed
 		BaselineShift:   baselineShiftFromStyle(style),
 		TextShadow:      textShadowFromStyle(style),
 		BackgroundColor: style.BackgroundColor,
-		NoWrap:          style.WhiteSpace == "nowrap",
+		NoWrap:          whiteSpaceNoWrap(style.WhiteSpace),
 	}
 }

@@ -373,7 +373,18 @@ func applyKashidaJustification(words []Word, slack float64) float64 {
 		if adv <= 0 {
 			continue
 		}
-		cnt := len(FindKashidaCandidates(w.Text))
+		// Bidi reordering may have reversed the word into painting
+		// order; candidate sites are defined on logical order, so scan
+		// the logical text. Words reordered per segment (mixed-level
+		// tokens) cannot be round-tripped, so leave them unstretched.
+		src := w.Text
+		if w.logicalText != "" {
+			if !w.visualRTL {
+				continue
+			}
+			src = w.logicalText
+		}
+		cnt := len(FindKashidaCandidates(src))
 		if cnt == 0 {
 			continue
 		}
@@ -400,7 +411,14 @@ func applyKashidaJustification(words []Word, slack float64) float64 {
 		if count > e.candidateCnt {
 			count = e.candidateCnt
 		}
-		newText := InsertKashidas(words[e.idx].Text, count)
+		w := &words[e.idx]
+		var newText, newLogical string
+		if w.visualRTL {
+			newLogical = InsertKashidas(w.logicalText, count)
+			newText = reverseVisualRTL(mirrorBrackets(newLogical))
+		} else {
+			newText = InsertKashidas(w.Text, count)
+		}
 		// Re-measure with the same TextMeasurer used at layout time.
 		newWidth := words[e.idx].Embedded.MeasureString(newText, words[e.idx].FontSize)
 		if words[e.idx].LetterSpacing != 0 {
@@ -415,6 +433,9 @@ func applyKashidaJustification(words []Word, slack float64) float64 {
 		}
 		words[e.idx].Text = newText
 		words[e.idx].Width = newWidth
+		if w.visualRTL {
+			w.logicalText = newLogical
+		}
 		consumed += delta
 		remaining -= delta
 	}

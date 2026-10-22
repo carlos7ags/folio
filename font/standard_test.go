@@ -146,10 +146,13 @@ func TestStandardFontByteWidths(t *testing.T) {
 		t.Error("expected nil for unknown font")
 	}
 
-	// Symbol has its own width table (not WinAnsi but still byte-indexed).
-	sw := StandardFontByteWidths("Symbol")
-	if sw == nil {
-		t.Log("Symbol returned nil byte widths (acceptable if no byte mapping)")
+	// Symbol and ZapfDingbats are indexed by built-in code, not WinAnsi:
+	// Symbol 0x61 is alpha (631), ZapfDingbats 0x34 is the check mark (846).
+	if sw := StandardFontByteWidths("Symbol"); len(sw) != 256 || sw[0x61] != 631 {
+		t.Errorf("Symbol byte widths: got len %d, [0x61]=%v; want 256, 631", len(sw), sw)
+	}
+	if zw := StandardFontByteWidths("ZapfDingbats"); len(zw) != 256 || zw[0x34] != 846 {
+		t.Errorf("ZapfDingbats byte widths: got len %d, [0x34]=%v; want 256, 846", len(zw), zw)
 	}
 }
 

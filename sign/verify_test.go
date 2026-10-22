@@ -760,19 +760,105 @@ func TestVerify_NonASCIIStringFields(t *testing.T) {
 	}
 }
 
-// TestExtractLiteralStringTextString covers the byte-scanning fallback:
-// it must undo every escape textStringLiteral emits, including octal
-// escapes for the NUL and CR bytes inside UTF-16BE, and decode the BOM.
-func TestExtractLiteralStringTextString(t *testing.T) {
+// TestTextStringEntryRoundTrip covers the byte-scanning fallback: it
+// must undo every escape textStringToken emits, decode the hex UTF-16BE
+// form, and keep balanced parentheses inside a literal string.
+func TestTextStringEntryRoundTrip(t *testing.T) {
 	for _, in := range []string{
 		"ASCII (with parens) and \\ backslash",
+		"nested ((parens)) here",
 		"José — “quoted”",
 		"഍ĩ CR and close-paren bytes",
 		"emoji 😀",
 	} {
-		region := []byte("<< /Reason (" + textStringLiteral(in) + ") /ByteRange [0 1 2 3] >>")
-		if got := extractLiteralString(region, "Reason"); got != in {
-			t.Errorf("extractLiteralString(%q) = %q", in, got)
+		region := []byte("<< /Reason " + textStringToken(in) + " /ByteRange [0 1 2 3] >>")
+		entries, _, err := scanDictEntries(region, 0)
+		if err != nil {
+			t.Fatalf("scanDictEntries(%q): %v", region, err)
+		}
+		if got := textStringEntry(region, entries, "Reason"); got != in {
+			t.Errorf("textStringEntry(%q) = %q", in, got)
+		}
+	}
+	// Unescaped balanced parentheses (§7.3.4.2), as other writers emit.
+	region := []byte("<< /Reason (a (b) c) /Name (x) >>")
+	entries, _, err := scanDictEntries(region, 0)
+	if err != nil {
+		t.Fatalf("scanDictEntries: %v", err)
+	}
+	if got := textStringEntry(region, entries, "Reason"); got != "a (b) c" {
+		t.Errorf("balanced parens: got %q", got)
+	}
+	if got := textStringEntry(region, entries, "Name"); got != "x" {
+		t.Errorf("Name after balanced parens: got %q", got)
+	}
+}
+
+// TestScanDictEntriesIgnoresKeysInStrings checks that a key spelled
+// inside a string value is not taken for a real entry, in the legacy
+// layout where /Reason precedes /ByteRange.
+func TestScanDictEntriesIgnoresKeysInStrings(t *testing.T) {
+	region := []byte("<< /Type /Sig /Reason (/ByteRange [9 9 9 9] /Contents <AB>) " +
+		"/P 5 0 R /ByteRange [0 1 2 3] /Contents<00> /M (D:2026) >>tail")
+	entries, end, err := scanDictEntries(region, 0)
+	if err != nil {
+		t.Fatalf("scanDictEntries: %v", err)
+	}
+	if got := string(region[end:]); got != "tail" {
+		t.Errorf("dict end: rest = %q, want %q", got, "tail")
+	}
+	br, _, err := parseByteRangeArray(region, entries["ByteRange"])
+	if err != nil || br != [4]int{0, 1, 2, 3} {
+		t.Errorf("ByteRange = %v, %v; want [0 1 2 3]", br, err)
+	}
+	if got := string(region[entries["Contents"]:][:4]); got != "<00>" {
+		t.Errorf("Contents value starts %q, want <00>", got)
+	}
+	if got := string(region[entries["Type"]:][:4]); got != "/Sig" {
+		t.Errorf("Type value starts %q, want /Sig", got)
+	}
+}
+
+// TestSign_ReasonCannotHijackByteRange is a regression test: UTF-16BE
+// text written raw inside a literal string can spell "/ByteRange "
+// (U+2F42 U+7974 U+6552 U+616E U+6765 U+205B is "/ByteRange ["), and so can
+// plain ASCII. Sign must patch the real placeholder, and Verify must
+// succeed and return the reason unchanged.
+func TestSign_ReasonCannotHijackByteRange(t *testing.T) {
+	key, cert := generateTestRSACert(t)
+	for _, reason := range []string{
+		"\u2F42\u7974\u6552\u616E\u6765\u205B x",
+		"/ByteRange [0 0 0 0] /Contents <00>",
+		"/ByteRange ",
+	} {
+		signed := signMinimalPDF(t, key, cert, Options{
+			Level:       LevelBB,
+			Reason:      reason,
+			Name:        "/Contents <",
+			SigningTime: time.Now().Truncate(time.Second),
+		})
+		report, err := Verify(signed, VerifyOptions{})
+		if err != nil {
+			t.Fatalf("Verify(reason %q): %v", reason, err)
+		}
+		if len(report.Signatures) != 1 {
+			t.Fatalf("reason %q: len(Signatures) = %d, want 1", reason, len(report.Signatures))
+		}
+		got := report.Signatures[0]
+		if !got.SignatureValid {
+			t.Errorf("reason %q: signature does not verify", reason)
+		}
+		if got.Reason != reason || got.Name != "/Contents <" {
+			t.Errorf("Reason/Name = %q/%q, want %q/%q", got.Reason, got.Name, reason, "/Contents <")
+		}
+
+		// The byte-scanning fallback must agree.
+		locs, err := locateSignatures(signed)
+		if err != nil || len(locs) != 1 {
+			t.Fatalf("locateSignatures(reason %q): err=%v n=%d", reason, err, len(locs))
+		}
+		if locs[0].reason != reason {
+			t.Errorf("locateSignatures reason = %q, want %q", locs[0].reason, reason)
 		}
 	}
 }

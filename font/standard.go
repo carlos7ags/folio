@@ -91,6 +91,9 @@ func CanEncodeWinAnsiRune(r rune) bool {
 // WinAnsiEncode converts a Unicode string to a byte string using
 // WinAnsiEncoding (Windows-1252). Characters not in the encoding
 // are replaced with a fallback (e.g. '?' or a close equivalent).
+//
+// Text drawn with a [Standard] font should go through [Standard.Encode],
+// which uses the built-in encoding for Symbol and ZapfDingbats.
 func WinAnsiEncode(s string) string {
 	var buf []byte
 	for _, r := range s {
@@ -266,9 +269,14 @@ func IsStandardFont(name string) bool {
 }
 
 // StandardFontByteWidths returns a 256-element width array for the named
-// standard font, indexed by WinAnsiEncoding byte value. Each entry is in
-// units of 1/1000 of text space. Returns nil if name is not a standard font
-// or has no width data (Symbol, ZapfDingbats).
+// standard font, indexed by character code. Each entry is in units of
+// 1/1000 of text space. Returns nil if name is not a standard font.
+//
+// Codes follow the encoding a standard font is read with when the PDF
+// declares none: WinAnsiEncoding for the Latin fonts, and the built-in
+// encoding for the symbolic fonts Symbol and ZapfDingbats (see
+// [StandardFontBuiltinEncoding]). Codes without a glyph get the font's
+// default (space) width.
 //
 // This is designed for readers that need to compute text width from raw
 // content stream bytes without the font's /Widths array (which standard
@@ -281,6 +289,18 @@ func StandardFontByteWidths(name string) []int {
 
 	widths := make([]int, 256)
 	defaultW := runeWidths[0]
+
+	// Symbolic fonts: index the AFM widths by built-in code directly.
+	if e := symbolicEncodingFor(name); e != nil {
+		for c, w := range e.widths {
+			if e.toRune[c] != 0 {
+				widths[c] = w
+			} else {
+				widths[c] = defaultW
+			}
+		}
+		return widths
+	}
 
 	// Map each WinAnsi byte → Unicode rune → width.
 	for b := 0; b < 256; b++ {

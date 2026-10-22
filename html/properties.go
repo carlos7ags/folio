@@ -4,6 +4,7 @@
 package html
 
 import (
+	"math"
 	"strconv"
 	"strings"
 
@@ -810,9 +811,23 @@ func mapToStandardFamily(family string) string {
 // "unset" (caller keeps the inherited value). Other unset values return
 // the zero value of their type (empty string or 0 float).
 func parseFontShorthand(value string, parentSize float64) (style string, weight int, size, lineHeight float64, family string) {
+	style, weight, size, lh, family, _ := parseFontShorthandFull(value, parentSize)
+	if m, ok := lh.multiplier(size); ok {
+		lineHeight = m
+	}
+	return style, weight, size, lineHeight, family
+}
+
+// parseFontShorthandFull is [parseFontShorthand] with the line-height kept
+// as a [lineHeightSpec], so callers can tell a factor (inherits as-is) from
+// a length (inherits as an absolute value). lh.kind is lineHeightInvalid
+// when the shorthand has no `/line-height` part; invalidLH reports a
+// `/line-height` part that is itself invalid (e.g. negative), which makes
+// the whole shorthand declaration invalid per CSS.
+func parseFontShorthandFull(value string, parentSize float64) (style string, weight int, size float64, lh lineHeightSpec, family string, invalidLH bool) {
 	value = strings.TrimSpace(value)
 	if value == "" {
-		return "", 0, parentSize, 0, ""
+		return "", 0, parentSize, lh, "", false
 	}
 
 	// splitTopLevelFields keeps calc()/min()/max()/clamp() values as a
@@ -821,7 +836,7 @@ func parseFontShorthand(value string, parentSize float64) (style string, weight 
 	// families like "Helvetica Neue" survive.
 	parts := splitTopLevelFields(value)
 	if len(parts) == 0 {
-		return "", 0, parentSize, 0, ""
+		return "", 0, parentSize, lh, "", false
 	}
 
 	idx := 0
@@ -861,7 +876,8 @@ func parseFontShorthand(value string, parentSize float64) (style string, weight 
 		idx++
 		if slashIdx := indexByteAtTopLevel(sizeStr, '/'); slashIdx >= 0 {
 			size = parseFontSize(sizeStr[:slashIdx], parentSize)
-			lineHeight = parseLineHeight(sizeStr[slashIdx+1:], size)
+			lh = parseLineHeightSpec(sizeStr[slashIdx+1:], size)
+			invalidLH = lh.kind == lineHeightInvalid
 		} else {
 			size = parseFontSize(sizeStr, parentSize)
 		}
@@ -874,55 +890,141 @@ func parseFontShorthand(value string, parentSize float64) (style string, weight 
 		family = parseFontFamily(strings.Join(parts[idx:], " "))
 	}
 
-	return style, weight, size, lineHeight, family
+	return style, weight, size, lh, family, invalidLH
 }
 
-// parseLineHeight parses CSS line-height into a multiplier, or
-// [layout.LeadingNormal] for the `normal` keyword (and any unparseable
-// value, which browsers treat as if the property were never set).
+// lineHeightKind classifies a parsed CSS line-height value.
+type lineHeightKind int
+
+const (
+	// lineHeightInvalid marks a value that is not valid CSS line-height
+	// (unparseable, or negative). Per CSS Syntax the declaration is
+	// dropped, so the previous (cascaded or inherited) value stays.
+	lineHeightInvalid lineHeightKind = iota
+	// lineHeightNormal is the `normal` keyword.
+	lineHeightNormal
+	// lineHeightNumber is a unitless <number> (or dimensionless calc):
+	// a factor that inherits as-is and re-multiplies each descendant's
+	// own font-size.
+	lineHeightNumber
+	// lineHeightLength is a <length>, <percentage>, em, or length-form
+	// calc: its computed value is an absolute length, fixed at the
+	// declaring element and inherited unchanged by descendants.
+	lineHeightLength
+)
+
+// lineHeightSpec is a parsed line-height. For lineHeightNumber, value is
+// the multiplier; for lineHeightLength, value is the absolute line height
+// in points, resolved against the declaring element's font-size. raw is
+// the normalized source text, kept so a length can be re-resolved against
+// the element's final font-size (em/percentage depend on it).
+type lineHeightSpec struct {
+	kind  lineHeightKind
+	value float64
+	raw   string
+}
+
+// parseLineHeightSpec parses a CSS line-height value.
 //
 // Per CSS Inline Layout Module Level 3 §4.3, line-height accepts:
 //   - `normal` keyword (resolved from the font's own vertical metrics —
-//     see [layout.LeadingNormal] — not a flat multiplier)
+//     see [layout.LeadingNormal] — not a flat multiplier); the CSS-wide
+//     `initial`, `revert` and `revert-layer` keywords also yield `normal`
+//     (the initial value, and no UA rule sets line-height)
 //   - a unitless `<number>` used directly as a multiplier
-//   - a `<length>` whose multiplier is length/fontSize
-//   - a `<percentage>` resolved against fontSize (so 150% → 1.5)
+//   - a `<length>`
+//   - a `<percentage>` resolved against fontSize (so 150% → 1.5em)
 //
+// Literal negative values are invalid. A math function (calc(), min(),
+// …) that resolves negative is clamped to 0, as CSS Values §10.12
+// requires for computed values outside a property's allowed range.
 // calc() can produce either a length OR a unitless multiplier depending
 // on its leaves; the two compose differently. A calc whose leaves are
 // all dimensionless (e.g. `calc(1.2 * 1.5)`) is itself dimensionless and
-// is used as a direct multiplier. A calc with a length leaf
-// (e.g. `calc(1em + 4px)`) resolves to a length and is divided by
-// fontSize. Without this distinction `calc(1.2 * 1.5)` would
-// pass through `parseLength` as a dimensionless cssLength, and
-// dividing the resolved value (1.8) by fontSize would produce
-// a 9× compression of line spacing.
-func parseLineHeight(value string, fontSize float64) float64 {
+// is a multiplier. A calc with a length leaf (e.g. `calc(1em + 4px)`)
+// resolves to a length. Without this distinction `calc(1.2 * 1.5)` would
+// be treated as a 1.8pt length — a 9× compression of line spacing at 9pt
+// (#275).
+//
+// `inherit` and `unset` are reported invalid: line-height is inherited,
+// so dropping the declaration keeps the inherited value in effect.
+func parseLineHeightSpec(value string, fontSize float64) lineHeightSpec {
 	value = strings.TrimSpace(strings.ToLower(value))
-	if value == "normal" || value == "" {
-		return layout.LeadingNormal
+	switch value {
+	case "normal", "initial", "revert", "revert-layer":
+		return lineHeightSpec{kind: lineHeightNormal, raw: value}
+	case "":
+		return lineHeightSpec{kind: lineHeightInvalid}
 	}
 
 	// Unitless number — direct multiplier.
 	if num, err := strconv.ParseFloat(value, 64); err == nil {
-		return num
+		if num < 0 || math.IsNaN(num) || math.IsInf(num, 0) {
+			return lineHeightSpec{kind: lineHeightInvalid}
+		}
+		return lineHeightSpec{kind: lineHeightNumber, value: num, raw: value}
 	}
 
 	// Length or calc value.
 	l := parseLength(value)
-	if l != nil {
-		if l.isDimensionless() {
-			// A dimensionless calc result is the multiplier directly;
-			// fontSize/relativeTo are unused by Unit "num" leaves so
-			// any positive value works.
-			return l.toPoints(0, 0)
-		}
-		pts := l.toPoints(fontSize, fontSize)
-		if fontSize > 0 {
-			return pts / fontSize
-		}
+	if l == nil {
+		return lineHeightSpec{kind: lineHeightInvalid}
 	}
-	return layout.LeadingNormal
+	isMath := strings.Contains(value, "(")
+	// checked validates a resolved value: NaN/Inf are invalid; a negative
+	// literal is invalid, while a negative math-function result clamps to 0.
+	checked := func(v float64) (float64, bool) {
+		if math.IsNaN(v) || math.IsInf(v, 0) {
+			return 0, false
+		}
+		if v < 0 {
+			if !isMath {
+				return 0, false
+			}
+			return 0, true
+		}
+		return v, true
+	}
+	if l.isDimensionless() {
+		// A dimensionless calc result is the multiplier directly;
+		// fontSize/relativeTo are unused by Unit "num" leaves.
+		num, ok := checked(l.toPoints(0, 0))
+		if !ok {
+			return lineHeightSpec{kind: lineHeightInvalid}
+		}
+		return lineHeightSpec{kind: lineHeightNumber, value: num, raw: value}
+	}
+	pts, ok := checked(l.toPoints(fontSize, fontSize))
+	if !ok {
+		return lineHeightSpec{kind: lineHeightInvalid}
+	}
+	return lineHeightSpec{kind: lineHeightLength, value: pts, raw: value}
+}
+
+// parseLineHeight parses CSS line-height into a multiplier of fontSize, or
+// [layout.LeadingNormal] for `normal`. ok is false for an invalid value
+// (unparseable or negative), which callers must ignore so the previous
+// value stays in effect. A length is converted to length/fontSize; see
+// [parseLineHeightSpec] for the full grammar.
+func parseLineHeight(value string, fontSize float64) (mult float64, ok bool) {
+	return parseLineHeightSpec(value, fontSize).multiplier(fontSize)
+}
+
+// multiplier converts the spec to a [layout.Paragraph.SetLeading] value at
+// the given font-size. ok is false for an invalid spec.
+func (lh lineHeightSpec) multiplier(fontSize float64) (float64, bool) {
+	switch lh.kind {
+	case lineHeightNormal:
+		return layout.LeadingNormal, true
+	case lineHeightNumber:
+		return lh.value, true
+	case lineHeightLength:
+		if fontSize > 0 {
+			return lh.value / fontSize, true
+		}
+		return layout.LeadingNormal, true
+	}
+	return 0, false
 }
 
 // parseFlexShorthand parses the CSS flex shorthand property.

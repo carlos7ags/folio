@@ -95,3 +95,53 @@ func TestTextSpansFormNameShadowsPage(t *testing.T) {
 		t.Errorf("got %q, want %q", got, "outer|inner")
 	}
 }
+
+func pageSpans(t *testing.T, objs []string) []TextSpan {
+	t.Helper()
+	r, err := Parse(buildPDFFromObjects(objs))
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	page, err := r.Page(0)
+	if err != nil {
+		t.Fatalf("Page: %v", err)
+	}
+	spans, err := page.TextSpans()
+	if err != nil {
+		t.Fatalf("TextSpans: %v", err)
+	}
+	return spans
+}
+
+// A form's /Matrix maps form space into the space of the content that
+// draws it (ISO 32000-1 §8.10.1).
+func TestTextSpansFormMatrix(t *testing.T) {
+	spans := pageSpans(t, []string{
+		"<< /Type /Catalog /Pages 2 0 R >>",
+		"<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+		"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] /Contents 4 0 R /Resources << /Font << /F1 6 0 R >> /XObject << /X 5 0 R >> >> >>",
+		formStream("", "2 0 0 2 0 0 cm /X Do"),
+		formStream("/Type /XObject /Subtype /Form /BBox [0 0 200 200] /Matrix [1 0 0 1 100 50]", "BT /F1 12 Tf 0 0 Td (in) Tj ET"),
+		"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>",
+	})
+	// The form matrix applies before the caller's CTM: (100, 50) scaled by 2.
+	if len(spans) != 1 || spans[0].X != 200 || spans[0].Y != 100 {
+		t.Fatalf("spans = %+v, want one span at (200, 100)", spans)
+	}
+}
+
+// Unbalanced Q operators inside a form must not pop the caller's saved
+// graphics states.
+func TestTextSpansFormUnbalancedRestore(t *testing.T) {
+	spans := pageSpans(t, []string{
+		"<< /Type /Catalog /Pages 2 0 R >>",
+		"<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+		"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] /Contents 4 0 R /Resources << /Font << /F1 6 0 R >> /XObject << /X 5 0 R >> >> >>",
+		formStream("", "q 1 0 0 1 50 50 cm q /X Do Q Q BT /F1 12 Tf 0 0 Td (after) Tj ET"),
+		formStream("/Type /XObject /Subtype /Form /BBox [0 0 200 200]", "Q Q"),
+		"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>",
+	})
+	if len(spans) != 1 || spans[0].X != 0 || spans[0].Y != 0 {
+		t.Fatalf("spans = %+v, want one span at (0, 0)", spans)
+	}
+}

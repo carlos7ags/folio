@@ -109,7 +109,12 @@ func (f *Standard) MeasureString(text string, fontSize float64) float64 {
 		return float64(len(text)) * 600.0 / 1000.0 * fontSize
 	}
 
+	sym := f.symbolic()
 	lookupWidth := func(r rune) float64 {
+		if sym != nil {
+			// Symbolic fonts measure the glyph Encode selects.
+			return float64(sym.runeWidth(r))
+		}
 		w, ok := widths[r]
 		if !ok {
 			w = widths[0] // .notdef / default width
@@ -182,7 +187,12 @@ func (f *Standard) MeasureStringPrefixes(text string, fontSize float64) []float6
 		return prefixes
 	}
 
+	sym := f.symbolic()
 	lookupWidth := func(r rune) float64 {
+		if sym != nil {
+			// Symbolic fonts measure the glyph Encode selects.
+			return float64(sym.runeWidth(r))
+		}
 		w, ok := widths[r]
 		if !ok {
 			w = widths[0] // .notdef / default width
@@ -257,7 +267,12 @@ func (f *Standard) PrefixFit(text string, fontSize, maxWidth float64) (byteLen, 
 		return byteLen, runeLen, width
 	}
 
+	sym := f.symbolic()
 	lookupWidth := func(r rune) float64 {
+		if sym != nil {
+			// Symbolic fonts measure the glyph Encode selects.
+			return float64(sym.runeWidth(r))
+		}
 		w, ok := widths[r]
 		if !ok {
 			w = widths[0] // .notdef / default width
@@ -338,6 +353,10 @@ func (ef *EmbeddedFont) NormalLineHeight(fontSize float64) float64 {
 		lineGap = lg.LineGap()
 	}
 	units := face.Ascent() - face.Descent() + lineGap
+	if units <= 0 {
+		// Zeroed or corrupt vertical metrics would stack every line.
+		return fontSize * 1.2
+	}
 	return float64(units) / float64(upem) * fontSize
 }
 

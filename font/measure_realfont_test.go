@@ -8,16 +8,24 @@ import (
 	"testing"
 )
 
-// TestMeasureStringMatchesHmtxAdvances is a regression guard for a real
-// embedded font: it asserts MeasureString's per-glyph sum is bit-identical
-// to the font's own hmtx advance-width table (verified independently with
-// fontTools) for every rune in the test string, with no kerning applied
-// (this font ships no pair-kerning data). A prior investigation confirmed
-// this equality already holds; a future change that introduces a systematic
-// advance-width drift (wrong cmap subtable, wrong scale, double-counted
-// kerning, etc.) would break it.
+// fixtureAdvance mirrors advanceFor in testdata/build_metrics_fixture.go:
+// the advance width (font units) of rune r in the synthetic_metrics_*.ttf
+// fixtures.
+func fixtureAdvance(r rune) int {
+	if r == ' ' {
+		return 250
+	}
+	return 500 + 10*int(r-0x20)
+}
+
+// TestMeasureStringMatchesHmtxAdvances is a regression guard for an embedded
+// TrueType font: it asserts MeasureString's per-glyph sum is bit-identical to
+// the font's own hmtx advance-width table for every rune in the test string,
+// with no kerning applied (the fixture ships no kern/GPOS data). A change
+// that introduces a systematic advance-width drift (wrong cmap subtable,
+// wrong scale, double-counted kerning, etc.) would break it.
 func TestMeasureStringMatchesHmtxAdvances(t *testing.T) {
-	data, err := os.ReadFile("testdata/Poppins-Bold.ttf")
+	data, err := os.ReadFile("testdata/synthetic_metrics_hhea.ttf")
 	if err != nil {
 		t.Fatalf("read font: %v", err)
 	}
@@ -27,8 +35,11 @@ func TestMeasureStringMatchesHmtxAdvances(t *testing.T) {
 	}
 	ef := NewEmbeddedFont(face)
 
-	text := "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
-	const wantUnits = 23674 // fontTools-verified sum of hmtx advances, no kerning
+	text := "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 abc"
+	wantUnits := 0
+	for _, r := range text {
+		wantUnits += fixtureAdvance(r)
+	}
 	upem := face.UnitsPerEm()
 	if upem != 1000 {
 		t.Fatalf("unexpected unitsPerEm=%d (fixture changed?)", upem)

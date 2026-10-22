@@ -66,6 +66,16 @@ Angle-bracket placeholders used in the per-property tables below.
 | `<transform-function>` | A CSS transform: `translate()`, `translateX()`/`Y()`, `rotate()`, `scale()`/`X()`/`Y()`, `skew()`/`X()`/`Y()`. |
 | `<offset-x>`, `<offset-y>`, `<blur>`, `<spread>` | Component lengths in shadow shorthands (`box-shadow`, `text-shadow`). All are `<length>`; spread accepts negatives to inset the shadow. |
 | `<identifier>` | A custom name, e.g. for `counter-reset` or `string-set`. |
+| `<absolute-size>` | A CSS font absolute size keyword: `xx-small`, `x-small`, `small`, `medium`, `large`, `x-large`, `xx-large`. |
+| `<relative-size>` | A CSS font relative size keyword: `smaller`, `larger`. Resolves relative to the parent's font size. |
+| `<font-size>` | A `<length>` or `<percentage>` for font-size. Percentages resolve against the parent's font size. |
+| `<font-weight>` | A `<number>` (100–900) or keyword: `normal` (400), `bold` (700), `lighter`, `bolder`. |
+| `<font-family>` | A font family name, optionally quoted. Multiple families can be comma-separated. |
+| `<line-height>` | A `<number>`, `<length>`, or `<percentage>` for line-height. Unitless values are multiplied by font-size. |
+| `<column-gap>` | A `<length>` or `<percentage>` for column-gap/row-gap. `normal` uses the browser default (1em for multi-column). |
+| `<flex-basis>` | A flex-basis value: `<length>`, `<percentage>`, or `auto`. |
+| `<flex-shrink>` | A unitless `<number>` for flex-shrink (default 1). |
+| `<integer 100..900>` | A font-weight integer in the range 100–900. |
 
 **`calc()`, `min()`, `max()`, `clamp()`** are accepted everywhere a `<length>` or `<percentage>` is. The parser preserves them as single tokens through shorthand splitting.
 

@@ -208,37 +208,53 @@ func TestParseLineHeight(t *testing.T) {
 		value    string
 		fontSize float64
 		want     float64
+		invalid  bool
 	}{
 		// Keyword + simple forms.
-		{"normal keyword", "normal", 12, layout.LeadingNormal},
-		{"empty string falls back to normal", "", 12, layout.LeadingNormal},
-		{"bare unitless number", "1.5", 12, 1.5},
-		{"zero collapses the line box", "0", 12, 0},
+		{"normal keyword", "normal", 12, layout.LeadingNormal, false},
+		// CSS-wide keywords: initial (and revert, with no UA rule) is normal.
+		{"initial keyword is normal", "initial", 12, layout.LeadingNormal, false},
+		{"revert keyword is normal", "revert", 12, layout.LeadingNormal, false},
+		{"revert-layer keyword is normal", "revert-layer", 12, layout.LeadingNormal, false},
+		// inherit/unset drop the declaration (the inherited value stays).
+		{"inherit is dropped", "inherit", 12, 0, true},
+		{"unset is dropped", "unset", 12, 0, true},
+		{"empty string is invalid", "", 12, 0, true},
+		{"garbage is invalid", "tall", 12, 0, true},
+		// Negative line-height is invalid CSS (CSS Inline Layout L3
+		// §4.3); it must be reported as invalid rather than returned as
+		// a value — -1 would collide with the LeadingNormal sentinel.
+		{"negative number is invalid", "-1", 12, 0, true},
+		{"negative length is invalid", "-10px", 12, 0, true},
+		{"negative percentage is invalid", "-50%", 12, 0, true},
+		{"bare unitless number", "1.5", 12, 1.5, false},
+		{"zero collapses the line box", "0", 12, 0, false},
 
 		// Percentage form — CSS Inline Layout L3 §4.3 lists this
 		// alongside <number> / <length>. A percent is resolved against
 		// fontSize, so the multiplier equals the percent / 100.
-		{"percentage 150% (multiplier 1.5)", "150%", 12, 1.5},
-		{"percentage 50% (multiplier 0.5)", "50%", 12, 0.5},
+		{"percentage 150% (multiplier 1.5)", "150%", 12, 1.5, false},
+		{"percentage 50% (multiplier 0.5)", "50%", 12, 0.5, false},
 
 		// Dimensionless calc — every leaf is a bare number. The result
 		// IS the multiplier; dividing by fontSize would mis-render
 		// (the original #275 bug).
-		{"dimensionless calc — multiplication", "calc(1.2 * 1.5)", 12, 1.8},
-		{"dimensionless calc — addition", "calc(1 + 0.5)", 9, 1.5},
-		{"dimensionless calc — single leaf", "calc(1.5)", 12, 1.5},
-		{"dimensionless calc — zero factor", "calc(0 * 5)", 12, 0},
-		// CSS-invalid (negative line-height) but the parser tolerates
-		// it; pin the lenient behavior so a future strictness change
-		// is intentional rather than an accident.
-		{"dimensionless calc — negative result", "calc(0.5 - 1)", 12, -0.5},
+		{"dimensionless calc — multiplication", "calc(1.2 * 1.5)", 12, 1.8, false},
+		{"dimensionless calc — addition", "calc(1 + 0.5)", 9, 1.5, false},
+		{"dimensionless calc — single leaf", "calc(1.5)", 12, 1.5, false},
+		{"dimensionless calc — zero factor", "calc(0 * 5)", 12, 0, false},
+		// A negative math-function result is clamped to 0 (CSS Values
+		// §10.12), unlike a literal negative, which is invalid.
+		{"dimensionless calc — negative result clamps to 0", "calc(0.5 - 1)", 12, 0, false},
+		{"length calc — negative result clamps to 0", "calc(2px - 10px)", 12, 0, false},
+		{"min() — negative result clamps to 0", "min(-5pt, 3pt)", 12, 0, false},
 
 		// Length-form calc — at least one leaf carries a length unit.
 		// The result is in points; the multiplier is points / fontSize.
 		// Using pt explicitly avoids coupling the assertion to folio's
 		// px→pt conversion factor (1px = 0.75pt at 96dpi).
-		{"length-form calc with em", "calc(1.5em)", 12, 1.5},
-		{"length-form calc with pt", "calc(18pt)", 12, 1.5},
+		{"length-form calc with em", "calc(1.5em)", 12, 1.5, false},
+		{"length-form calc with pt", "calc(18pt)", 12, 1.5, false},
 
 		// Documenting test: min/max args route through parseLength,
 		// which tags bare numbers as "px" (folio's default-unit
@@ -247,12 +263,16 @@ func TestParseLineHeight(t *testing.T) {
 		// CSS spec rejects bare numbers in min/max anyway; pinning
 		// the lenient folio behavior keeps a future "treat bare
 		// numbers as num inside min/max" refactor visible.
-		{"min() of bare numbers — folio treats as px", "min(1.2, 1.8)", 12, 0.075},
+		{"min() of bare numbers — folio treats as px", "min(1.2, 1.8)", 12, 0.075, false},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			got := parseLineHeight(tc.value, tc.fontSize)
-			if math.Abs(got-tc.want) > 0.001 {
+			got, ok := parseLineHeight(tc.value, tc.fontSize)
+			if ok == tc.invalid {
+				t.Fatalf("parseLineHeight(%q, %v) ok = %v, want %v",
+					tc.value, tc.fontSize, ok, !tc.invalid)
+			}
+			if ok && math.Abs(got-tc.want) > 0.001 {
 				t.Errorf("parseLineHeight(%q, %v) = %v, want %v",
 					tc.value, tc.fontSize, got, tc.want)
 			}

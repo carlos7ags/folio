@@ -8,11 +8,13 @@
 //
 //	go run ./cmd/gen-metrics > /dev/null       # dry run
 //	go run ./cmd/gen-metrics -write            # overwrite font/widths.go and font/metrics_data.go
+//	go run ./cmd/gen-metrics -symbolic         # overwrite font/symbolic_data.go
 package main
 
 import (
 	"bufio"
 	"fmt"
+	"go/format"
 	"log"
 	"os"
 	"path/filepath"
@@ -287,6 +289,11 @@ func main() {
 	writeMode := len(os.Args) > 1 && os.Args[1] == "-write"
 	afmDir := filepath.Join("cmd", "gen-metrics", "afm")
 
+	if len(os.Args) > 1 && os.Args[1] == "-symbolic" {
+		writeSymbolic(afmDir)
+		return
+	}
+
 	type fontSpec struct {
 		file    string
 		varName string
@@ -329,4 +336,34 @@ func main() {
 		fmt.Println(kernsSrc[:min(len(kernsSrc), 2000)], "...")
 		fmt.Fprintln(os.Stderr, "\nDry run. Use -write to overwrite files.")
 	}
+}
+
+// writeSymbolic generates font/symbolic_data.go: the built-in encodings
+// and per-code widths of the symbolic standard fonts.
+func writeSymbolic(afmDir string) {
+	specs := []struct {
+		file    string
+		varName string
+		names   map[string]rune
+	}{
+		{"Symbol.afm", "symbol", symbolGlyphToRune},
+		{"ZapfDingbats.afm", "zapfDingbats", zapfDingbatsGlyphToRune},
+	}
+	var encs []*builtinEncoding
+	for _, spec := range specs {
+		enc, err := parseAFMEncoding(filepath.Join(afmDir, spec.file), spec.names)
+		if err != nil {
+			log.Fatalf("parsing %s: %v", spec.file, err)
+		}
+		enc.varName = spec.varName
+		encs = append(encs, enc)
+	}
+	src, err := format.Source([]byte(writeSymbolicFile(encs)))
+	if err != nil {
+		log.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join("font", "symbolic_data.go"), src, 0644); err != nil {
+		log.Fatal(err)
+	}
+	fmt.Fprintln(os.Stderr, "Wrote font/symbolic_data.go")
 }

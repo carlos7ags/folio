@@ -555,4 +555,3 @@ func TestBidiLTRWordInRTLRunPreservesInternalOrder(t *testing.T) {
 		}
 	}
 }
-

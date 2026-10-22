@@ -366,6 +366,14 @@ func toUpperRune(r rune) rune {
 	return r
 }
 
+// whiteSpaceNoWrap reports whether a white-space value suppresses soft
+// wrapping (CSS Text Module Level 3 §3): `nowrap` and `pre` never wrap at
+// soft wrap opportunities (pre still breaks at preserved newlines), while
+// `normal`, `pre-wrap`, and `pre-line` do.
+func whiteSpaceNoWrap(ws string) bool {
+	return ws == "nowrap" || ws == "pre"
+}
+
 // processWhitespace handles whitespace according to the white-space CSS property.
 func processWhitespace(s, whiteSpace string) string {
 	switch whiteSpace {

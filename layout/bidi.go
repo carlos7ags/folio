@@ -21,16 +21,21 @@ import (
 // The returned direction is the resolved base direction of the paragraph
 // (LTR or RTL), which callers use for the default alignment decision.
 //
-// Reordering operates at word granularity: each word is assigned the bidi
-// level of its first character, and words are placed into the visual
-// sequence according to the runs returned by bidi.Ordering. Within an
-// RTL run, the words appear in reverse logical order. Words with mixed
-// bidi levels (e.g. Hebrew+digits in a single token) are pre-split by
-// splitMixedBidiWord before reaching this function, so each word here
-// is directionally uniform.
+// Reordering operates at word granularity: every rune's embedding level
+// is recovered (runeBidiLevels), each word is given the level of its
+// first strong character (pickWordLevel), and rule L2 reverses the word
+// sequence level by level. A word whose characters sit at different
+// levels (e.g. "ב-2026" when it was not pre-split) has its own glyphs
+// reordered per segment by visualWordText, so only its RTL parts are
+// reversed and mirrored. Reordered words keep their logical text in
+// OriginalText (when not already set by a shaper) and logicalText, and
+// inter-word gaps are re-attached to the logical boundary they belong to.
 //
-// If the line contains only LTR text and the base direction is LTR, the
-// words are returned unchanged (fast path).
+// The input slice is not modified. Callers that need the line in logical
+// order afterwards (page-split overflow) must keep their own reference.
+//
+// If the line has no right-to-left level at all, the words are returned
+// unchanged (fast path).
 func resolveLineBidi(words []Word, base Direction) ([]Word, Direction) {
 	if len(words) == 0 {
 		return words, DirectionLTR
@@ -111,138 +116,152 @@ func resolveLineBidi(words []Word, base Direction) ([]Word, Direction) {
 		return words, DirectionLTR
 	}
 
-	// Resolve the base direction from the Ordering.
+	// Resolve the paragraph embedding level. An explicit RTL base forces
+	// level 1 (bidi.DefaultDirection(RightToLeft) makes the library use
+	// paragraph level 1 rather than auto-detecting it), so the resolved
+	// direction must follow the base too: Ordering.Direction() only
+	// reports the first run's direction, which for "abc שלום def" under
+	// dir=rtl is LTR even though the paragraph is RTL. Otherwise the
+	// level comes from the first strong character (UAX #9 P2/P3), which
+	// is exactly what the library computes when no level is forced.
+	paraLevel := int8(0)
+	if base == DirectionRTL || firstStrongIsRTL(lineText) {
+		paraLevel = 1
+	}
 	resolved := DirectionLTR
-	if ord.Direction() == bidi.RightToLeft {
+	if paraLevel == 1 {
 		resolved = DirectionRTL
 	}
 
-	// Fast path: single LTR run covering the whole line — no reordering.
-	if ord.NumRuns() == 1 {
-		r := ord.Run(0)
-		if r.Direction() == bidi.LeftToRight {
-			return words, resolved
+	levels := runeBidiLevels(&ord, lineText, paraLevel)
+
+	// Fast path: no odd (RTL) level anywhere on the line. Levels 0 and 2
+	// cancel out under rule L2, so logical order is visual order.
+	hasOdd := false
+	for _, lv := range levels {
+		if lv%2 == 1 {
+			hasOdd = true
+			break
 		}
 	}
-
-	// Map visual runs back to text words. Each run covers a rune range
-	// in lineText; we find which text words overlap that range and
-	// collect them in visual order. Within an RTL run the overlapping
-	// words are appended in reverse logical order (last first).
-	//
-	// The bidi library's Order() returns runs in reading order: for an
-	// LTR paragraph that is left-to-right (Run 0 = leftmost), but for
-	// an RTL paragraph it is right-to-left (Run 0 = rightmost). Since
-	// the layout engine always places words at increasing X from the
-	// left, we traverse runs in reverse for RTL paragraphs so that the
-	// first collected word lands at the page's left edge.
-	numRuns := ord.NumRuns()
-	visual := make([]Word, 0, len(words))
-	placed := make(map[int]bool, len(words)) // tracks which word indices have been placed
-
-	runStart, runEnd, runStep := 0, numRuns, 1
-	if resolved == DirectionRTL {
-		runStart, runEnd, runStep = numRuns-1, -1, -1
+	if !hasOdd {
+		return words, resolved
 	}
 
-	// Map each text word to its best-matching bidi run. Each word belongs
-	// to exactly one run: assigning by maximum overlap and matching the word's
-	// strong direction ensures that neutral boundary tokens (e.g. "(RC):",
-	// "(Business)", "19%") are claimed by their true direction and are never
-	// placed more than once.
-	wordRun := make([]int, len(words))
-	for wi, sp := range spans {
-		if inlineAt[wi] {
-			wordRun[wi] = -1
+	// Assign each word one embedding level that decides its position.
+	// A text word takes the level of its first strong (L, R, AL)
+	// character, so "ב-2026" travels with its Hebrew letter and "(RC):"
+	// with its Latin letters; digit-only words take their digits' level;
+	// purely neutral words take their lowest level. Inline blocks and
+	// empty words are neutrals (UAX #9 N1/N2): when the resolved
+	// directions on both sides agree they take that direction — where
+	// numbers (EN/AN) count as R, except an EN that W7 turned into L —
+	// else the paragraph's embedding direction.
+	n := len(words)
+	wordLevel := make([]int8, n)
+	wordRTL := make([]bool, n) // resolved direction of each text word
+	// lastStrongRTL tracks the previous strong type in logical order for
+	// W7, starting from sos (the paragraph direction).
+	lastStrongRTL := paraLevel%2 == 1
+	for i := range words {
+		if inlineAt[i] {
 			continue
 		}
-		strongDir, hasStrong := wordStrongDirection(words[wi].Text)
-		bestRun := -1
-		bestScore := -1
-
-		for ri := range numRuns {
-			run := ord.Run(ri)
-			rStart, rEnd := run.Pos()
-			overlapStart := max(sp.start, rStart)
-			overlapEnd := min(sp.end, rEnd+1)
-			overlap := overlapEnd - overlapStart
-			if overlap <= 0 {
-				continue
-			}
-
-			score := overlap
-			if hasStrong && run.Direction() == strongDir {
-				score += 10000
-			}
-			if score > bestScore {
-				bestScore = score
-				bestRun = ri
-			}
+		lv := levels[spans[i].start:spans[i].end]
+		wordLevel[i] = pickWordLevel(words[i].Text, lv)
+		switch cls, ok := firstBidiClass(words[i].Text); {
+		case ok && cls == bidi.L:
+			wordRTL[i] = false
+			lastStrongRTL = false
+		case ok && (cls == bidi.R || cls == bidi.AL):
+			wordRTL[i] = true
+			lastStrongRTL = true
+		case ok && cls == bidi.AN:
+			wordRTL[i] = true
+		case ok && cls == bidi.EN:
+			// W7: an EN preceded by strong L (or an L sos) is L;
+			// otherwise it stays a number, which N1 treats as R.
+			wordRTL[i] = lastStrongRTL
+		default:
+			// Purely neutral word: the direction its level resolved to.
+			wordRTL[i] = wordLevel[i]%2 == 1
 		}
-		wordRun[wi] = bestRun
 	}
-
-	for ri := runStart; ri != runEnd; ri += runStep {
-		run := ord.Run(ri)
-		runDir := run.Direction()
-
-		// Collect indices of text words assigned to this run.
-		var indices []int
-		for wi := range words {
-			if wordRun[wi] == ri && !placed[wi] {
-				indices = append(indices, wi)
+	for i := range words {
+		if !inlineAt[i] {
+			continue
+		}
+		paraRTL := paraLevel%2 == 1
+		prev, next := paraRTL, paraRTL
+		for j := i - 1; j >= 0; j-- {
+			if !inlineAt[j] {
+				prev = wordRTL[j]
+				break
 			}
 		}
-
-		if runDir == bidi.RightToLeft {
-			for _, wi := range slices.Backward(indices) {
-				w := words[wi]
-				// UAX #9 Rule L2: a word whose own strong direction is LTR retains
-				// its internal character order even when an RTL run positions it.
-				// Only reverse and mirror brackets if the word does not have an
-				// opposing strong direction (i.e. it is RTL-strong or purely neutral).
-				if sd, ok := wordStrongDirection(w.Text); !ok || sd == runDir {
-					w.Text = reverseVisualRTL(mirrorBrackets(w.Text))
-				}
-				// Attach any inline-block words that immediately preceded
-				// this text word in logical order (they travel with it).
-				for ib := wi - 1; ib >= 0 && inlineAt[ib] && !placed[ib]; ib-- {
-					visual = append(visual, words[ib])
-					placed[ib] = true
-				}
-				visual = append(visual, w)
-				placed[wi] = true
-				// Attach trailing inline-blocks.
-				for ib := wi + 1; ib < len(words) && inlineAt[ib] && !placed[ib]; ib++ {
-					visual = append(visual, words[ib])
-					placed[ib] = true
-				}
+		for j := i + 1; j < n; j++ {
+			if !inlineAt[j] {
+				next = wordRTL[j]
+				break
 			}
-		} else {
-			for _, wi := range indices {
-				// Attach preceding inline-blocks.
-				for ib := wi - 1; ib >= 0 && inlineAt[ib] && !placed[ib]; ib-- {
-					visual = append(visual, words[ib])
-					placed[ib] = true
-				}
-				visual = append(visual, words[wi])
-				placed[wi] = true
-				// Attach trailing inline-blocks.
-				for ib := wi + 1; ib < len(words) && inlineAt[ib] && !placed[ib]; ib++ {
-					visual = append(visual, words[ib])
-					placed[ib] = true
-				}
-			}
+		}
+		dirRTL := paraRTL
+		if prev == next {
+			dirRTL = prev
+		}
+		// The lowest level >= the paragraph level with that direction.
+		wordLevel[i] = paraLevel
+		if (paraLevel%2 == 1) != dirRTL {
+			wordLevel[i] = paraLevel + 1
 		}
 	}
 
-	// Append any remaining inline-block words that weren't adjacent to
-	// any text word (e.g., a line with only inline elements).
-	for i, w := range words {
-		if !placed[i] {
-			visual = append(visual, w)
+	// UAX #9 rule L2 at word granularity: from the highest level down to
+	// the lowest odd level (1), reverse every maximal sequence of words at
+	// that level or higher. order[v] is the logical index of the word
+	// painted at visual position v (left to right).
+	order := make([]int, n)
+	for i := range order {
+		order[i] = i
+	}
+	reverseByLevel(order, func(i int) int8 { return wordLevel[i] })
+
+	visual := make([]Word, n)
+	for v, li := range order {
+		w := words[li]
+		if !inlineAt[li] {
+			text, changed, wholeRTL := visualWordText(w.Text, levels[spans[li].start:spans[li].end], wordLevel[li])
+			if changed {
+				// Keep the logical text: the kashida pass needs it, and
+				// /ActualText (and text extraction) should report the
+				// reading-order string rather than the reversed glyphs.
+				// A shaped word already carries its pre-shape text.
+				if w.OriginalText == "" {
+					w.OriginalText = w.Text
+				}
+				w.logicalText = w.Text
+				w.visualRTL = wholeRTL
+				w.Text = text
+			}
+		}
+		visual[v] = w
+	}
+
+	// Inter-word gaps follow the logical boundary between two visually
+	// adjacent words, not whichever word happens to land on the left:
+	// for a split token like "ב-"+"2026" (no space between) the zero gap
+	// must stay between those two pieces after reordering. Pairs that are
+	// not logical neighbours keep the left word's own gap.
+	for v := 0; v < n-1; v++ {
+		a, b := order[v], order[v+1]
+		switch {
+		case b == a+1:
+			visual[v].SpaceAfter = words[a].SpaceAfter
+		case a == b+1:
+			visual[v].SpaceAfter = words[b].SpaceAfter
 		}
 	}
+	visual[n-1].SpaceAfter = words[n-1].SpaceAfter
 
 	return visual, resolved
 }
@@ -488,18 +507,259 @@ func reverseVisualRTL(s string) string {
 	return sb.String()
 }
 
-// wordStrongDirection reports the primary strong direction of text, if any.
-// European/Arabic digits are treated as LTR since numbers display LTR in both
-// LTR and RTL scripts.
-func wordStrongDirection(text string) (bidi.Direction, bool) {
+// firstStrongIsRTL reports whether the first strong character of s
+// (UAX #9 rule P2) is right-to-left (R or AL). Text with no strong
+// character, or whose first strong character is L, reports false.
+func firstStrongIsRTL(s string) bool {
+	for _, r := range s {
+		props, _ := bidi.LookupRune(r)
+		switch props.Class() {
+		case bidi.L:
+			return false
+		case bidi.R, bidi.AL:
+			return true
+		}
+	}
+	return false
+}
+
+// runeBidiLevels returns the resolved embedding level of every rune of
+// lineText. The bidi library exposes only each run's direction (level
+// parity), so the levels are rebuilt from it: in an RTL paragraph
+// (level 1) every rune is either level 1 (RTL) or level 2 (LTR text and
+// numbers, raised by rule I2). In an LTR paragraph RTL runes are level
+// 1, and LTR-parity runes are level 0 except numbers that resolved to
+// EN/AN — European digits after an R/AL letter (W7 leaves them EN) or
+// Arabic-Indic digits — which rule I1 raises to level 2, together with
+// the separators and terminators that rules W4/W5 bind to them. That
+// distinction matters: "abc שלום 123 עולם" paints the Hebrew words and
+// the number as one reversed group, not as two independent RTL runs.
+func runeBidiLevels(ord *bidi.Ordering, lineText string, paraLevel int8) []int8 {
+	runes := []rune(lineText)
+	n := len(runes)
+	levels := make([]int8, n)
+	odd := make([]bool, n)
+	for ri := range ord.NumRuns() {
+		run := ord.Run(ri)
+		start, end := run.Pos()
+		isOdd := run.Direction() == bidi.RightToLeft
+		for k := max(start, 0); k <= end && k < n; k++ {
+			odd[k] = isOdd
+		}
+	}
+	if paraLevel == 1 {
+		for i := range levels {
+			if odd[i] {
+				levels[i] = 1
+			} else {
+				levels[i] = 2
+			}
+		}
+		return levels
+	}
+
+	classes := make([]bidi.Class, n)
+	lastStrongRTL := false
+	for i, r := range runes {
+		props, _ := bidi.LookupRune(r)
+		c := props.Class()
+		classes[i] = c
+		switch c {
+		case bidi.L:
+			lastStrongRTL = false
+		case bidi.R, bidi.AL:
+			lastStrongRTL = true
+		}
+		switch {
+		case odd[i]:
+			levels[i] = 1
+		case c == bidi.AN || (c == bidi.EN && lastStrongRTL):
+			levels[i] = 2
+		}
+	}
+	// W4/W5: a separator between two such numbers, or a terminator run
+	// adjacent to one, belongs to the number.
+	isJoiner := func(c bidi.Class) bool {
+		switch c {
+		case bidi.ES, bidi.CS, bidi.ET, bidi.NSM, bidi.BN:
+			return true
+		}
+		return false
+	}
+	for i := 0; i < n; {
+		if odd[i] || levels[i] != 0 || !isJoiner(classes[i]) {
+			i++
+			continue
+		}
+		j := i
+		onlyET := true
+		for j < n && !odd[j] && levels[j] == 0 && isJoiner(classes[j]) {
+			if classes[j] == bidi.ES || classes[j] == bidi.CS {
+				onlyET = false
+			}
+			j++
+		}
+		prev2 := i > 0 && levels[i-1] == 2
+		next2 := j < n && levels[j] == 2
+		if (prev2 && next2) || (onlyET && (prev2 || next2)) {
+			for k := i; k < j; k++ {
+				levels[k] = 2
+			}
+		}
+		i = j
+	}
+	return levels
+}
+
+// pickWordLevel chooses the single embedding level that positions a
+// word during word-granular reordering: the level of its first strong
+// character (L, R or AL), else of its first number (EN/AN), else its
+// lowest level. lv holds the word's per-rune levels.
+func pickWordLevel(text string, lv []int8) int8 {
+	if len(lv) == 0 {
+		return 0
+	}
+	firstNum := -1
+	ri := 0
+	for _, r := range text {
+		if ri >= len(lv) {
+			break
+		}
+		props, _ := bidi.LookupRune(r)
+		switch props.Class() {
+		case bidi.L, bidi.R, bidi.AL:
+			return lv[ri]
+		case bidi.EN, bidi.AN:
+			if firstNum < 0 {
+				firstNum = ri
+			}
+		}
+		ri++
+	}
+	if firstNum >= 0 {
+		return lv[firstNum]
+	}
+	return slices.Min(lv)
+}
+
+// firstBidiClass returns the bidi class of the first strong (L, R, AL)
+// character of text, or failing that of its first number (EN, AN). ok is
+// false for a purely neutral word.
+func firstBidiClass(text string) (cls bidi.Class, ok bool) {
+	num, haveNum := bidi.Class(0), false
+	for _, r := range text {
+		props, _ := bidi.LookupRune(r)
+		switch c := props.Class(); c {
+		case bidi.L, bidi.R, bidi.AL:
+			return c, true
+		case bidi.EN, bidi.AN:
+			if !haveNum {
+				num, haveNum = c, true
+			}
+		}
+	}
+	return num, haveNum
+}
+
+// reverseByLevel applies UAX #9 rule L2 to order, a permutation of item
+// indices: from the highest level down to level 1, every maximal
+// contiguous sequence of items at that level or higher is reversed.
+func reverseByLevel(order []int, level func(int) int8) {
+	var maxL int8
+	for _, i := range order {
+		maxL = max(maxL, level(i))
+	}
+	for k := maxL; k >= 1; k-- {
+		for i := 0; i < len(order); {
+			if level(order[i]) < k {
+				i++
+				continue
+			}
+			j := i
+			for j < len(order) && level(order[j]) >= k {
+				j++
+			}
+			slices.Reverse(order[i:j])
+			i = j
+		}
+	}
+}
+
+// visualWordText returns the left-to-right paint order of a word's
+// characters given each rune's embedding level (lv) and the level that
+// positions the word (wordLvl). changed reports whether the result
+// differs from text; wholeRTL reports that the result is exactly the
+// whole word reversed and mirrored (a uniformly right-to-left word),
+// which the kashida pass can undo.
+//
+// Words without R/AL letters keep the long-standing rule: a word with
+// LTR letters or digits is painted as-is (UAX #9 L2 keeps an LTR
+// sequence's internal order), and a purely neutral word inside an RTL
+// run is reversed and mirrored. A word with RTL letters is reordered per
+// grapheme cluster by rule L2 over its own levels, reversing and
+// mirroring only its RTL segments — so "ב-2026" paints as "2026-ב"
+// rather than reversing the digits along with the letter.
+func visualWordText(text string, lv []int8, wordLvl int8) (visual string, changed, wholeRTL bool) {
+	hasRTL, hasLTR := false, false
 	for _, r := range text {
 		props, _ := bidi.LookupRune(r)
 		switch props.Class() {
 		case bidi.R, bidi.AL:
-			return bidi.RightToLeft, true
+			hasRTL = true
 		case bidi.L, bidi.EN, bidi.AN:
-			return bidi.LeftToRight, true
+			hasLTR = true
 		}
 	}
-	return bidi.LeftToRight, false
+	if !hasRTL {
+		if hasLTR || wordLvl%2 == 0 {
+			return text, false, false
+		}
+		v := reverseVisualRTL(mirrorBrackets(text))
+		return v, v != text, true
+	}
+
+	breaks := grapheme.Breaks(text)
+	nc := len(breaks) - 1
+	if nc < 1 {
+		return text, false, false
+	}
+	clusterLv := make([]int8, nc)
+	ri := 0
+	uniform := true
+	for k := range nc {
+		if ri < len(lv) {
+			clusterLv[k] = lv[ri]
+		} else if k > 0 {
+			clusterLv[k] = clusterLv[k-1]
+		} else {
+			clusterLv[k] = wordLvl
+		}
+		if clusterLv[k] != clusterLv[0] {
+			uniform = false
+		}
+		ri += utf8.RuneCountInString(text[breaks[k]:breaks[k+1]])
+	}
+	if uniform {
+		if clusterLv[0]%2 == 0 {
+			return text, false, false
+		}
+		v := reverseVisualRTL(mirrorBrackets(text))
+		return v, v != text, true
+	}
+	order := make([]int, nc)
+	for i := range order {
+		order[i] = i
+	}
+	reverseByLevel(order, func(i int) int8 { return clusterLv[i] })
+	var sb strings.Builder
+	sb.Grow(len(text))
+	for _, k := range order {
+		c := text[breaks[k]:breaks[k+1]]
+		if clusterLv[k]%2 == 1 {
+			c = mirrorBrackets(c)
+		}
+		sb.WriteString(c)
+	}
+	v := sb.String()
+	return v, v != text, false
 }

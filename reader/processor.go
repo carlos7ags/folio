@@ -144,9 +144,9 @@ type ContentProcessor struct {
 }
 
 // formLookup resolves a Do name within res to a Form XObject: its parsed
-// content, the resources its own names resolve in, and its fonts. ops is
-// nil when name is not a form.
-type formLookup func(res *core.PdfDictionary, name string) (ops []ContentOp, formRes *core.PdfDictionary, fonts FontCache)
+// content, the resources its own names resolve in, its fonts, and its
+// /Matrix. ops is nil when name is not a form.
+type formLookup func(res *core.PdfDictionary, name string) (ops []ContentOp, formRes *core.PdfDictionary, fonts FontCache, matrix [6]float64)
 
 // pathSegment is a single segment of a path being constructed.
 type pathSegment struct {
@@ -488,9 +488,10 @@ func (p *ContentProcessor) Process(ops []ContentOp) []TextSpan {
 				} else if p.formResolver != nil {
 					if formOps := p.formResolver(name); formOps != nil {
 						// Save state, process form content, restore.
-						saved := p.state
+						saved, stack := p.state, p.stack
+						p.stack = nil
 						p.Process(formOps)
-						p.state = saved
+						p.state, p.stack = saved, stack
 					}
 				}
 			}
@@ -503,14 +504,18 @@ func (p *ContentProcessor) Process(ops []ContentOp) []TextSpan {
 // processForm runs the form named name with its own resources and fonts,
 // restoring the caller's graphics state, resources and fonts afterwards.
 func (p *ContentProcessor) processForm(name string) {
-	ops, res, fonts := p.lookup(p.resources, name)
+	ops, res, fonts, matrix := p.lookup(p.resources, name)
 	if ops == nil {
 		return
 	}
-	state, callerRes, callerFonts := p.state, p.resources, p.fonts
+	// The form runs with its own q/Q stack so unbalanced operators inside
+	// it cannot pop or leak the caller's saved states (ISO 32000-1 §8.10.1).
+	state, stack, callerRes, callerFonts := p.state, p.stack, p.resources, p.fonts
+	p.stack = nil
+	p.state.ctm = multiplyMatrix(matrix, p.state.ctm)
 	p.resources, p.fonts = res, fonts
 	p.Process(ops)
-	p.state, p.resources, p.fonts = state, callerRes, callerFonts
+	p.state, p.stack, p.resources, p.fonts = state, stack, callerRes, callerFonts
 }
 
 // Spans returns the collected text spans from the last Process call.

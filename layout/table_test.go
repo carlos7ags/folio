@@ -1912,3 +1912,43 @@ func TestTableRTLUnequalColumnWidthsGeometry(t *testing.T) {
 			drawn[1].x, drawn[1].x+drawn[1].w, drawn[0].x, drawn[0].x+drawn[0].w)
 	}
 }
+
+// TestTableColspanIncludesHorizontalSpacing verifies that a cell spanning
+// columns also spans the border-spacing gaps between them, in both
+// directions: its box must end flush with the last spanned column.
+func TestTableColspanIncludesHorizontalSpacing(t *testing.T) {
+	for _, dir := range []Direction{DirectionLTR, DirectionRTL} {
+		tbl := NewTable()
+		tbl.SetDirection(dir)
+		tbl.SetColumnWidths([]float64{100, 100, 100})
+		tbl.SetCellSpacing(5, 5)
+
+		var spanX, lastX float64
+		row := tbl.AddRow()
+		span := row.AddCellElement(&rtlTestColElement{width: 205, height: 10,
+			onDraw: func(absX, _ float64) { spanX = absX }})
+		span.SetColspan(2)
+		span.SetPadding(0)
+		row.AddCellElement(&rtlTestColElement{width: 100, height: 10,
+			onDraw: func(absX, _ float64) { lastX = absX }}).SetPadding(0)
+
+		grid := tbl.buildGrid(tbl.resolveColWidths(320))
+		if got := grid[0].cells[0].spanWidth; got != 205 {
+			t.Errorf("dir %v: spanWidth = %v, want 205 (2 columns + 1 gap)", dir, got)
+		}
+
+		plan := tbl.PlanLayout(LayoutArea{Width: 320, Height: 100})
+		ctx := DrawContext{Stream: content.NewStream()}
+		for _, b := range plan.Blocks {
+			drawBlockRecursive(b, 0, 0, ctx)
+		}
+		// Table is 5 + 3*(100+5) = 320 wide.
+		wantSpan, wantLast := 5.0, 215.0
+		if dir == DirectionRTL {
+			wantSpan, wantLast = 110, 5
+		}
+		if spanX != wantSpan || lastX != wantLast {
+			t.Errorf("dir %v: span x=%v last x=%v, want %v / %v", dir, spanX, lastX, wantSpan, wantLast)
+		}
+	}
+}
