@@ -731,3 +731,48 @@ func TestParseCMS_RequiresContentType(t *testing.T) {
 		t.Fatalf("parseCMS on folio-built CMS: %v", err)
 	}
 }
+
+// TestVerify_NonASCIIStringFields verifies that /Name, /Reason and
+// /Location outside ASCII are written as PDF text strings and that
+// Verify decodes them back to the original Unicode text.
+func TestVerify_NonASCIIStringFields(t *testing.T) {
+	key, cert := testKeyGens[0].gen(t)
+	signed := signMinimalPDF(t, key, cert, Options{
+		Level:       LevelBB,
+		Name:        "José Núñez",
+		Reason:      "Aprobación — “final”",
+		Location:    "São Paulo",
+		SigningTime: time.Now().Truncate(time.Second),
+	})
+	if bytes.Contains(signed, []byte("Jos\xc3\xa9")) {
+		t.Error("raw UTF-8 bytes leaked into the signature /Name")
+	}
+	report, err := Verify(signed, VerifyOptions{})
+	if err != nil {
+		t.Fatalf("Verify: %v", err)
+	}
+	if len(report.Signatures) != 1 {
+		t.Fatalf("len(Signatures) = %d, want 1", len(report.Signatures))
+	}
+	got := report.Signatures[0]
+	if got.Name != "José Núñez" || got.Reason != "Aprobación — “final”" || got.Location != "São Paulo" {
+		t.Errorf("Name/Reason/Location = %q/%q/%q", got.Name, got.Reason, got.Location)
+	}
+}
+
+// TestExtractLiteralStringTextString covers the byte-scanning fallback:
+// it must undo every escape textStringLiteral emits, including octal
+// escapes for the NUL and CR bytes inside UTF-16BE, and decode the BOM.
+func TestExtractLiteralStringTextString(t *testing.T) {
+	for _, in := range []string{
+		"ASCII (with parens) and \\ backslash",
+		"José — “quoted”",
+		"഍ĩ CR and close-paren bytes",
+		"emoji 😀",
+	} {
+		region := []byte("<< /Reason (" + textStringLiteral(in) + ") /ByteRange [0 1 2 3] >>")
+		if got := extractLiteralString(region, "Reason"); got != in {
+			t.Errorf("extractLiteralString(%q) = %q", in, got)
+		}
+	}
+}

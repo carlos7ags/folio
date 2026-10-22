@@ -196,7 +196,7 @@ func (st *structTree) buildChildren(
 
 		// Add alt text for figures.
 		if child.altText != "" {
-			elemDict.Set("Alt", core.NewPdfLiteralString(child.altText))
+			elemDict.Set("Alt", core.NewPdfTextString(child.altText))
 		}
 
 		// Build this element's content references (MCIDs).

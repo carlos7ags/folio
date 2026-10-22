@@ -97,22 +97,22 @@ func (s *sigDictionary) WriteTo(w io.Writer) (int64, error) {
 		return total, err
 	}
 	if s.name != "" {
-		if err := write(fmt.Sprintf(" /Name (%s)", escapePdfString(s.name))); err != nil {
+		if err := write(fmt.Sprintf(" /Name (%s)", textStringLiteral(s.name))); err != nil {
 			return total, err
 		}
 	}
 	if s.location != "" {
-		if err := write(fmt.Sprintf(" /Location (%s)", escapePdfString(s.location))); err != nil {
+		if err := write(fmt.Sprintf(" /Location (%s)", textStringLiteral(s.location))); err != nil {
 			return total, err
 		}
 	}
 	if s.reason != "" {
-		if err := write(fmt.Sprintf(" /Reason (%s)", escapePdfString(s.reason))); err != nil {
+		if err := write(fmt.Sprintf(" /Reason (%s)", textStringLiteral(s.reason))); err != nil {
 			return total, err
 		}
 	}
 	if s.contactInfo != "" {
-		if err := write(fmt.Sprintf(" /ContactInfo (%s)", escapePdfString(s.contactInfo))); err != nil {
+		if err := write(fmt.Sprintf(" /ContactInfo (%s)", textStringLiteral(s.contactInfo))); err != nil {
 			return total, err
 		}
 	}
@@ -171,6 +171,21 @@ func patchContents(pdf []byte, ph signaturePlaceholder, sig []byte) error {
 	// Write into the placeholder (between < and >).
 	copy(pdf[ph.ContentsOffset+1:], []byte(hex))
 	return nil
+}
+
+// textStringLiteral returns the body of a literal string holding s as a
+// PDF text string (ISO 32000-1 §7.9.2.2), without the enclosing
+// parentheses. /Name, /Reason, /Location and /ContactInfo are text
+// strings: pure-ASCII values are written as before, anything else as
+// UTF-16BE with the FE FF byte-order mark, escaped so the embedded NUL,
+// CR and delimiter bytes survive (see [core.EscapeLiteralString]).
+func textStringLiteral(s string) string {
+	for i := range len(s) {
+		if s[i] >= 0x80 {
+			return core.EscapeLiteralString(core.EncodeTextStringUTF16BE(s))
+		}
+	}
+	return escapePdfString(s)
 }
 
 // escapePdfString escapes special characters for PDF literal strings.

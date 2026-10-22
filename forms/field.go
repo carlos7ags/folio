@@ -245,24 +245,24 @@ func ftName(ft FieldType) string {
 // It returns the field's indirect reference and widget info for page annotation placement.
 func (f *Field) ToDict(addObject func(core.PdfObject) *core.PdfIndirectReference, pageRefs []*core.PdfIndirectReference) (*core.PdfIndirectReference, []*widgetInfo) {
 	dict := core.NewPdfDictionary()
-	dict.Set("T", core.NewPdfLiteralString(f.Name))
+	dict.Set("T", core.NewPdfTextString(f.Name))
 	dict.Set("FT", core.NewPdfName(ftName(f.Type)))
 
 	if f.Flags != 0 {
 		dict.Set("Ff", core.NewPdfInteger(int(f.Flags)))
 	}
 	if f.Value != "" {
-		dict.Set("V", core.NewPdfLiteralString(f.Value))
+		dict.Set("V", core.NewPdfTextString(f.Value))
 	}
 	if f.Default != "" {
-		dict.Set("DV", core.NewPdfLiteralString(f.Default))
+		dict.Set("DV", core.NewPdfTextString(f.Default))
 	}
 
 	// Choice options.
 	if len(f.Options) > 0 {
 		optArr := core.NewPdfArray()
 		for _, opt := range f.Options {
-			optArr.Add(core.NewPdfLiteralString(opt))
+			optArr.Add(core.NewPdfTextString(opt))
 		}
 		dict.Set("Opt", optArr)
 	}

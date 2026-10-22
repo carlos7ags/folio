@@ -263,10 +263,10 @@ func (m *Modifier) CropPage(index int, rect [4]float64) error {
 func (m *Modifier) SetInfo(title, author string) {
 	info := core.NewPdfDictionary()
 	if title != "" {
-		info.Set("Title", core.NewPdfLiteralString(title))
+		info.Set("Title", core.NewPdfTextString(title))
 	}
 	if author != "" {
-		info.Set("Author", core.NewPdfLiteralString(author))
+		info.Set("Author", core.NewPdfTextString(author))
 	}
 	m.info = info
 }

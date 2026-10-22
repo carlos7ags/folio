@@ -6,11 +6,14 @@ package integration
 import (
 	"bytes"
 	"regexp"
+	"slices"
 	"strings"
 	"testing"
 
+	"github.com/carlos7ags/folio/core"
 	"github.com/carlos7ags/folio/document"
 	"github.com/carlos7ags/folio/layout"
+	"github.com/carlos7ags/folio/reader"
 )
 
 // renderHTML is a small helper used across the bookmark integration
@@ -356,6 +359,82 @@ func TestBookmarkNestedAnchors(t *testing.T) {
 	if !nest.Match(pdf) {
 		t.Error("expected 'Inner' to nest under 'Outer' (level 2 child of level 1)")
 	}
+}
+
+// TestBookmarkTitlesNonASCII verifies that auto-bookmark titles taken
+// from accented headings are written as PDF text strings and decode back
+// exactly. Before the fix the heading's UTF-8 bytes went straight into a
+// literal string and viewers showed "InformaciÃ³n del Perfil".
+func TestBookmarkTitlesNonASCII(t *testing.T) {
+	want := []string{
+		"Reporte de consulta",
+		"Información del Perfil",
+		"Categorías de información",
+		"Pontuação",
+		"Résumé — naïve “quotes”",
+	}
+	htmlSrc := `<html><head><meta charset="utf-8"><style>
+h2 { page-break-before: always; }
+</style></head><body>
+<h1>Reporte de consulta</h1>
+<h2>Información del Perfil</h2>
+<h2>Categorías de información</h2>
+<h2>Pontuação</h2>
+<h2>Résumé — naïve “quotes”</h2>
+</body></html>`
+
+	pdf := renderHTML(t, htmlSrc)
+	r, err := reader.Parse(pdf)
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	resolve := func(obj core.PdfObject) *core.PdfDictionary {
+		t.Helper()
+		res, err := r.ResolveObject(obj)
+		if err != nil {
+			t.Fatalf("resolve: %v", err)
+		}
+		d, ok := res.(*core.PdfDictionary)
+		if !ok {
+			t.Fatalf("expected dictionary, got %T", res)
+		}
+		return d
+	}
+	var got []string
+	var walk func(first core.PdfObject)
+	walk = func(first core.PdfObject) {
+		for item := first; item != nil; {
+			d := resolve(item)
+			if s, ok := d.Get("Title").(*core.PdfString); ok {
+				got = append(got, viewerDecode(s))
+			}
+			if c := d.Get("First"); c != nil {
+				walk(c)
+			}
+			item = d.Get("Next")
+		}
+	}
+	walk(resolve(r.Catalog().Get("Outlines")).Get("First"))
+	if !slices.Equal(got, want) {
+		t.Errorf("outline titles:\n got %q\nwant %q", got, want)
+	}
+}
+
+// viewerDecode decodes a PDF text string the way a conforming viewer
+// does: a value with a byte-order mark is Unicode, anything else is
+// PDFDocEncoding, one byte per character. Latin-1 stands in for
+// PDFDocEncoding here; they agree on every byte these tests produce, so
+// raw UTF-8 decodes to mojibake ("InformaciÃ³n") exactly as in a viewer.
+func viewerDecode(s *core.PdfString) string {
+	raw := s.Text()
+	if strings.HasPrefix(raw, "\xFE\xFF") || strings.HasPrefix(raw, "\xEF\xBB\xBF") {
+		return s.TextString()
+	}
+	r := make([]rune, len(raw))
+	for i := range len(raw) {
+		r[i] = rune(raw[i])
+	}
+	return string(r)
 }
 
 // snippetAround returns a window of s around the first occurrence of

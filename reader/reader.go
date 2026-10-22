@@ -402,7 +402,8 @@ func (r *PdfReader) Page(index int) (*PageInfo, error) {
 	return r.pages[index], nil
 }
 
-// Info returns the document info dictionary values.
+// Info returns the document info dictionary values, decoded from PDF text
+// strings (UTF-16BE with a byte-order mark is converted to UTF-8).
 func (r *PdfReader) Info() (title, author, subject, creator, producer string) {
 	infoRef := r.xref.trailer.Get("Info")
 	if infoRef == nil {
@@ -423,7 +424,7 @@ func (r *PdfReader) Info() (title, author, subject, creator, producer string) {
 			return ""
 		}
 		if s, ok := obj.(*core.PdfString); ok {
-			return s.Text()
+			return s.TextString()
 		}
 		return ""
 	}
