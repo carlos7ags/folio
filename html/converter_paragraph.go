@@ -328,14 +328,12 @@ func (c *converter) collectRunsFromNode(child *html.Node, parentStyle computedSt
 		}
 
 		childRuns := c.collectRuns(child, childStyle)
-		// Propagate href from <a> elements to all child runs.
+		// Propagate href from <a> elements to all child runs. A bare
+		// fragment names a destination inside this document, so it must
+		// travel as LinkDest — sent as LinkURI it would be written out as
+		// a /URI action that no viewer can resolve.
 		if child.DataAtom == atom.A {
-			href := getAttr(child, "href")
-			if href != "" {
-				for i := range childRuns {
-					childRuns[i].LinkURI = href
-				}
-			}
+			applyLinkTarget(childRuns, getAttr(child, "href"))
 		}
 		return childRuns
 	}
@@ -401,15 +399,24 @@ func (c *converter) collectListItemRuns(li *html.Node, style computedStyle) []la
 			childStyle := c.computeElementStyle(child, style)
 			childRuns := c.collectRuns(child, childStyle)
 			if child.DataAtom == atom.A {
-				href := getAttr(child, "href")
-				if href != "" {
-					for i := range childRuns {
-						childRuns[i].LinkURI = href
-					}
-				}
+				applyLinkTarget(childRuns, getAttr(child, "href"))
 			}
 			runs = append(runs, childRuns...)
 		}
 	}
 	return runs
+}
+
+// applyLinkTarget marks every run as part of the link named by href,
+// routing a bare fragment to LinkDest and everything else to LinkURI.
+// An href that navigates nowhere leaves the runs untouched.
+func applyLinkTarget(runs []layout.TextRun, href string) {
+	uri, destName := splitLinkTarget(href)
+	if uri == "" && destName == "" {
+		return
+	}
+	for i := range runs {
+		runs[i].LinkURI = uri
+		runs[i].LinkDest = destName
+	}
 }
