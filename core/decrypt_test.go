@@ -5,6 +5,7 @@ package core
 
 import (
 	"bytes"
+	"crypto/aes"
 	"errors"
 	"testing"
 )
@@ -249,14 +250,17 @@ func TestNewDecryptorRejectsHostileDict(t *testing.T) {
 func TestAesCBCDecryptRejectsHostileCiphertext(t *testing.T) {
 	key := make([]byte, 16)
 
-	corrupted, err := aesCBCEncrypt(key, []byte("exactly16 bytes!"))
+	// A zero IV followed by one block that decrypts to a plaintext ending
+	// in 0x00, which is never valid PKCS#7 padding. Built directly rather
+	// than by corrupting a random-IV ciphertext, whose padding is still
+	// valid by chance about once in 256 runs.
+	block, err := aes.NewCipher(key)
 	if err != nil {
-		t.Fatalf("aesCBCEncrypt: %v", err)
+		t.Fatalf("aes.NewCipher: %v", err)
 	}
-	// Flip the last byte: CBC decryption's avalanche effect makes the
-	// last plaintext block effectively random, so the PKCS#7 padding
-	// check almost certainly fails.
-	corrupted[len(corrupted)-1] ^= 0xFF
+	plain := []byte("fifteen bytes!!\x00")
+	corrupted := make([]byte, 2*aes.BlockSize)
+	block.Encrypt(corrupted[aes.BlockSize:], plain)
 
 	tests := []struct {
 		name string
