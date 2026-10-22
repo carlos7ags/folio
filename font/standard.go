@@ -21,6 +21,7 @@ import "github.com/carlos7ags/folio/core"
 // These fonts require no embedding — only a reference by name.
 type Standard struct {
 	name string // PDF BaseFont name (e.g. "Helvetica")
+	sym  bool   // whether this is a symbolic font (e.g. ZapfDingbats)
 }
 
 // Name returns the PDF BaseFont name.
@@ -36,29 +37,31 @@ func (f *Standard) Dict() *core.PdfDictionary {
 	d.Set("Type", core.NewPdfName("Font"))
 	d.Set("Subtype", core.NewPdfName("Type1"))
 	d.Set("BaseFont", core.NewPdfName(f.name))
-	d.Set("Encoding", core.NewPdfName("WinAnsiEncoding"))
+	if !f.sym {
+		d.Set("Encoding", core.NewPdfName("WinAnsiEncoding"))
+	}
 	return d
 }
 
 // The 14 standard PDF fonts.
 var (
-	Helvetica            = &Standard{"Helvetica"}
-	HelveticaBold        = &Standard{"Helvetica-Bold"}
-	HelveticaOblique     = &Standard{"Helvetica-Oblique"}
-	HelveticaBoldOblique = &Standard{"Helvetica-BoldOblique"}
+	Helvetica            = &Standard{name: "Helvetica"}
+	HelveticaBold        = &Standard{name: "Helvetica-Bold"}
+	HelveticaOblique     = &Standard{name: "Helvetica-Oblique"}
+	HelveticaBoldOblique = &Standard{name: "Helvetica-BoldOblique"}
 
-	TimesRoman      = &Standard{"Times-Roman"}
-	TimesBold       = &Standard{"Times-Bold"}
-	TimesItalic     = &Standard{"Times-Italic"}
-	TimesBoldItalic = &Standard{"Times-BoldItalic"}
+	TimesRoman      = &Standard{name: "Times-Roman"}
+	TimesBold       = &Standard{name: "Times-Bold"}
+	TimesItalic     = &Standard{name: "Times-Italic"}
+	TimesBoldItalic = &Standard{name: "Times-BoldItalic"}
 
-	Courier            = &Standard{"Courier"}
-	CourierBold        = &Standard{"Courier-Bold"}
-	CourierOblique     = &Standard{"Courier-Oblique"}
-	CourierBoldOblique = &Standard{"Courier-BoldOblique"}
+	Courier            = &Standard{name: "Courier"}
+	CourierBold        = &Standard{name: "Courier-Bold"}
+	CourierOblique     = &Standard{name: "Courier-Oblique"}
+	CourierBoldOblique = &Standard{name: "Courier-BoldOblique"}
 
-	Symbol       = &Standard{"Symbol"}
-	ZapfDingbats = &Standard{"ZapfDingbats"}
+	Symbol       = &Standard{name: "Symbol", sym: true}
+	ZapfDingbats = &Standard{name: "ZapfDingbats", sym: true}
 )
 
 // CanEncodeWinAnsi reports whether all characters in s can be encoded
