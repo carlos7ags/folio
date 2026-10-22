@@ -1859,7 +1859,7 @@ func drawTableRowDirect(ctx DrawContext, tbl *Table, grid []gridRow, rowIndex in
 			// Start from the right and work leftward past each column.
 			cellX = x + totalW - gc.spanWidth - sh
 			for c := range gc.col {
-				cellX -= colWidths[len(colWidths)-1-c] + sh
+				cellX -= colWidths[c] + sh
 			}
 		} else {
 			// LTR: column 0 at the left edge (default).

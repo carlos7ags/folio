@@ -1012,6 +1012,7 @@ func (f *Flex) planColumn(area LayoutArea) LayoutPlan {
 			for j := i; j < len(f.items); j++ {
 				if j > i {
 					neededBelow += f.rowGap
+					neededBelow += f.items[j].marginTop
 				}
 				plan := f.items[j].element.PlanLayout(LayoutArea{Width: innerWidth, Height: 1e9})
 				neededBelow += plan.Consumed
@@ -1153,6 +1154,7 @@ func (f *Flex) planColumn(area LayoutArea) LayoutPlan {
 			for j := i; j < len(results); j++ {
 				if j > i {
 					neededBelow += f.rowGap
+					neededBelow += f.items[j].marginTop
 				}
 				neededBelow += results[j].plan.Consumed
 				neededBelow += f.items[j].marginBottom
