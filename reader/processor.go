@@ -3,7 +3,11 @@
 
 package reader
 
-import "math"
+import (
+	"math"
+
+	"github.com/carlos7ags/folio/core"
+)
 
 // TextSpan is a positioned piece of text extracted from a content stream.
 // It carries full rendering context: position, size, font, color, and
@@ -132,7 +136,17 @@ type ContentProcessor struct {
 	// Set via SetFormResolver to enable recursive Form XObject processing.
 	formResolver func(name string) []ContentOp
 	depth        int // recursion depth (0 = top-level call)
+
+	// lookup and resources resolve Do names in the resources of the
+	// content being processed; they take precedence over formResolver.
+	lookup    formLookup
+	resources *core.PdfDictionary
 }
+
+// formLookup resolves a Do name within res to a Form XObject: its parsed
+// content, the resources its own names resolve in, and its fonts. ops is
+// nil when name is not a form.
+type formLookup func(res *core.PdfDictionary, name string) (ops []ContentOp, formRes *core.PdfDictionary, fonts FontCache)
 
 // pathSegment is a single segment of a path being constructed.
 type pathSegment struct {
@@ -469,7 +483,9 @@ func (p *ContentProcessor) Process(ops []ContentOp) []TextSpan {
 				})
 
 				// If we have a FormXObject resolver, recurse into Form XObjects.
-				if p.formResolver != nil {
+				if p.lookup != nil {
+					p.processForm(name)
+				} else if p.formResolver != nil {
 					if formOps := p.formResolver(name); formOps != nil {
 						// Save state, process form content, restore.
 						saved := p.state
@@ -482,6 +498,19 @@ func (p *ContentProcessor) Process(ops []ContentOp) []TextSpan {
 	}
 
 	return p.spans
+}
+
+// processForm runs the form named name with its own resources and fonts,
+// restoring the caller's graphics state, resources and fonts afterwards.
+func (p *ContentProcessor) processForm(name string) {
+	ops, res, fonts := p.lookup(p.resources, name)
+	if ops == nil {
+		return
+	}
+	state, callerRes, callerFonts := p.state, p.resources, p.fonts
+	p.resources, p.fonts = res, fonts
+	p.Process(ops)
+	p.state, p.resources, p.fonts = state, callerRes, callerFonts
 }
 
 // Spans returns the collected text spans from the last Process call.

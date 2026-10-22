@@ -55,7 +55,7 @@ func parseAspectRatio(val string) float64 {
 		return 0
 	}
 	// Try "W / H" form.
-	if slashIdx := strings.IndexByte(val, '/'); slashIdx >= 0 {
+	if slashIdx := indexByteAtTopLevel(val, '/'); slashIdx >= 0 {
 		wStr := strings.TrimSpace(val[:slashIdx])
 		hStr := strings.TrimSpace(val[slashIdx+1:])
 		w, errW := strconv.ParseFloat(wStr, 64)

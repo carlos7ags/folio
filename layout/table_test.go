@@ -8,6 +8,7 @@ import (
 	"math"
 	"testing"
 
+	"github.com/carlos7ags/folio/content"
 	"github.com/carlos7ags/folio/font"
 )
 
@@ -1817,5 +1818,97 @@ func TestTableOversizeGroupWithHeaderFooter(t *testing.T) {
 	}
 	if last := overflow.rows[len(overflow.rows)-1]; !last.isFooter {
 		t.Error("expected the overflow table's last row to be the footer")
+	}
+}
+
+type rtlTestColElement struct {
+	width, height float64
+	onDraw        func(absX, absTopY float64)
+}
+
+func (e *rtlTestColElement) PlanLayout(area LayoutArea) LayoutPlan {
+	return LayoutPlan{
+		Status:   LayoutFull,
+		Consumed: e.height,
+		Blocks: []PlacedBlock{{
+			X: 0, Y: 0, Width: e.width, Height: e.height,
+			Draw: func(ctx DrawContext, absX, absTopY float64) {
+				if e.onDraw != nil {
+					e.onDraw(absX, absTopY)
+				}
+			},
+		}},
+	}
+}
+
+// TestTableRTLUnequalColumnWidthsGeometry verifies that RTL tables with unequal
+// column widths lay out columns right-to-left without overlapping or overflowing
+// the table boundaries.
+func TestTableRTLUnequalColumnWidthsGeometry(t *testing.T) {
+	tbl := NewTable()
+	tbl.SetDirection(DirectionRTL)
+	colWidths := []float64{10, 50, 20}
+	tbl.SetColumnWidths(colWidths)
+	tbl.SetCellSpacing(0, 0)
+
+	type drawnBlock struct {
+		x float64
+		w float64
+	}
+	drawn := make([]drawnBlock, len(colWidths))
+
+	row := tbl.AddRow()
+	for i, w := range colWidths {
+		idx := i
+		width := w
+		el := &rtlTestColElement{
+			width:  width,
+			height: 10,
+			onDraw: func(absX, absTopY float64) {
+				drawn[idx] = drawnBlock{x: absX, w: width}
+			},
+		}
+		c := row.AddCellElement(el)
+		c.SetPadding(0)
+	}
+
+	plan := tbl.PlanLayout(LayoutArea{Width: 80, Height: 100})
+	if plan.Status != LayoutFull {
+		t.Fatalf("expected LayoutFull, got %v", plan.Status)
+	}
+
+	ctx := DrawContext{Stream: content.NewStream()}
+	for _, b := range plan.Blocks {
+		drawBlockRecursive(b, 0, 0, ctx)
+	}
+
+	// For total width 80 (10 + 50 + 20) with DirectionRTL:
+	// Column 0 (width 10): anchored to right margin -> x = 70, ends at 80
+	// Column 1 (width 50): preceding col 0 (10) -> x = 20, ends at 70
+	// Column 2 (width 20): preceding cols 0, 1 (10 + 50 = 60) -> x = 0, ends at 20 (anchored to left margin)
+	want := []drawnBlock{
+		{x: 70, w: 10},
+		{x: 20, w: 50},
+		{x: 0, w: 20},
+	}
+
+	for i := range drawn {
+		if drawn[i].x != want[i].x || drawn[i].w != want[i].w {
+			t.Errorf("column %d: got x=%v w=%v, want x=%v w=%v",
+				i, drawn[i].x, drawn[i].w, want[i].x, want[i].w)
+		}
+	}
+
+	// Verify non-overlapping intervals:
+	// Column 2: [0, 20]
+	// Column 1: [20, 70]
+	// Column 0: [70, 80]
+	if drawn[2].x+drawn[2].w > drawn[1].x {
+		t.Errorf("column 2 overlaps column 1: [%v, %v] vs [%v, %v]",
+			drawn[2].x, drawn[2].x+drawn[2].w, drawn[1].x, drawn[1].x+drawn[1].w)
+	}
+	if drawn[1].x+drawn[1].w > drawn[0].x {
+		t.Errorf("column 1 overlaps column 0: [%v, %v] vs [%v, %v]",
+			drawn[1].x, drawn[1].x+drawn[1].w, drawn[0].x, drawn[0].x+drawn[0].w)
 	}
 }

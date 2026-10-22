@@ -864,6 +864,53 @@ func TestFlexColumn_GrowWithNestedMarginTopAuto(t *testing.T) {
 	}
 }
 
+func TestFlexColumn_MarginTopAutoWithSubsequentItemMarginTop(t *testing.T) {
+	// A flex column with an auto-margin item followed by an item with marginTop
+	// must include the subsequent item's marginTop in neededBelow, so that the
+	// container does not overflow.
+	top := NewDiv()
+	top.SetHeightUnit(Pt(60))
+
+	middle := NewDiv()
+	middle.SetHeightUnit(Pt(30))
+
+	footer := NewDiv()
+	footer.SetHeightUnit(Pt(20))
+
+	flex := NewFlex()
+	flex.SetDirection(FlexColumn)
+	flex.ForceHeight(Pt(300))
+	flex.AddItem(NewFlexItem(top))
+	flex.AddItem(NewFlexItem(middle).SetMarginTopAuto())
+	footerItem := NewFlexItem(footer)
+	footerItem.SetMargins(15, 0, 0, 0)
+	flex.AddItem(footerItem)
+
+	plan := flex.PlanLayout(LayoutArea{Width: 400, Height: 300})
+	if plan.Status != LayoutFull {
+		t.Fatalf("expected LayoutFull, got %v", plan.Status)
+	}
+
+	container := plan.Blocks[0]
+	if len(container.Children) != 3 {
+		t.Fatalf("expected 3 children, got %d", len(container.Children))
+	}
+
+	// Total height: top(60) + autoSpace + middle(30) + footerMarginTop(15) + footer(20) = 300
+	// autoSpace = 300 - 60 - 30 - 15 - 20 = 175.
+	// middle.Y = 60 + 175 = 235
+	// footer.Y = 235 + 30 + 15 = 280
+	middleY := container.Children[1].Y
+	footerY := container.Children[2].Y
+
+	if math.Abs(middleY-235) > 1 {
+		t.Errorf("middle Y = %.1f, want ~235", middleY)
+	}
+	if math.Abs(footerY-280) > 1 {
+		t.Errorf("footer Y = %.1f, want ~280", footerY)
+	}
+}
+
 // --- Text Align ---
 
 func TestParagraph_AlignRight(t *testing.T) {
