@@ -28,7 +28,16 @@ type PageResult struct {
 	Links      []LinkArea       // clickable link annotations produced by Link elements
 	ExtGStates []ExtGStateEntry // graphics state dictionaries (opacity, etc.)
 	Headings   []HeadingInfo    // headings found on this page (for auto-bookmarks)
+	Anchors    []AnchorInfo     // fragment ids found on this page (for named destinations)
 	PageHeight float64          // actual page height (non-zero only for auto-sized pages)
+}
+
+// AnchorInfo records a fragment identifier (an element's HTML id) found
+// during rendering, with the y position of its target block's top. The
+// document layer registers these as PDF named destinations.
+type AnchorInfo struct {
+	Name string  // fragment id (the value of href="#name")
+	Y    float64 // y position in PDF coordinates (top of the target block)
 }
 
 // HeadingInfo records a heading found during rendering.

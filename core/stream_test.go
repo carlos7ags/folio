@@ -4,6 +4,8 @@
 package core
 
 import (
+	"bytes"
+	"compress/zlib"
 	"io"
 	"testing"
 )
@@ -47,5 +49,87 @@ func TestStreamLengthIsDirect(t *testing.T) {
 					"depends on /Length never being indirect", length)
 			}
 		})
+	}
+}
+
+// TestDeflateStreamDataLevel verifies compressed output at a non-default
+// level still inflates back to the original bytes, and that the default
+// wrapper's output is byte-identical to explicitly requesting
+// zlib.BestCompression.
+func TestDeflateStreamDataLevel(t *testing.T) {
+	payload := bytes.Repeat([]byte("hello world, compress me please "), 50)
+
+	fast, err := DeflateStreamDataLevel(payload, zlib.BestSpeed)
+	if err != nil {
+		t.Fatalf("DeflateStreamDataLevel(BestSpeed): %v", err)
+	}
+	back, err := InflateStreamData(fast)
+	if err != nil {
+		t.Fatalf("InflateStreamData: %v", err)
+	}
+	if !bytes.Equal(back, payload) {
+		t.Error("BestSpeed round-trip did not reproduce the original payload")
+	}
+
+	viaDefault, err := DeflateStreamData(payload)
+	if err != nil {
+		t.Fatalf("DeflateStreamData: %v", err)
+	}
+	viaExplicit, err := DeflateStreamDataLevel(payload, zlib.BestCompression)
+	if err != nil {
+		t.Fatalf("DeflateStreamDataLevel(BestCompression): %v", err)
+	}
+	if !bytes.Equal(viaDefault, viaExplicit) {
+		t.Error("DeflateStreamData diverges from DeflateStreamDataLevel(_, zlib.BestCompression)")
+	}
+}
+
+// TestPdfStreamSetCompressLevel verifies SetCompressLevel changes the
+// level WriteTo uses, including the zlib.NoCompression edge case (0,
+// which collides with the PdfStream zero value and must not fall back
+// to BestCompression once SetCompressLevel has been called explicitly).
+func TestPdfStreamSetCompressLevel(t *testing.T) {
+	payload := bytes.Repeat([]byte("round trip through NoCompression "), 50)
+
+	s := NewPdfStreamCompressed(payload)
+	s.SetCompressLevel(zlib.NoCompression)
+
+	var buf bytes.Buffer
+	if _, err := s.WriteTo(&buf); err != nil {
+		t.Fatalf("WriteTo: %v", err)
+	}
+
+	// Re-inflate the stream body between "stream\n" and "\nendstream".
+	const marker = "\nstream\n"
+	idx := bytes.Index(buf.Bytes(), []byte(marker))
+	if idx < 0 {
+		t.Fatal("missing stream marker in output")
+	}
+	body := buf.Bytes()[idx+len(marker):]
+	body = bytes.TrimSuffix(body, []byte("\nendstream"))
+
+	back, err := InflateStreamData(body)
+	if err != nil {
+		t.Fatalf("InflateStreamData: %v", err)
+	}
+	if !bytes.Equal(back, payload) {
+		t.Error("NoCompression round-trip did not reproduce the original payload")
+	}
+
+	// Default (no SetCompressLevel call) must still behave as before:
+	// byte-identical to the historical BestCompression path.
+	plain := NewPdfStreamCompressed(payload)
+	var plainBuf bytes.Buffer
+	if _, err := plain.WriteTo(&plainBuf); err != nil {
+		t.Fatalf("WriteTo (default): %v", err)
+	}
+	explicit := NewPdfStreamCompressed(payload)
+	explicit.SetCompressLevel(zlib.BestCompression)
+	var explicitBuf bytes.Buffer
+	if _, err := explicit.WriteTo(&explicitBuf); err != nil {
+		t.Fatalf("WriteTo (explicit BestCompression): %v", err)
+	}
+	if !bytes.Equal(plainBuf.Bytes(), explicitBuf.Bytes()) {
+		t.Error("default level diverges from explicit zlib.BestCompression")
 	}
 }

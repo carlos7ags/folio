@@ -134,7 +134,12 @@ func TestRecompressStreams_ReFlatesBestSpeedStream(t *testing.T) {
 	// eligible: inflate then re-deflate at BestCompression. The win
 	// is producer-dependent but real for sufficiently large payloads.
 	w := minimalCatalogWriter(t)
-	plaintext := bytes.Repeat([]byte("re-Flate me at higher effort "), 500)
+	var buf bytes.Buffer
+	for i := 0; i < 300; i++ {
+		fmt.Fprintf(&buf, "q 1 0 0 1 %d %d cm /F1 12 Tf (%d) Tj Q BT /F2 10 Tf %d %d Td (Invoice line item description %d with unit price %0.2f) Tj ET\n",
+			i*10, (i*20)%800, i, i%50, i%100, i, float64(i)*19.99)
+	}
+	plaintext := buf.Bytes()
 	s, _ := addFlateStream(t, w, plaintext, zlib.BestSpeed)
 	originalLen := len(s.Data)
 

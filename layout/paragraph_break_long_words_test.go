@@ -188,3 +188,69 @@ func TestBreakLongWordsUnshapedPathUnchanged(t *testing.T) {
 			source, rejoined.String())
 	}
 }
+
+// TestBreakLongWordsAccountsForLetterSpacing is the regression test for the
+// letter-spacing gap: chunks must be sized (and fit-tested) including the
+// (n-1) inter-character gaps the renderer's Tc operator will draw, matching
+// the intrinsic-width formula in paragraph_measure.go.
+func TestBreakLongWordsAccountsForLetterSpacing(t *testing.T) {
+	const fontSize = 12
+	const ls = 5.0
+	source := strings.Repeat("a", 30)
+	wholeWidth := font.Helvetica.MeasureString(source, fontSize)
+	if wholeWidth == 0 {
+		t.Fatal("Helvetica measured zero width; test cannot drive breakLongWords")
+	}
+	maxWidth := wholeWidth / 4
+	w := Word{
+		Text:          source,
+		Width:         wholeWidth + ls*float64(utf8.RuneCountInString(source)-1),
+		Font:          font.Helvetica,
+		FontSize:      fontSize,
+		LetterSpacing: ls,
+	}
+	chunks := breakLongWords([]Word{w}, maxWidth)
+	if len(chunks) < 2 {
+		t.Fatalf("expected multiple chunks, got %d", len(chunks))
+	}
+	var rejoined strings.Builder
+	for i, c := range chunks {
+		if c.Width > maxWidth+0.01 {
+			t.Errorf("chunk %d: width %v exceeds maxWidth %v (letter-spacing not accounted for)", i, c.Width, maxWidth)
+		}
+		n := utf8.RuneCountInString(c.Text)
+		if n > 1 {
+			plain := font.Helvetica.MeasureString(c.Text, fontSize)
+			wantWidth := plain + ls*float64(n-1)
+			if diff := c.Width - wantWidth; diff > 0.01 || diff < -0.01 {
+				t.Errorf("chunk %d: width %v, want %v (plain %v + %d*ls)", i, c.Width, wantWidth, plain, n-1)
+			}
+		}
+		rejoined.WriteString(c.Text)
+	}
+	if rejoined.String() != source {
+		t.Errorf("chunk Texts do not rejoin to the source.\n  source: %q\n  rejoined: %q",
+			source, rejoined.String())
+	}
+}
+
+// TestBreakLongWordsEmptyAndNegativeMaxWidth is the regression test for a
+// latent panic: a zero-width word (e.g. a blank LineBreak marker) reaching
+// the split path when maxWidth is negative (a Div whose padding+borders
+// exceed its width) must be passed through, not index runes[0:1] on an
+// empty slice.
+func TestBreakLongWordsEmptyAndNegativeMaxWidth(t *testing.T) {
+	words := []Word{
+		{LineBreak: true}, // empty Text, zero Width
+		{Text: "x", Width: 5, Font: font.Helvetica, FontSize: 12},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			t.Fatalf("breakLongWords panicked: %v", r)
+		}
+	}()
+	result := breakLongWords(words, -10)
+	if len(result) == 0 {
+		t.Fatal("expected words to be passed through, got none")
+	}
+}

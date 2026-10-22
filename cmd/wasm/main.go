@@ -12,6 +12,7 @@ import (
 	"os"
 	"syscall/js"
 
+	"github.com/carlos7ags/folio/cmd/wasm/settings"
 	"github.com/carlos7ags/folio/document"
 	"github.com/carlos7ags/folio/html"
 	"github.com/carlos7ags/folio/layout"
@@ -49,20 +50,13 @@ func renderHTML(_ js.Value, args []js.Value) any {
 	htmlStr := args[0].String()
 	settingsJSON := args[1].String()
 
-	var settings renderSettings
-	if err := json.Unmarshal([]byte(settingsJSON), &settings); err != nil {
+	set, err := settings.Parse(settingsJSON)
+	if err != nil {
 		return map[string]any{"error": "invalid settings JSON: " + err.Error()}
 	}
 
-	pageSize := document.PageSizeLetter
-	switch settings.PageSize {
-	case "a4":
-		pageSize = document.PageSizeA4
-	case "legal":
-		pageSize = document.PageSizeLegal
-	case "a3":
-		pageSize = document.PageSizeA3
-	}
+	// Named page size plus orientation (landscape swaps the dimensions).
+	pageSize := set.ResolvePageSize()
 
 	if settings.Orientation == "landscape" {
 		pageSize = pageSize.Landscape()
@@ -76,6 +70,11 @@ func renderHTML(_ js.Value, args []js.Value) any {
 	}
 	if settings.BasePath != "" {
 		opts.BaseFS = os.DirFS(settings.BasePath)
+	}
+	// Asset resolution: baseDir → BaseFS, allowAbsolutePaths, fallback font
+	// from path or inline base64 data.
+	if err := set.ApplyOptions(opts); err != nil {
+		return map[string]any{"error": err.Error()}
 	}
 
 	result, err := html.ConvertFull(htmlStr, opts)
@@ -134,6 +133,16 @@ func renderHTML(_ js.Value, args []js.Value) any {
 		}
 	}
 
+	// Explicit margins from renderSettings (points) override @page margins.
+	if set.Margins != nil {
+		doc.SetMargins(layout.Margins{
+			Top:    set.Margins.Top,
+			Right:  set.Margins.Right,
+			Bottom: set.Margins.Bottom,
+			Left:   set.Margins.Left,
+		})
+	}
+
 	// Apply margin boxes from @page rules (e.g. page numbers).
 	if result.MarginBoxes != nil {
 		doc.SetMarginBoxes(result.MarginBoxes)
@@ -156,9 +165,18 @@ func renderHTML(_ js.Value, args []js.Value) any {
 		doc.Info.Author = result.Metadata.Author
 	}
 
-	// Override title if user specified one
-	if settings.PdfTitle != "" {
-		doc.Info.Title = settings.PdfTitle
+	// Overrides / additions from renderSettings.
+	if set.PdfTitle != "" {
+		doc.Info.Title = set.PdfTitle
+	}
+	if set.PdfAuthor != "" {
+		doc.Info.Author = set.PdfAuthor
+	}
+	if set.PdfSubject != "" {
+		doc.Info.Subject = set.PdfSubject
+	}
+	if set.PdfKeywords != "" {
+		doc.Info.Keywords = set.PdfKeywords
 	}
 
 	for _, e := range result.Elements {
@@ -176,9 +194,9 @@ func renderHTML(_ js.Value, args []js.Value) any {
 	}
 
 	// Optional watermark (requested by caller, e.g. playground).
-	if settings.Watermark != "" {
+	if set.Watermark != "" {
 		doc.SetWatermarkConfig(document.WatermarkConfig{
-			Text:     settings.Watermark,
+			Text:     set.Watermark,
 			FontSize: 54,
 			ColorR:   0.001,
 			ColorG:   0.001,
@@ -189,8 +207,8 @@ func renderHTML(_ js.Value, args []js.Value) any {
 	}
 
 	// Header/footer from HTML.
-	if settings.HeaderHTML != "" {
-		headerElems, err := html.Convert(settings.HeaderHTML, nil)
+	if set.HeaderHTML != "" {
+		headerElems, err := html.Convert(set.HeaderHTML, nil)
 		if err == nil && len(headerElems) > 0 {
 			doc.SetHeaderElement(func(_ document.PageContext) layout.Element {
 				if len(headerElems) == 1 {
@@ -204,8 +222,8 @@ func renderHTML(_ js.Value, args []js.Value) any {
 			})
 		}
 	}
-	if settings.FooterHTML != "" {
-		footerElems, err := html.Convert(settings.FooterHTML, nil)
+	if set.FooterHTML != "" {
+		footerElems, err := html.Convert(set.FooterHTML, nil)
 		if err == nil && len(footerElems) > 0 {
 			doc.SetFooterElement(func(_ document.PageContext) layout.Element {
 				if len(footerElems) == 1 {
@@ -221,7 +239,7 @@ func renderHTML(_ js.Value, args []js.Value) any {
 	}
 
 	// PDF profiles
-	switch settings.PdfProfile {
+	switch set.PdfProfile {
 	case "pdfa1b":
 		doc.SetPdfA(document.PdfAConfig{Level: document.PdfA1B})
 	case "pdfa1a":

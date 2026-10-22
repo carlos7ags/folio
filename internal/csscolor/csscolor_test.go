@@ -64,6 +64,36 @@ func TestParse(t *testing.T) {
 		// Invalid input.
 		{"empty", "", Color{}, false},
 		{"garbage", "notacolor", Color{}, false},
+
+		// Hex garbage: non-hex digits must fail, not silently become 0.
+		{"hex-zzz", "#zzz", Color{}, false},
+		{"hex-gg0000", "#gg0000", Color{}, false},
+		{"hex-12345g", "#12345g", Color{}, false},
+		{"hex-12g45678", "#12g45678", Color{}, false},
+
+		// Malformed components.
+		{"rgb-comma-garbage", "rgb(foo, 0, 0)", Color{}, false},
+		{"rgb-space-garbage", "rgb(25x 0 0)", Color{}, false},
+		{"hsl-comma-garbage-hue", "hsl(abc, 50%, 50%)", Color{}, false},
+		{"hsl-comma-garbage-sat", "hsl(120, x%, 50%)", Color{}, false},
+		{"cmyk-garbage", "cmyk(a, 0, 0, 0)", Color{}, false},
+
+		// Non-finite (NaN/Inf) must fail closed, not render as black.
+		{"rgb-comma-nan", "rgb(nan, 0, 0)", Color{}, false},
+		{"rgb-space-inf", "rgb(0 0 inf)", Color{}, false},
+		{"hsl-comma-nan-hue", "hsl(nan, 100%, 50%)", Color{}, false},
+		{"rgba-comma-nan-alpha", "rgba(0, 0, 0, nan)", Color{}, false},
+		{"rgb-space-inf-alpha", "rgb(0 0 0 / inf)", Color{}, false},
+		{"cmyk-inf", "cmyk(inf, 0, 0, 0)", Color{}, false},
+		{"device-cmyk-nan", "device-cmyk(0, nan, 0, 0)", Color{}, false},
+
+		// Positive controls: valid input must remain unaffected.
+		{"hex-3-abc", "#abc", Color{R: float64(0xaa) / 255, G: float64(0xbb) / 255, B: float64(0xcc) / 255, A: 1}, true},
+		{"hex-6-AABBCC", "#AABBCC", Color{R: float64(0xaa) / 255, G: float64(0xbb) / 255, B: float64(0xcc) / 255, A: 1}, true},
+		{"rgb-255-0-0", "rgb(255, 0, 0)", Color{R: 1, G: 0, B: 0, A: 1}, true},
+		{"rgb-space-percent-alpha-half", "rgb(100% 0% 50% / 0.5)", Color{R: 1, G: 0, B: 0.5, A: 0.5}, true},
+		{"hsl-120-100-50", "hsl(120, 100%, 50%)", Color{R: 0, G: 1, B: 0, A: 1}, true},
+		{"cmyk-black", "cmyk(0, 0, 0, 1)", Color{A: 1, CMYK: &[4]float64{0, 0, 0, 1}}, true},
 	}
 
 	for _, tt := range tests {

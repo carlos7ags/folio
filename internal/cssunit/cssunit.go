@@ -9,6 +9,7 @@
 package cssunit
 
 import (
+	"math"
 	"strconv"
 	"strings"
 )
@@ -34,12 +35,18 @@ func Parse(s string) (value float64, unit string, ok bool) {
 			if err != nil {
 				return 0, "", false
 			}
+			if math.IsNaN(num) || math.IsInf(num, 0) {
+				return 0, "", false
+			}
 			return num, u, true
 		}
 	}
 
 	num, err := strconv.ParseFloat(s, 64)
 	if err != nil {
+		return 0, "", false
+	}
+	if math.IsNaN(num) || math.IsInf(num, 0) {
 		return 0, "", false
 	}
 	return num, "", true

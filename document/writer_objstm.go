@@ -61,7 +61,7 @@ type packedObjStm struct {
 // Phase 1 refuses encryption: §7.5.7 forbids per-object encryption of
 // objects inside an /ObjStm, and the safe interaction with the standard
 // security handler is large enough to defer.
-func (w *Writer) writeXRefStreamWithObjStms(cw *countingWriter, opts WriteOptions) error {
+func (w *Writer) writeXRefStreamWithObjStms(cw *countingWriter, opts WriteOptions, finishID func()) error {
 	// The encryption refusal also lives in WriteToWithOptions, ahead of
 	// the encryption walk; this is defense in depth in case a future
 	// caller bypasses WriteToWithOptions.
@@ -211,6 +211,7 @@ func (w *Writer) writeXRefStreamWithObjStms(cw *countingWriter, opts WriteOption
 		Field2: uint64(xrefStreamOffset),
 	}
 
+	finishID()
 	extras := w.buildTrailerDict()
 	subsections := []core.XRefStreamSubsection{{First: 0, Entries: entries}}
 	stream, err := core.BuildXRefStream(subsections, size, extras)

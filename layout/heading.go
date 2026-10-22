@@ -76,6 +76,7 @@ func NewHeadingEmbedded(text string, level HeadingLevel, ef *font.EmbeddedFont) 
 // on a fresh copy so callers retain ownership of their input slice.
 func (h *Heading) SetRuns(runs []TextRun) *Heading {
 	h.para.runs = normalizeRuns(runs)
+	h.para.invalidateMeasureCache()
 	return h
 }
 

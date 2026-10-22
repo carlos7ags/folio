@@ -5,6 +5,7 @@ package zugferd
 
 import (
 	"errors"
+	"math"
 	"testing"
 	"time"
 )
@@ -122,6 +123,19 @@ func TestValidateTotalsArithmeticMismatch(t *testing.T) {
 	var verr *ValidationError
 	if !errors.As(err, &verr) || verr.Field != "Totals" {
 		t.Fatalf("Validate() = %v, want *ValidationError on Totals", err)
+	}
+}
+
+func TestValidateTotalsOverflow(t *testing.T) {
+	inv := sampleInvoice()
+	inv.TaxTotals = nil
+	inv.Totals.TaxBasisTotal = Amount(math.MaxInt64)
+	inv.Totals.TaxTotal = Amount(1)
+	inv.Totals.GrandTotal = Amount(math.MinInt64) // the wrapped (incorrect) sum
+	err := inv.Validate(ProfileMinimum)
+	var verr *ValidationError
+	if !errors.As(err, &verr) || verr.Field != "Totals" {
+		t.Fatalf("Validate() = %v, want *ValidationError on Totals (overflow)", err)
 	}
 }
 

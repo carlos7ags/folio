@@ -21,6 +21,10 @@ type Image struct {
 	smaskW     int    // smask width (same as image width for alpha)
 	smaskH     int    // smask height
 	adobeCMYK  bool   // Adobe-style inverted CMYK (APP14 marker, ncomp==4)
+
+	preCompressed   bool           // data is already a FlateDecode (zlib) payload
+	predictorColors int            // /Colors for the PNG predictor; 0 = no predictor
+	colorSpaceObj   core.PdfObject // overrides colorSpace when non-nil (e.g. /Indexed array)
 }
 
 // Width returns the image width in pixels.
@@ -113,12 +117,25 @@ func NewFromGoImage(src *goimage.RGBA) *Image {
 // registers each indirect object in the PDF file.
 func (img *Image) BuildXObject(addObject func(core.PdfObject) *core.PdfIndirectReference) (*core.PdfIndirectReference, *core.PdfIndirectReference) {
 	var stream *core.PdfStream
-	if img.filter == "DCTDecode" {
+	switch {
+	case img.filter == "DCTDecode":
 		// JPEG: raw bytes go directly, no compression by us.
 		stream = core.NewPdfStream(img.data)
 		stream.SetCompress(false)
 		stream.Dict.Set("Filter", core.NewPdfName("DCTDecode"))
-	} else {
+	case img.preCompressed:
+		// Payload is already a FlateDecode stream whose inflated bytes are
+		// PNG-predictor-filtered scanlines; the writer must not touch it.
+		stream = core.NewPdfStream(img.data)
+		stream.SetCompress(false)
+		stream.Dict.Set("Filter", core.NewPdfName("FlateDecode"))
+		parms := core.NewPdfDictionary()
+		parms.Set("Predictor", core.NewPdfInteger(15))
+		parms.Set("Colors", core.NewPdfInteger(img.predictorColors))
+		parms.Set("BitsPerComponent", core.NewPdfInteger(img.bpc))
+		parms.Set("Columns", core.NewPdfInteger(img.width))
+		stream.Dict.Set("DecodeParms", parms)
+	default:
 		// PNG: pixel data, compress with FlateDecode.
 		stream = core.NewPdfStreamCompressed(img.data)
 	}
@@ -128,7 +145,11 @@ func (img *Image) BuildXObject(addObject func(core.PdfObject) *core.PdfIndirectR
 	stream.Dict.Set("Subtype", core.NewPdfName("Image"))
 	stream.Dict.Set("Width", core.NewPdfInteger(img.width))
 	stream.Dict.Set("Height", core.NewPdfInteger(img.height))
-	stream.Dict.Set("ColorSpace", core.NewPdfName(img.colorSpace))
+	if img.colorSpaceObj != nil {
+		stream.Dict.Set("ColorSpace", img.colorSpaceObj)
+	} else {
+		stream.Dict.Set("ColorSpace", core.NewPdfName(img.colorSpace))
+	}
 	stream.Dict.Set("BitsPerComponent", core.NewPdfInteger(img.bpc))
 
 	// Adobe-written CMYK JPEGs store components in inverted form relative

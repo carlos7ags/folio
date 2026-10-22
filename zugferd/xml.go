@@ -56,10 +56,20 @@ type ciiFormattedDate struct {
 }
 
 type ciiTransaction struct {
-	LineItems  []ciiLineItem `xml:"ram:IncludedSupplyChainTradeLineItem,omitempty"`
-	Agreement  ciiAgreement  `xml:"ram:ApplicableHeaderTradeAgreement"`
-	Settlement ciiSettlement `xml:"ram:ApplicableHeaderTradeSettlement"`
+	LineItems  []ciiLineItem     `xml:"ram:IncludedSupplyChainTradeLineItem,omitempty"`
+	Agreement  ciiAgreement      `xml:"ram:ApplicableHeaderTradeAgreement"`
+	Delivery   ciiHeaderDelivery `xml:"ram:ApplicableHeaderTradeDelivery"`
+	Settlement ciiSettlement     `xml:"ram:ApplicableHeaderTradeSettlement"`
 }
+
+// ciiHeaderDelivery is the header-level ram:ApplicableHeaderTradeDelivery
+// element. The CII schema requires the element itself (minOccurs="1" on
+// ApplicableHeaderTradeDelivery within SupplyChainTradeTransactionType),
+// but every child of HeaderTradeDeliveryType is optional, so an empty
+// element (no known delivery date) is schema-valid. Folio does not
+// currently model a delivery/despatch date, so this is always emitted
+// empty.
+type ciiHeaderDelivery struct{}
 
 type ciiAgreement struct {
 	Seller ciiTradeParty `xml:"ram:SellerTradeParty"`

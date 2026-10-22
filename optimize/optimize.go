@@ -21,12 +21,19 @@
 // object numbers, and the rewrite renumbers every surviving object.
 // Signed inputs are not rejected but rewriting one invalidates its
 // signature, since the signed byte range no longer exists in the output.
+//
+// Input carrying document-level compliance data — PDF/A output
+// intents, XMP metadata, embedded/associated files, tagging, or a
+// document language — is refused with [ErrLossyInput] unless the
+// caller opts in with [Options].AllowLossy, since the rewrite would
+// silently strip it.
 package optimize
 
 import (
 	"bytes"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/carlos7ags/folio/core"
 	"github.com/carlos7ags/folio/document"
@@ -37,6 +44,57 @@ import (
 // Decryption is out of scope; the caller must supply an already
 // decrypted document.
 var ErrEncrypted = errors.New("optimize: input PDF is encrypted; decryption is not supported")
+
+// ErrLossyInput is returned by [Bytes] when the input carries
+// document-level structure the rewrite would silently drop — PDF/A
+// output intents, XMP metadata, embedded/associated files, tagging, or
+// a document language. Opt in with [Options].AllowLossy to strip it
+// anyway.
+var ErrLossyInput = errors.New("optimize: input carries document-level data the rewrite would drop")
+
+// lossyCatalogKeys are the catalog entries whose loss changes the
+// document's meaning or compliance status, not just its navigation.
+var lossyCatalogKeys = []string{
+	"OutputIntents", "Metadata", "AF", "MarkInfo", "StructTreeRoot", "Lang",
+}
+
+// lossyKeys reports which compliance-bearing entries the source
+// catalog carries. "Names" counts only when it holds /EmbeddedFiles.
+func lossyKeys(r *reader.PdfReader) ([]string, error) {
+	catalog := r.Catalog()
+	if catalog == nil {
+		return nil, nil
+	}
+
+	var keys []string
+	for _, key := range lossyCatalogKeys {
+		if catalog.Get(key) != nil {
+			keys = append(keys, key)
+		}
+	}
+
+	if namesObj := catalog.Get("Names"); namesObj != nil {
+		resolved, err := r.ResolveObject(namesObj)
+		if err != nil {
+			return nil, fmt.Errorf("optimize: resolve Names: %w", err)
+		}
+		if namesDict, ok := resolved.(*core.PdfDictionary); ok {
+			if namesDict.Get("EmbeddedFiles") != nil {
+				keys = append(keys, "Names.EmbeddedFiles")
+			}
+		}
+	}
+
+	return keys, nil
+}
+
+// Options configures an optimize pass.
+type Options struct {
+	// AllowLossy permits optimizing a document that carries
+	// document-level compliance data (see [ErrLossyInput]), accepting
+	// that the rewrite strips it.
+	AllowLossy bool
+}
 
 // Stats reports the size outcome of an optimize pass.
 type Stats struct {
@@ -68,7 +126,13 @@ func (s Stats) SavedPercent() float64 {
 //
 // Bytes returns ErrEncrypted for encrypted input, including a document
 // that decrypts successfully with an empty password.
-func Bytes(data []byte) ([]byte, Stats, error) {
+//
+// Bytes returns ErrLossyInput when the input catalog carries
+// document-level compliance data (PDF/A output intents, XMP metadata,
+// embedded/associated files, tagging, or a document language) that the
+// rewrite would silently drop, unless the caller passes
+// Options{AllowLossy: true}.
+func Bytes(data []byte, opts ...Options) ([]byte, Stats, error) {
 	r, err := reader.Parse(data)
 	if err != nil {
 		if isEncryptedErr(err) {
@@ -78,6 +142,20 @@ func Bytes(data []byte) ([]byte, Stats, error) {
 	}
 	if r.Access() != reader.AccessNone {
 		return nil, Stats{}, ErrEncrypted
+	}
+
+	var o Options
+	if len(opts) > 0 {
+		o = opts[0]
+	}
+	if !o.AllowLossy {
+		keys, err := lossyKeys(r)
+		if err != nil {
+			return nil, Stats{}, fmt.Errorf("optimize: inspect catalog: %w", err)
+		}
+		if len(keys) > 0 {
+			return nil, Stats{}, fmt.Errorf("%w (would drop: %s)", ErrLossyInput, strings.Join(keys, ", "))
+		}
 	}
 
 	out, err := rewrite(r)
@@ -131,6 +209,29 @@ func rewrite(r *reader.PdfReader) ([]byte, error) {
 		copiedDict.Remove("Parent")
 		copiedDict.Set("Parent", pagesRef)
 
+		if page.Dict().Get("MediaBox") == nil && !page.MediaBox.IsZero() {
+			copiedDict.Set("MediaBox", boxToArray(page.MediaBox))
+		}
+		if page.Dict().Get("CropBox") == nil && !page.CropBox.IsZero() {
+			copiedDict.Set("CropBox", boxToArray(page.CropBox))
+		}
+		if page.Dict().Get("Rotate") == nil && page.Rotate != 0 {
+			copiedDict.Set("Rotate", core.NewPdfInteger(page.Rotate))
+		}
+		if page.Dict().Get("Resources") == nil {
+			res, err := page.Resources()
+			if err != nil {
+				return nil, fmt.Errorf("optimize: page %d resources: %w", i, err)
+			}
+			if res.Len() > 0 {
+				copiedRes, err := copier.CopyObject(res)
+				if err != nil {
+					return nil, fmt.Errorf("optimize: copy page %d resources: %w", i, err)
+				}
+				copiedDict.Set("Resources", copiedRes)
+			}
+		}
+
 		pageRef := w.AddObject(copiedDict)
 		kids.Add(pageRef)
 		pageCount++
@@ -162,6 +263,14 @@ func rewrite(r *reader.PdfReader) ([]byte, error) {
 		return nil, fmt.Errorf("optimize: write: %w", err)
 	}
 	return buf.Bytes(), nil
+}
+
+// boxToArray converts a reader.Box back to a PDF rectangle array.
+func boxToArray(b reader.Box) *core.PdfArray {
+	return core.NewPdfArray(
+		core.NewPdfReal(b.X1), core.NewPdfReal(b.Y1),
+		core.NewPdfReal(b.X2), core.NewPdfReal(b.Y2),
+	)
 }
 
 // isEncryptedErr reports whether err is one of the sentinels

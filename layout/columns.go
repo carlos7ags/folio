@@ -138,7 +138,7 @@ func (c *Columns) Layout(maxWidth float64) []Line {
 	for i := range c.cols {
 		var lines []Line
 		for _, elem := range c.elements[i] {
-			if l, ok := elem.(layoutable); ok {
+			if l, ok := baseElement(elem).(layoutable); ok {
 				lines = append(lines, l.Layout(colWidths[i])...)
 			}
 		}

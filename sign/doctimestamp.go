@@ -113,7 +113,7 @@ func AddDocumentTimestamp(pdfBytes []byte, tsaClient *TSAClient, hashFunc crypto
 	acroFormObjNum := nextObjNum + 2
 
 	// Build updated AcroForm that adds the timestamp field.
-	acroFormDict := buildAcroFormWithExisting(catalog, tsFieldObjNum)
+	acroFormDict := buildAcroFormWithExisting(r, catalog, tsFieldObjNum)
 
 	// Build updated catalog with new AcroForm.
 	updatedCatalog := cloneCatalogWithAcroForm(catalog, acroFormObjNum)
@@ -177,24 +177,31 @@ func buildDocTimestampField(objNum, tsDictObjNum int) *core.PdfDictionary {
 
 // buildAcroFormWithExisting creates an AcroForm dict that preserves existing
 // fields and adds a new signature field reference.
-func buildAcroFormWithExisting(catalog *core.PdfDictionary, newFieldObjNum int) *core.PdfDictionary {
+func buildAcroFormWithExisting(r *reader.PdfReader, catalog *core.PdfDictionary, newFieldObjNum int) *core.PdfDictionary {
 	d := core.NewPdfDictionary()
 
-	// Try to get existing AcroForm fields.
+	// Try to get existing AcroForm fields. The catalog's /AcroForm entry may
+	// be a direct dictionary or (more commonly, for signed PDFs) an indirect
+	// reference that must be resolved before its /Fields can be read.
 	var existingFields []core.PdfObject
-	if acroFormObj := catalog.Get("AcroForm"); acroFormObj != nil {
-		if acroFormDict, ok := acroFormObj.(*core.PdfDictionary); ok {
-			if fieldsObj := acroFormDict.Get("Fields"); fieldsObj != nil {
-				if fieldsArr, ok := fieldsObj.(*core.PdfArray); ok {
-					for _, f := range fieldsArr.All() {
-						existingFields = append(existingFields, f)
-					}
+	acroFormObj := catalog.Get("AcroForm")
+	if ref, ok := acroFormObj.(*core.PdfIndirectReference); ok && r != nil {
+		if resolved, err := r.ResolveObject(ref); err == nil {
+			acroFormObj = resolved
+		}
+	}
+	if acroFormDict, ok := acroFormObj.(*core.PdfDictionary); ok {
+		if fieldsObj := acroFormDict.Get("Fields"); fieldsObj != nil {
+			if ref, ok := fieldsObj.(*core.PdfIndirectReference); ok && r != nil {
+				if resolved, err := r.ResolveObject(ref); err == nil {
+					fieldsObj = resolved
 				}
 			}
-		} else if acroFormRef, ok := acroFormObj.(*core.PdfIndirectReference); ok {
-			// Existing AcroForm is an indirect reference — we can't resolve it
-			// here, so we include it as-is and add our field.
-			_ = acroFormRef
+			if fieldsArr, ok := fieldsObj.(*core.PdfArray); ok {
+				for _, f := range fieldsArr.All() {
+					existingFields = append(existingFields, f)
+				}
+			}
 		}
 	}
 

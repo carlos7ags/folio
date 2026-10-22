@@ -17,6 +17,8 @@ type PdfStream struct {
 	Dict     *PdfDictionary
 	Data     []byte
 	compress bool // if true, apply FlateDecode on WriteTo
+	levelSet bool // whether SetCompressLevel was called
+	level    int  // zlib level to use when levelSet is true
 }
 
 // NewPdfStream creates a stream with the given data (uncompressed).
@@ -44,6 +46,28 @@ func (s *PdfStream) SetCompress(enabled bool) {
 	s.compress = enabled
 }
 
+// SetCompressLevel selects the zlib level WriteTo uses when compressing
+// this stream (see compress/zlib level constants, e.g. zlib.BestSpeed,
+// zlib.DefaultCompression, zlib.NoCompression, zlib.HuffmanOnly). It has
+// no effect unless the stream is also set to compress (SetCompress(true)
+// or NewPdfStreamCompressed). Without a call to SetCompressLevel, WriteTo
+// uses zlib.BestCompression, matching historical behavior.
+func (s *PdfStream) SetCompressLevel(level int) {
+	s.levelSet = true
+	s.level = level
+}
+
+// effectiveLevel returns the zlib level WriteTo should use: the level set
+// via SetCompressLevel, or zlib.BestCompression by default. levelSet
+// (rather than a zero-value check) is required because 0 is itself a
+// valid zlib level (zlib.NoCompression).
+func (s *PdfStream) effectiveLevel() int {
+	if s.levelSet {
+		return s.level
+	}
+	return zlib.BestCompression
+}
+
 // WillCompress reports whether WriteTo will Flate-compress this stream's
 // payload before serializing. Useful for writer-side passes that want to
 // skip streams the writer is already going to compress at BestCompression.
@@ -61,7 +85,7 @@ func (s *PdfStream) WriteTo(w io.Writer) (int64, error) {
 	// Determine the actual bytes to write (compressed or raw)
 	streamData := s.Data
 	if s.compress {
-		compressed, err := DeflateStreamData(s.Data)
+		compressed, err := DeflateStreamDataLevel(s.Data, s.effectiveLevel())
 		if err != nil {
 			return 0, fmt.Errorf("core: flate compress: %w", err)
 		}
@@ -96,8 +120,15 @@ func (s *PdfStream) WriteTo(w io.Writer) (int64, error) {
 // for passes that need to produce FlateDecode payloads independently
 // of [PdfStream.WriteTo].
 func DeflateStreamData(data []byte) ([]byte, error) {
+	return DeflateStreamDataLevel(data, zlib.BestCompression)
+}
+
+// DeflateStreamDataLevel compresses data using zlib (RFC 1950) at the
+// given level (see compress/zlib level constants). It is the level-aware
+// primitive behind [DeflateStreamData] and [PdfStream.SetCompressLevel].
+func DeflateStreamDataLevel(data []byte, level int) ([]byte, error) {
 	var buf bytes.Buffer
-	w, err := zlib.NewWriterLevel(&buf, zlib.BestCompression)
+	w, err := zlib.NewWriterLevel(&buf, level)
 	if err != nil {
 		return nil, err
 	}

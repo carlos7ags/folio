@@ -10,10 +10,9 @@
 //
 // Typical usage:
 //
-//	doc := document.NewDocument()
-//	doc.SetPageSize(document.A4)
-//	doc.Add(paragraph, table, image)
-//	doc.WriteTo(file)
+//	doc := document.NewDocument(document.PageSizeA4)
+//	doc.Add(paragraph)
+//	doc.WriteTo(writer)
 //
 // For HTML-to-PDF conversion, use [Document.AddHTML] which delegates
 // to the [github.com/carlos7ags/folio/html] converter and feeds the

@@ -5,6 +5,7 @@ package document
 
 import (
 	"bytes"
+	"compress/zlib"
 	"os"
 	"strings"
 	"testing"
@@ -204,4 +205,32 @@ func TestDocumentQpdfCheck(t *testing.T) {
 		t.Fatalf("WriteTo failed: %v", err)
 	}
 	runQpdfCheck(t, buf.Bytes())
+}
+
+// TestWriteOptionsCompressionLevel checks that a document written with
+// default WriteOptions and one written with CompressionLevel set to
+// zlib.BestSpeed both parse, and that the BestSpeed output is byte-stable
+// across two renders of the same input.
+func TestWriteOptionsCompressionLevel(t *testing.T) {
+	build := func() *Document { return buildSampleDocument(5) }
+
+	def, err := build().ToBytes()
+	if err != nil {
+		t.Fatalf("default ToBytes: %v", err)
+	}
+	runQpdfCheck(t, def)
+
+	fastA, err := build().ToBytesWithOptions(WriteOptions{CompressionLevel: zlib.BestSpeed})
+	if err != nil {
+		t.Fatalf("BestSpeed ToBytesWithOptions: %v", err)
+	}
+	runQpdfCheck(t, fastA)
+
+	fastB, err := build().ToBytesWithOptions(WriteOptions{CompressionLevel: zlib.BestSpeed})
+	if err != nil {
+		t.Fatalf("BestSpeed ToBytesWithOptions (second render): %v", err)
+	}
+	if !bytes.Equal(fastA, fastB) {
+		t.Error("CompressionLevel: zlib.BestSpeed output not byte-stable across renders")
+	}
 }

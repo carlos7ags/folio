@@ -6,6 +6,7 @@ package document
 import (
 	"bytes"
 	"crypto/sha256"
+	"encoding/binary"
 
 	"github.com/carlos7ags/folio/core"
 )
@@ -73,12 +74,17 @@ func (w *Writer) deduplicateObjects() {
 	// cannot collide with any real hash so they never group with
 	// anything else.
 	//
-	// Side effect: hashing a *PdfStream calls its WriteTo, which sets
-	// /Length on the stream's dictionary (and /Filter when the stream
-	// was constructed with NewPdfStreamCompressed). Both are inserted
-	// at deterministic positions and re-running WriteTo produces
-	// byte-identical output, so the hash is stable across calls and
-	// the writer's later serialization sees the same dictionary state.
+	// Streams are hashed from their current Dict bytes, a compress-flag
+	// tag, and the raw Data — never by compressing Data to reproduce
+	// WriteTo's output. Two streams are mergeable iff their WriteTo
+	// outputs would be byte-identical; matching Dict bytes + compress
+	// flag + raw Data is a sufficient (if conservative) proxy for that,
+	// since /Length and /Filter injection at final serialization is a
+	// deterministic function of the flag and the data. A pair that would
+	// serialize identically but whose current dicts differ (e.g. one
+	// already carries /Filter /FlateDecode) is not merged; that is safe,
+	// just less than maximally deduped, and does not occur for
+	// writer-built documents.
 	type hashedSlot struct {
 		idx  int    // index into w.objects
 		hash string // hex SHA-256 of canonical bytes; "" means "do not dedup"
@@ -88,6 +94,26 @@ func (w *Writer) deduplicateObjects() {
 	for i, obj := range w.objects {
 		hashed[i].idx = i
 		if skip[obj.ObjectNumber] {
+			continue
+		}
+		if s, ok := obj.Object.(*core.PdfStream); ok {
+			h := sha256.New()
+			// Domain separation: dict bytes, then a tag byte for the
+			// compress flag, then raw payload. Length prefixes prevent
+			// dict/data boundary ambiguity.
+			buf.Reset()
+			if _, err := s.Dict.WriteTo(&buf); err != nil {
+				continue
+			}
+			var meta [9]byte // 8-byte dict length + 1 flag byte
+			binary.BigEndian.PutUint64(meta[:8], uint64(buf.Len()))
+			if s.WillCompress() {
+				meta[8] = 1
+			}
+			h.Write(buf.Bytes())
+			h.Write(meta[:])
+			h.Write(s.Data)
+			hashed[i].hash = string(h.Sum(nil))
 			continue
 		}
 		buf.Reset()

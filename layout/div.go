@@ -632,7 +632,17 @@ func (d *Div) PlanLayout(area LayoutArea) LayoutPlan {
 		effectiveWidth = minW
 	}
 	innerWidth := effectiveWidth - d.padding.Left - d.padding.Right
-	innerHeight := area.Height - d.padding.Top - d.padding.Bottom
+	if innerWidth < 0 {
+		innerWidth = 0
+	}
+	// Subtract this box's own outer spacing (CSS margin-top/bottom, tracked as
+	// spaceBefore/spaceAfter) from the room given to children: content is
+	// offset down by spaceBefore and the reported Consumed includes both, so
+	// leaving them in innerHeight lets children fill the whole area and the
+	// spacing then pushes the total past the height this box was given —
+	// overflowing the page's bottom margin when fragmenting. Mirrors the flex
+	// container, which already subtracts them.
+	innerHeight := area.Height - d.padding.Top - d.padding.Bottom - d.spaceBefore - d.spaceAfter
 	if innerHeight < 0 {
 		innerHeight = 0
 	}
@@ -650,7 +660,10 @@ func (d *Div) PlanLayout(area LayoutArea) LayoutPlan {
 
 	// Detect floats among the children up front. The float-free path (the
 	// vast majority of containers) MUST behave exactly as before, so every
-	// float-aware operation below is gated behind hasFloat.
+	// float-aware operation below is gated behind hasFloat. (The zero-progress
+	// guard after the loop is shared, but in the float-free path
+	// fittedInFlow == 0 holds exactly when fittedBlocks is empty, so its extra
+	// condition is a no-op there.)
 	hasFloat := false
 	for _, e := range d.elements {
 		if _, ok := e.(*Float); ok {
@@ -671,12 +684,76 @@ func (d *Div) PlanLayout(area LayoutArea) LayoutPlan {
 
 	allFit := true
 	overflowStartIdx := -1
+	fittedInFlow := 0 // in-flow children fully placed on this page
+
+	// Float-aware deferral bookkeeping (hasFloat only). mark snapshots the
+	// layout state after the last in-flow placement; pendingFloats are the
+	// floats placed since then, i.e. at the current position with no in-flow
+	// content beside them yet.
+	type flowMark struct {
+		blocks, floats, tails int
+		curY, remaining       float64
+	}
+	mark := flowMark{curY: curY, remaining: remaining}
+	var pendingFloats []Element
+	// floatTails are the unplaced remainders of floats split at the page
+	// bottom. They lead the overflow container so each continues as a float
+	// at the top of the next page.
+	var floatTails []Element
+
+	// deferWith moves elem (and everything after it) to the overflow
+	// container. Floats placed since the last in-flow placement are un-placed
+	// and move with it: a float belongs beside the content that follows it,
+	// so an icon floated at the start of a block must not be left alone at a
+	// page bottom while that block's content starts the next page. (Strict CSS
+	// fragmentation would leave a fitting float on the earlier page; keeping
+	// it with its content is what a reader expects and what the browser shows
+	// for a float at the start of a block that moves.) A rolled-back float
+	// that had split drops its tail too, since the whole float moves.
+	// curY/remaining are restored to the last in-flow placement either way,
+	// undoing any clear/drop-below advance made for the deferred child.
+	deferWith := func(idx int, elem Element) {
+		if len(pendingFloats) > 0 {
+			fittedBlocks = fittedBlocks[:mark.blocks]
+			fc.floats = fc.floats[:mark.floats]
+			floatTails = floatTails[:mark.tails]
+			overflowElements = append(overflowElements, pendingFloats...)
+			pendingFloats = nil
+		}
+		curY, remaining = mark.curY, mark.remaining
+		allFit = false
+		overflowStartIdx = idx
+		overflowElements = append(overflowElements, elem)
+	}
+
+	// paginateOverflow is true when this container is an auto-height flowing
+	// box whose overflowing in-flow content should continue on the next page.
+	// A box with a definite/limited height (or aspect-ratio) or one that clips
+	// with overflow:hidden is meant to contain or clip its content, not
+	// fragment it, so the fit guard below stays off for those.
+	paginateOverflow := d.heightUnit == nil && d.aspectRatio == 0 &&
+		d.maxHeightUnit == nil && d.maxHeight == 0 && d.overflow != "hidden"
+
 	for idx, elem := range d.elements {
 		// Float child: place it beside same-side floats (stacking shift),
 		// register its extent, and consume no in-flow height.
 		if hasFloat {
 			if _, isFloat := elem.(*Float); isFloat {
 				plan := elem.PlanLayout(LayoutArea{Width: innerWidth, Height: remaining})
+				if plan.Status != LayoutFull && !paginateOverflow {
+					// A definite-height or clipping box contains its content
+					// instead of fragmenting it: place the float whole and let
+					// it overflow (or be clipped by) the box, as a browser does.
+					plan = elem.PlanLayout(LayoutArea{Width: innerWidth, Height: 1e9})
+				}
+				if plan.Status == LayoutNothing {
+					// The float does not fit in the space left. Skipping it
+					// here dropped it outright: it was neither placed nor
+					// carried to the overflow, so it was drawn on no page.
+					// Defer it (with what follows) to the next page instead.
+					deferWith(idx, elem)
+					break
+				}
 				for bi := range plan.Blocks {
 					block := plan.Blocks[bi]
 					if block.floatInfo == nil {
@@ -693,6 +770,14 @@ func (d *Div) PlanLayout(area LayoutArea) LayoutPlan {
 					block.Y += curY
 					fittedBlocks = append(fittedBlocks, block)
 				}
+				pendingFloats = append(pendingFloats, elem)
+				if plan.Status == LayoutPartial && plan.Overflow != nil {
+					// Split at the page bottom: the placed part stays, and
+					// the rest continues on the next page. Ignoring the
+					// overflow lost the tail whenever the content beside the
+					// float fitted on this page.
+					floatTails = append(floatTails, plan.Overflow)
+				}
 				continue
 			}
 		}
@@ -700,7 +785,7 @@ func (d *Div) PlanLayout(area LayoutArea) LayoutPlan {
 		// In-flow child.
 		if hasFloat {
 			// CSS clear: advance past matching active floats first.
-			if cl, ok := elem.(Clearable); ok {
+			if cl, ok := baseElement(elem).(Clearable); ok {
 				cv := cl.ClearValue()
 				if cv == "left" || cv == "right" || cv == "both" {
 					if ny := fc.clear(cv, curY); ny > curY {
@@ -726,6 +811,14 @@ func (d *Div) PlanLayout(area LayoutArea) LayoutPlan {
 			xOff := d.padding.Left + leftOff
 			switch plan.Status {
 			case LayoutFull:
+				// An unsplittable child taller than the space left moves to
+				// the next page, as in the float-free path below. Guarded on
+				// having placed something (a float counts), so a lone child
+				// taller than a whole page is still drawn instead of looping.
+				if paginateOverflow && plan.Consumed > remaining+0.01 && (fittedInFlow > 0 || len(fittedBlocks) > 0) {
+					deferWith(idx, elem)
+					break
+				}
 				for _, block := range plan.Blocks {
 					block.X += xOff
 					block.Y += curY
@@ -733,6 +826,9 @@ func (d *Div) PlanLayout(area LayoutArea) LayoutPlan {
 				}
 				curY += plan.Consumed
 				remaining -= plan.Consumed
+				fittedInFlow++
+				mark = flowMark{len(fittedBlocks), len(fc.floats), len(floatTails), curY, remaining}
+				pendingFloats = nil
 
 			case LayoutPartial:
 				for _, block := range plan.Blocks {
@@ -740,16 +836,22 @@ func (d *Div) PlanLayout(area LayoutArea) LayoutPlan {
 					block.Y += curY
 					fittedBlocks = append(fittedBlocks, block)
 				}
+				// Advance past the fitted portion so the container's reported
+				// height (contentBottom = curY) includes it. Omitting this made
+				// the Div report Consumed ≈ 0 while having placed a full page of
+				// fragmented content, so the renderer packed the next block on
+				// top and content spilled past the page's bottom margin.
+				curY += plan.Consumed
+				remaining -= plan.Consumed
 				allFit = false
 				overflowStartIdx = idx
+				fittedInFlow++
 				if plan.Overflow != nil {
 					overflowElements = append(overflowElements, plan.Overflow)
 				}
 
 			case LayoutNothing:
-				allFit = false
-				overflowStartIdx = idx
-				overflowElements = append(overflowElements, elem)
+				deferWith(idx, elem)
 			}
 
 			if !allFit {
@@ -762,6 +864,18 @@ func (d *Div) PlanLayout(area LayoutArea) LayoutPlan {
 
 		switch plan.Status {
 		case LayoutFull:
+			// An unsplittable child that reports LayoutFull but is taller than
+			// the space left must move to the next page rather than overflow
+			// the box and be silently clipped. Guarded on having already
+			// placed a child so a single child taller than a whole page is
+			// still drawn (clipping) instead of looping forever — mirrors the
+			// flex column split guard.
+			if paginateOverflow && plan.Consumed > remaining+0.01 && fittedInFlow > 0 {
+				allFit = false
+				overflowStartIdx = idx
+				overflowElements = append(overflowElements, elem)
+				break
+			}
 			for _, block := range plan.Blocks {
 				block.X += d.padding.Left
 				block.Y += curY
@@ -769,15 +883,50 @@ func (d *Div) PlanLayout(area LayoutArea) LayoutPlan {
 			}
 			curY += plan.Consumed
 			remaining -= plan.Consumed
+			fittedInFlow++
 
 		case LayoutPartial:
+			// A child that wants to stay together (CSS break-inside: avoid) must
+			// not be fragmented mid-container: defer the whole child to overflow
+			// so it restarts intact on the next page, rather than splitting it
+			// here. Guarded on having already placed a child (fittedInFlow > 0),
+			// so the deferred child arrives first in the overflow container next
+			// page and — if it is taller than a whole page — fragments there
+			// instead of looping. Scoped to the auto-height fragmenting path;
+			// a definite/clipping box keeps its contain semantics. Mirrors the
+			// renderer's top-level keep-together handling (render_plans.go) for
+			// the case where the box is nested inside another container.
+			// The assert goes through baseElement so the decorators this
+			// package already applies do not mask it: an element carrying an
+			// HTML id is wrapped in an anchor marker (anchor.go) and one
+			// carrying bookmark-level in a bookmark anchor (bookmark.go), and
+			// neither reproduces KeepTogether. Asserting on elem directly
+			// silently fragmented any keep-together block with an id — its
+			// leading content stranded in the page's bottom margin while the
+			// rest moved on. Mirrors render_plans.go's KeepTogether check.
+			if paginateOverflow && fittedInFlow > 0 {
+				if kt, ok := baseElement(elem).(interface{ KeepTogether() bool }); ok && kt.KeepTogether() {
+					allFit = false
+					overflowStartIdx = idx
+					overflowElements = append(overflowElements, elem)
+					break
+				}
+			}
 			for _, block := range plan.Blocks {
 				block.X += d.padding.Left
 				block.Y += curY
 				fittedBlocks = append(fittedBlocks, block)
 			}
+			// Advance past the fitted portion so the container's reported
+			// height (contentBottom = curY) includes it. Omitting this made
+			// the Div report Consumed ≈ 0 while having placed a full page of
+			// fragmented content, so the renderer packed the next block on top
+			// and content spilled past the page's bottom margin.
+			curY += plan.Consumed
+			remaining -= plan.Consumed
 			allFit = false
 			overflowStartIdx = idx
+			fittedInFlow++
 			if plan.Overflow != nil {
 				overflowElements = append(overflowElements, plan.Overflow)
 			}
@@ -793,9 +942,33 @@ func (d *Div) PlanLayout(area LayoutArea) LayoutPlan {
 		}
 	}
 
+	// Zero-progress guard: if a child deferred (didn't fit even its first
+	// unit) and nothing at all was placed in-flow, report LayoutNothing
+	// rather than a partial with no content. A zero-progress partial makes
+	// the renderer append nothing, start a new page, and re-plan the same
+	// overflow — looping forever for content taller than a whole page (e.g.
+	// a Div wrapping a table whose first row group exceeds the page).
+	// LayoutNothing instead lets the renderer relocate to a fresh page and,
+	// at page top, force-place it (Height ≈ ∞). Mirrors the flex column's
+	// fittedCount == 0 handling. Scoped to the auto-height fragmenting path
+	// (paginateOverflow); a definite/clipping box keeps its contain semantics.
+	// A placed float counts as progress (len(fittedBlocks) > 0), but floats
+	// that deferWith un-placed do not: a container whose leading floats moved
+	// with its first in-flow child placed nothing and relocates whole.
+	if paginateOverflow && !allFit && fittedInFlow == 0 && len(fittedBlocks) == 0 {
+		return LayoutPlan{Status: LayoutNothing}
+	}
+
 	// Add remaining un-laid-out siblings to overflow.
 	if overflowStartIdx >= 0 && overflowStartIdx+1 < len(d.elements) {
 		overflowElements = append(overflowElements, d.elements[overflowStartIdx+1:]...)
+	}
+
+	// Tails of split floats lead the overflow so each resumes as a float at
+	// the top of the next fragment, beside the content that follows it.
+	if len(floatTails) > 0 {
+		overflowElements = append(append([]Element(nil), floatTails...), overflowElements...)
+		allFit = false
 	}
 
 	// Grow the container to enclose its floats (display:flow-root model): the

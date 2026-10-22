@@ -69,7 +69,11 @@ var ErrUnsupportedEncryption = core.ErrUnsupportedEncryption
 // supplied password matched the user (open) password, or [AccessOwner]
 // if it matched the owner (permissions) password instead. /P permission
 // bits are exposed via the /Encrypt dictionary in [PdfReader.Trailer]
-// but are not enforced — folio is a library, not a viewer.
+// but are not enforced — folio is a library, not a viewer. For AES-256
+// (R=6) documents the /P bits are authenticated against the encrypted
+// /Perms entry at open time (a mismatch fails ParseWithOptions), but
+// folio still does not enforce them: whether to honor print/extract/
+// modify restrictions is the calling application's decision.
 func (r *PdfReader) Access() AccessLevel {
 	return r.access
 }
@@ -328,7 +332,7 @@ func repairXref(data []byte) (*xrefTable, error) {
 			continue
 		}
 		t3 := tok.Next()
-		if t3.Type != TokenKeyword && t3.Value != "obj" {
+		if t3.Type != TokenKeyword || t3.Value != "obj" {
 			continue
 		}
 		// Found "N G obj" at position pos.
@@ -464,7 +468,7 @@ func (r *PdfReader) parsePageTree() error {
 	}
 
 	r.pages = nil
-	return r.collectPages(pagesDict, inherited{})
+	return r.collectPages(pagesDict, inherited{}, map[*core.PdfDictionary]struct{}{}, 0)
 }
 
 // inherited carries inheritable page tree attributes down the tree.
@@ -477,8 +481,37 @@ type inherited struct {
 	rotate    *core.PdfNumber
 }
 
+// maxPageTreeDepth caps page tree recursion. Real documents nest a
+// handful of levels; a tree deeper than this is malformed or hostile,
+// and following it would overflow the goroutine stack — an unrecoverable
+// fatal error rather than a catchable panic.
+const maxPageTreeDepth = 256
+
 // collectPages recursively collects leaf pages from the page tree.
-func (r *PdfReader) collectPages(node *core.PdfDictionary, inh inherited) error {
+//
+// visited holds the Pages nodes on the current root-to-node path so a
+// /Kids entry pointing back at an ancestor is caught instead of recursed
+// into forever. It is path-scoped, not walk-scoped: a node is removed on
+// the way back up, so a node legitimately reachable through two separate
+// branches is still expanded both times.
+//
+// Under StrictnessTolerant a cycle or over-deep branch is skipped and the
+// remaining pages are still collected; under StrictnessStrict it is an
+// error.
+func (r *PdfReader) collectPages(node *core.PdfDictionary, inh inherited, visited map[*core.PdfDictionary]struct{}, depth int) error {
+	if _, cycle := visited[node]; cycle {
+		if r.strictness == StrictnessStrict {
+			return fmt.Errorf("reader: page tree contains a cycle")
+		}
+		return nil
+	}
+	if depth > maxPageTreeDepth {
+		if r.strictness == StrictnessStrict {
+			return fmt.Errorf("reader: page tree deeper than %d levels", maxPageTreeDepth)
+		}
+		return nil
+	}
+
 	// Update inheritable attributes from this node.
 	if mb := node.Get("MediaBox"); mb != nil {
 		if arr, ok := mb.(*core.PdfArray); ok {
@@ -523,6 +556,11 @@ func (r *PdfReader) collectPages(node *core.PdfDictionary, inh inherited) error 
 		return fmt.Errorf("reader: /Kids is not an array")
 	}
 
+	// Mark this node for the duration of the subtree walk only, so the
+	// check above sees ancestors but not already-finished siblings.
+	visited[node] = struct{}{}
+	defer delete(visited, node)
+
 	for _, kidRef := range kids.All() {
 		kidObj, err := r.resolver.ResolveDeep(kidRef)
 		if err != nil {
@@ -532,7 +570,7 @@ func (r *PdfReader) collectPages(node *core.PdfDictionary, inh inherited) error 
 		if !ok {
 			continue
 		}
-		if err := r.collectPages(kidDict, inh); err != nil {
+		if err := r.collectPages(kidDict, inh, visited, depth+1); err != nil {
 			return err
 		}
 	}
@@ -723,33 +761,11 @@ func (p *PageInfo) ContentOps() ([]ContentOp, error) {
 // TextSpans extracts all text spans from the page with full positioning,
 // font, and color information. This is the richest extraction method.
 func (p *PageInfo) TextSpans() ([]TextSpan, error) {
-	data, err := p.ContentStream()
-	if err != nil {
+	proc, err := p.processContent()
+	if err != nil || proc == nil {
 		return nil, err
 	}
-	if data == nil {
-		return nil, nil
-	}
-
-	var fonts FontCache
-	if p.reader != nil {
-		res, resErr := p.Resources()
-		if resErr == nil && res != nil {
-			fonts = buildFontCacheWithShared(res, p.reader.resolver, p.reader.getFontCache())
-		}
-	}
-
-	ops := ParseContentStream(data)
-	proc := NewContentProcessor(fonts)
-
-	// Set up form resolver so text inside Form XObjects is included.
-	if p.reader != nil {
-		proc.SetFormResolver(func(name string) []ContentOp {
-			return p.resolveFormXObject(name)
-		})
-	}
-
-	return proc.Process(ops), nil
+	return proc.Spans(), nil
 }
 
 // ImageRefs extracts image references with positions from the page content stream.
@@ -786,25 +802,46 @@ func (p *PageInfo) processContent() (*ContentProcessor, error) {
 		return nil, nil
 	}
 
+	var res *core.PdfDictionary
 	var fonts FontCache
 	if p.reader != nil {
-		res, resErr := p.Resources()
-		if resErr == nil && res != nil {
+		if r, resErr := p.Resources(); resErr == nil && r != nil {
+			res = r
 			fonts = buildFontCacheWithShared(res, p.reader.resolver, p.reader.getFontCache())
 		}
 	}
 
-	ops := ParseContentStream(data)
 	proc := NewContentProcessor(fonts)
-
 	if p.reader != nil {
-		proc.SetFormResolver(func(name string) []ContentOp {
-			return p.resolveFormXObject(name)
-		})
+		proc.lookup, proc.resources = p.formLookup(res, fonts), res
 	}
-
-	proc.Process(ops)
+	proc.Process(ParseContentStream(data))
 	return proc, nil
+}
+
+// formLookup returns the Do resolver for this page's content. A form's names
+// resolve in its own /Resources, or in its caller's when it has none
+// (ISO 32000-1 §7.8.3); fonts are built once per resource dictionary.
+func (p *PageInfo) formLookup(pageRes *core.PdfDictionary, pageFonts FontCache) formLookup {
+	fontsByRes := map[*core.PdfDictionary]FontCache{pageRes: pageFonts}
+	return func(res *core.PdfDictionary, name string) ([]ContentOp, *core.PdfDictionary, FontCache) {
+		form := p.formXObject(res, name)
+		if form == nil || len(form.Data) == 0 {
+			return nil, nil, nil
+		}
+		formRes := res
+		if obj := form.Dict.Get("Resources"); obj != nil {
+			if d, ok := resolveWith(p.reader.resolver, obj).(*core.PdfDictionary); ok {
+				formRes = d
+			}
+		}
+		fonts, ok := fontsByRes[formRes]
+		if !ok {
+			fonts = buildFontCacheWithShared(formRes, p.reader.resolver, p.reader.getFontCache())
+			fontsByRes[formRes] = fonts
+		}
+		return ParseContentStream(form.Data), formRes, fonts
+	}
 }
 
 // ExtractTaggedText extracts text using the structure tree for logical
@@ -862,15 +899,12 @@ func (p *PageInfo) ExtractTextWithStrategy(strategy ExtractionStrategy) (string,
 	return strategy.Result(), nil
 }
 
-// resolveFormXObject looks up a Form XObject by resource name from the page's
-// resources, decompresses its content stream, and returns the parsed ops.
-// Returns nil if the name does not refer to a Form XObject.
-func (p *PageInfo) resolveFormXObject(name string) []ContentOp {
-	res, err := p.Resources()
-	if err != nil || res == nil {
+// formXObject returns the Form XObject named name in res, or nil when the
+// name is missing or not a form.
+func (p *PageInfo) formXObject(res *core.PdfDictionary, name string) *core.PdfStream {
+	if res == nil {
 		return nil
 	}
-
 	xobjObj := res.Get("XObject")
 	if xobjObj == nil {
 		return nil
@@ -879,28 +913,18 @@ func (p *PageInfo) resolveFormXObject(name string) []ContentOp {
 	if !ok {
 		return nil
 	}
-
 	formObj := xobjDict.Get(name)
 	if formObj == nil {
 		return nil
 	}
-	formObj = resolveWith(p.reader.resolver, formObj)
-
-	stream, ok := formObj.(*core.PdfStream)
+	stream, ok := resolveWith(p.reader.resolver, formObj).(*core.PdfStream)
 	if !ok {
 		return nil
 	}
-
-	// Check /Subtype is /Form.
-	subtype, _ := stream.Dict.Get("Subtype").(*core.PdfName)
-	if subtype == nil || subtype.Value != "Form" {
+	if subtype, _ := stream.Dict.Get("Subtype").(*core.PdfName); subtype == nil || subtype.Value != "Form" {
 		return nil
 	}
-
-	if len(stream.Data) == 0 {
-		return nil
-	}
-	return ParseContentStream(stream.Data)
+	return stream
 }
 
 // getFontCache returns the shared font cache, initializing it lazily.

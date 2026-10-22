@@ -59,6 +59,20 @@ func TestParse(t *testing.T) {
 		// Multi-suffix garbage is rejected — exactly one unit is consumed.
 		{"multi-suffix", "10pxpx", 0, "", false},
 		{"multi-suffix-mixed", "10empx", 0, "", false},
+
+		// Non-finite (NaN/Inf) numbers must fail closed.
+		{"nan", "nan", 0, "", false},
+		{"inf", "inf", 0, "", false},
+		{"neg-inf", "-inf", 0, "", false},
+		{"nan-unit", "nanpx", 0, "", false},
+		{"inf-unit", "infpt", 0, "", false},
+		{"nan-percent", "NaN%", 0, "", false},
+
+		// Positive controls: valid input must remain unaffected.
+		{"positive-px", "12px", 12, "px", true},
+		{"positive-pt", "-3.5pt", -3.5, "pt", true},
+		{"positive-percent", "50%", 50, "%", true},
+		{"positive-bare", "10", 10, "", true},
 	}
 
 	for _, tt := range tests {

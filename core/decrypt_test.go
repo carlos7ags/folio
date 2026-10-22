@@ -282,6 +282,68 @@ func TestAesCBCDecryptRejectsHostileCiphertext(t *testing.T) {
 	}
 }
 
+func TestNewDecryptorR6RejectsTamperedPerms(t *testing.T) {
+	enc, err := NewEncryptor(RevisionAES256, "user", "owner", PermPrint)
+	if err != nil {
+		t.Fatalf("NewEncryptor: %v", err)
+	}
+
+	t.Run("flipped /P", func(t *testing.T) {
+		dict := enc.BuildEncryptDict()
+		dict.Set("P", NewPdfInteger(int(int32(-1)))) // claim PermAll; /Perms still authenticates PermPrint
+		if _, err := NewDecryptor(dict, enc.FileID, "user"); err == nil {
+			t.Fatal("NewDecryptor accepted a /P that /Perms does not authenticate")
+		}
+		if _, err := NewDecryptor(dict, enc.FileID, "owner"); err == nil {
+			t.Fatal("NewDecryptor (owner) accepted a /P that /Perms does not authenticate")
+		}
+	})
+
+	t.Run("missing /Perms", func(t *testing.T) {
+		dict := enc.BuildEncryptDict()
+		dict.Remove("Perms")
+		_, err := NewDecryptor(dict, enc.FileID, "user")
+		if !errors.Is(err, ErrUnsupportedEncryption) {
+			t.Errorf("got %v, want ErrUnsupportedEncryption", err)
+		}
+	})
+
+	t.Run("short /Perms", func(t *testing.T) {
+		dict := enc.BuildEncryptDict()
+		dict.Set("Perms", NewPdfHexString(string(make([]byte, 8))))
+		_, err := NewDecryptor(dict, enc.FileID, "user")
+		if !errors.Is(err, ErrUnsupportedEncryption) {
+			t.Errorf("got %v, want ErrUnsupportedEncryption", err)
+		}
+	})
+
+	t.Run("garbage /Perms", func(t *testing.T) {
+		dict := enc.BuildEncryptDict()
+		dict.Set("Perms", NewPdfHexString(string(make([]byte, 16))))
+		if _, err := NewDecryptor(dict, enc.FileID, "user"); err == nil {
+			t.Fatal("NewDecryptor accepted an all-zero /Perms block")
+		}
+	})
+
+	t.Run("untampered still opens", func(t *testing.T) {
+		dict := enc.BuildEncryptDict()
+		decU, err := NewDecryptor(dict, enc.FileID, "user")
+		if err != nil {
+			t.Fatalf("NewDecryptor (user): %v", err)
+		}
+		if decU.Access != AccessUser {
+			t.Errorf("Access = %v, want AccessUser", decU.Access)
+		}
+		decO, err := NewDecryptor(dict, enc.FileID, "owner")
+		if err != nil {
+			t.Fatalf("NewDecryptor (owner): %v", err)
+		}
+		if decO.Access != AccessOwner {
+			t.Errorf("Access = %v, want AccessOwner", decO.Access)
+		}
+	})
+}
+
 func revisionName(rev EncryptionRevision) string {
 	switch rev {
 	case RevisionRC4128:
