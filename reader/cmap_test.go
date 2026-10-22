@@ -4,6 +4,7 @@
 package reader
 
 import (
+	"fmt"
 	"testing"
 )
 
@@ -448,5 +449,50 @@ endbfchar
 	got := cm.Decode([]byte{0x0C})
 	if got != "\uFB01" {
 		t.Errorf("ligature = %q (%U), want U+FB01", got, []rune(got))
+	}
+}
+
+// wideSimpleCMap declares a two-byte codespace but maps one-byte codes, as
+// some producers write the ToUnicode CMap of a simple font.
+const wideSimpleCMap = "/CIDInit /ProcSet findresource begin 12 dict begin begincmap " +
+	"/CMapName /W def 1 begincodespacerange <0000> <FFFF> endcodespacerange " +
+	"2 beginbfchar <48> <0048> <69> <0069> endbfchar endcmap " +
+	"CMapName currentdict /CMap defineresource pop end end"
+
+func TestFontEntryDecodeSimpleFontWideCodespace(t *testing.T) {
+	simple := &FontEntry{cmap: ParseCMap([]byte(wideSimpleCMap))}
+	if got := simple.Decode([]byte("Hi")); got != "Hi" {
+		t.Errorf("simple font: got %q, want %q", got, "Hi")
+	}
+	// A Type0 font takes its code length from the CMap: "Hi" is code 0x4869.
+	composite := &FontEntry{cmap: ParseCMap([]byte(wideSimpleCMap)), isType0: true}
+	if got := composite.Decode([]byte("Hi")); got != "\u4869" {
+		t.Errorf("Type0 font: got %q, want %q", got, "\u4869")
+	}
+}
+
+func TestTextSpansSimpleFontWideCodespace(t *testing.T) {
+	content := "BT /F1 12 Tf 10 100 Td (Hi) Tj ET"
+	r, err := Parse(buildPDFFromObjects([]string{
+		"<< /Type /Catalog /Pages 2 0 R >>",
+		"<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+		"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >>",
+		fmt.Sprintf("<< /Length %d >>\nstream\n%s\nendstream", len(content), content),
+		"<< /Type /Font /Subtype /TrueType /BaseFont /Arial /Encoding /WinAnsiEncoding /ToUnicode 6 0 R >>",
+		fmt.Sprintf("<< /Length %d >>\nstream\n%s\nendstream", len(wideSimpleCMap), wideSimpleCMap),
+	}))
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	page, err := r.Page(0)
+	if err != nil {
+		t.Fatalf("Page: %v", err)
+	}
+	spans, err := page.TextSpans()
+	if err != nil {
+		t.Fatalf("TextSpans: %v", err)
+	}
+	if len(spans) != 1 || spans[0].Text != "Hi" {
+		t.Errorf("got %+v, want one span %q", spans, "Hi")
 	}
 }

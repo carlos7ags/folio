@@ -56,13 +56,20 @@ func (cm *CMap) CodeBytes() int {
 
 // Decode maps raw character code bytes to a Unicode string using the CMap.
 func (cm *CMap) Decode(raw []byte) string {
-	if cm == nil || (len(cm.bfChars) == 0 && len(cm.bfRanges) == 0) {
+	if cm == nil {
 		return string(raw)
 	}
-
 	codeLen := cm.CodeBytes()
 	if codeLen == 0 {
 		codeLen = 1
+	}
+	return cm.decodeCodes(raw, codeLen)
+}
+
+// decodeCodes maps raw to Unicode reading codeLen bytes per character code.
+func (cm *CMap) decodeCodes(raw []byte, codeLen int) string {
+	if len(cm.bfChars) == 0 && len(cm.bfRanges) == 0 {
+		return string(raw)
 	}
 
 	var sb strings.Builder
