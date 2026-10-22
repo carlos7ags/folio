@@ -194,6 +194,18 @@ func (f *sfntFace) Descent() int {
 	return int(f.pf.hhea.descender)
 }
 
+// LineGap returns the font's recommended extra line spacing (beyond
+// ascent+descent) in font design units, used to derive CSS
+// `line-height: normal`. Selection mirrors [Ascent]/[Descent]:
+// USE_TYPO_METRICS gates the choice between sTypoLineGap and
+// hhea.lineGap.
+func (f *sfntFace) LineGap() int {
+	if f.pf.os2 != nil && f.pf.os2.useTypoMetrics() {
+		return int(f.pf.os2.sTypoLineGap)
+	}
+	return int(f.pf.hhea.lineGap)
+}
+
 // BBox returns the font bounding box from head.{xMin,yMin,xMax,yMax}
 // in font design units. The head table already stores the bbox in
 // PDF's Y-up coordinate system, so no axis flip is required.

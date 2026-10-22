@@ -80,6 +80,28 @@ func splitRunsAtBr(runs []layout.TextRun) [][]layout.TextRun {
 	return groups
 }
 
+// allRunsNoWrap reports whether every non-whitespace text run in the group
+// carries the NoWrap flag (set when its source style was white-space:nowrap).
+// Inline elements, line-break markers, and whitespace-only runs are ignored:
+// whitespace between the block edge and a nowrap inline element (from
+// pretty-printed markup, e.g. "<p>\n  <b>tok</b>\n</p>") collapses to a " "
+// run that a browser trims at the line edge, so it must not veto the verdict.
+// Returns false for a group with no non-whitespace text run, so an empty or
+// element-only paragraph is not spuriously marked nowrap.
+func allRunsNoWrap(runs []layout.TextRun) bool {
+	sawText := false
+	for _, r := range runs {
+		if r.InlineElement != nil || r.IsLineBreak || strings.TrimSpace(r.Text) == "" {
+			continue
+		}
+		sawText = true
+		if !r.NoWrap {
+			return false
+		}
+	}
+	return sawText
+}
+
 // buildParagraphFromRuns creates a styled paragraph from a slice of TextRuns.
 func (c *converter) buildParagraphFromRuns(runs []layout.TextRun, style computedStyle) *layout.Paragraph {
 	// Always use NewStyledParagraph to preserve all TextRun fields
@@ -123,6 +145,17 @@ func (c *converter) buildParagraphFromRuns(runs []layout.TextRun, style computed
 	}
 	if style.WordBreak == "break-all" || style.WordBreak == "break-word" || style.WordBreak == "keep-all" {
 		p.SetWordBreak(style.WordBreak)
+	}
+	// white-space:nowrap is an inherited property that can be set on the
+	// block itself or on an inline element carrying the text (e.g.
+	// <div><b style="white-space:nowrap">token</b></div>). The block style
+	// covers the former; for the latter, treat the paragraph as nowrap when
+	// all of its text runs come from a nowrap context. (A paragraph mixing
+	// nowrap and wrapping runs keeps wrapping — folio's nowrap is a
+	// paragraph-level flag, so per-run nowrap on part of a mixed line is a
+	// known limitation.)
+	if style.WhiteSpace == "nowrap" || allRunsNoWrap(runs) {
+		p.SetNoWrap(true)
 	}
 	if style.Orphans > 0 {
 		p.SetOrphans(style.Orphans)

@@ -5892,9 +5892,9 @@ func TestParseFontShorthandWithCalc(t *testing.T) {
 		{
 			name:  "calc size with keyword line-height",
 			input: "calc(1em + 2px)/normal sans-serif",
-			// "normal" → multiplier 1.2.
+			// "normal" → font-metric-derived sentinel, not a flat multiplier.
 			wantSize:       13.5,
-			wantLineHeight: 1.2,
+			wantLineHeight: layout.LeadingNormal,
 			wantFamily:     "sans-serif",
 		},
 		{

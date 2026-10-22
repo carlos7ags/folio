@@ -353,5 +353,6 @@ func (c *converter) makeTextRun(text string, std *font.Standard, emb *font.Embed
 		BaselineShift:   baselineShiftFromStyle(style),
 		TextShadow:      textShadowFromStyle(style),
 		BackgroundColor: style.BackgroundColor,
+		NoWrap:          style.WhiteSpace == "nowrap",
 	}
 }
