@@ -5,6 +5,7 @@ package layout
 
 import (
 	"fmt"
+	"math"
 	"testing"
 
 	"github.com/carlos7ags/folio/font"
@@ -166,6 +167,40 @@ func TestHeadingPlanLayoutSingleLineSpacing(t *testing.T) {
 	if plan.Blocks[0].Y < expected-0.001 || plan.Blocks[0].Y > expected+0.001 {
 		t.Errorf("single-line H1 first block Y: expected %.2f, got %.2f",
 			expected, plan.Blocks[0].Y)
+	}
+}
+
+// TestHeadingSetSpaceBefore checks that SetSpaceBefore replaces the
+// built-in half-size space above the heading in both layout paths, and
+// that Consumed shrinks by the same amount. The HTML converter relies on
+// SetSpaceBefore(0) so that CSS margin-top alone controls the gap.
+func TestHeadingSetSpaceBefore(t *testing.T) {
+	area := LayoutArea{Width: 500, Height: 1000}
+	def := NewHeading("Short", H2).PlanLayout(area)
+
+	for _, space := range []float64{0, 5, 30} {
+		h := NewHeading("Short", H2).SetSpaceBefore(space)
+		plan := h.PlanLayout(area)
+		if len(plan.Blocks) != 1 {
+			t.Fatalf("space %.0f: expected 1 block, got %d", space, len(plan.Blocks))
+		}
+		if math.Abs(plan.Blocks[0].Y-space) > 0.001 {
+			t.Errorf("space %.0f: first block Y = %.2f, want %.2f", space, plan.Blocks[0].Y, space)
+		}
+		wantConsumed := def.Consumed - headingSize(H2)*0.5 + space
+		if math.Abs(plan.Consumed-wantConsumed) > 0.001 {
+			t.Errorf("space %.0f: Consumed = %.2f, want %.2f", space, plan.Consumed, wantConsumed)
+		}
+		lines := h.Layout(500)
+		if math.Abs(lines[0].SpaceBefore-space) > 0.001 {
+			t.Errorf("space %.0f: Layout SpaceBefore = %.2f, want %.2f", space, lines[0].SpaceBefore, space)
+		}
+	}
+
+	// Negative values clamp to zero.
+	plan := NewHeading("Short", H2).SetSpaceBefore(-10).PlanLayout(area)
+	if plan.Blocks[0].Y != 0 {
+		t.Errorf("negative space: first block Y = %.2f, want 0", plan.Blocks[0].Y)
 	}
 }
 
@@ -335,6 +370,44 @@ func TestHeadingContinuationTagsAndNoDuplicateBookmark(t *testing.T) {
 		t.Errorf("continuation block[0].Y = %.2f, want 0 — "+
 			"continuation headings must not re-apply space-above",
 			contPlan.Blocks[0].Y)
+	}
+
+	// Layout (used by multi-column flow) must agree with PlanLayout.
+	lines := cont.Layout(250)
+	if len(lines) == 0 {
+		t.Fatal("continuation Layout produced zero lines")
+	}
+	if lines[0].SpaceBefore > 0.001 {
+		t.Errorf("continuation Layout: first line SpaceBefore = %.2f, want 0",
+			lines[0].SpaceBefore)
+	}
+}
+
+// TestHeadingContinuationIgnoresSetSpaceBefore checks that an explicit
+// SetSpaceBefore, like the built-in default, applies only above the
+// first fragment of a split heading, in both layout paths.
+func TestHeadingContinuationIgnoresSetSpaceBefore(t *testing.T) {
+	text := "This is a reasonably long heading that will wrap onto " +
+		"several lines when the area is narrow enough so we can " +
+		"exercise the continuation code path"
+	h := NewHeading(text, H2).SetSpaceBefore(20)
+	first := h.PlanLayout(LayoutArea{Width: 250, Height: 60})
+	if first.Status != LayoutPartial {
+		t.Fatalf("setup: expected LayoutPartial, got %v", first.Status)
+	}
+	if math.Abs(first.Blocks[0].Y-20) > 0.001 {
+		t.Errorf("first fragment block[0].Y = %.2f, want 20", first.Blocks[0].Y)
+	}
+	cont, ok := first.Overflow.(*Heading)
+	if !ok {
+		t.Fatalf("setup: expected *Heading overflow, got %T", first.Overflow)
+	}
+	contPlan := cont.PlanLayout(LayoutArea{Width: 250, Height: 10000})
+	if len(contPlan.Blocks) == 0 || contPlan.Blocks[0].Y > 0.001 {
+		t.Errorf("continuation PlanLayout: want block[0].Y 0")
+	}
+	if lines := cont.Layout(250); len(lines) == 0 || lines[0].SpaceBefore > 0.001 {
+		t.Errorf("continuation Layout: want first line SpaceBefore 0")
 	}
 }
 

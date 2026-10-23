@@ -42,6 +42,8 @@ type Heading struct {
 	bookmarkClosed bool              // CSS bookmark-state: closed (collapsed in viewer)
 	stringSets     map[string]string // CSS string-set values to capture
 	continuation   bool              // true for the overflow half of a split heading
+	spaceBefore    float64           // space above the heading when spaceBeforeSet (see SetSpaceBefore)
+	spaceBeforeSet bool              // true once SetSpaceBefore replaced the built-in default
 }
 
 // NewHeading creates a heading using a standard font.
@@ -124,6 +126,31 @@ func (h *Heading) SetStringSet(name, value string) *Heading {
 	return h
 }
 
+// SetSpaceBefore sets the space reserved above the heading, in points,
+// replacing the built-in default of half the level's nominal font size
+// (14pt for H1, 12pt for H2, ...). Pass 0 when the vertical spacing is
+// supplied by an enclosing container instead, as the HTML converter
+// does for CSS margin-top. Negative values are treated as 0, matching
+// Paragraph, which applies its space before only when positive.
+func (h *Heading) SetSpaceBefore(pts float64) *Heading {
+	h.spaceBefore = max(pts, 0)
+	h.spaceBeforeSet = true
+	return h
+}
+
+// spaceAbove returns the space reserved above the heading's first line.
+// Continuation headings get none: the spacing belongs to the original
+// heading on the starting page, not to the wrapped lines that follow.
+func (h *Heading) spaceAbove() float64 {
+	if h.continuation {
+		return 0
+	}
+	if h.spaceBeforeSet {
+		return h.spaceBefore
+	}
+	return headingSize(h.level) * 0.5
+}
+
 // Layout implements Element. Returns the heading lines with spacing.
 func (h *Heading) Layout(maxWidth float64) []Line {
 	lines := h.para.Layout(maxWidth)
@@ -131,9 +158,9 @@ func (h *Heading) Layout(maxWidth float64) []Line {
 		return nil
 	}
 
-	// Add spacing above the heading (half the font size).
-	spacing := headingSize(h.level) * 0.5
-	lines[0].SpaceBefore += spacing
+	// Add spacing above the heading (half the level's font size by
+	// default, none for a continuation; see spaceAbove).
+	lines[0].SpaceBefore += h.spaceAbove()
 
 	// Keep the last heading line with the next element (don't orphan headings).
 	lines[len(lines)-1].KeepWithNext = true
@@ -187,7 +214,8 @@ func (h *Heading) MaxWidth() float64 { return h.para.MaxWidth() }
 // the remaining lines on the next page keep their H1-H6 structure tag
 // (see the continuation field).
 func (h *Heading) PlanLayout(area LayoutArea) LayoutPlan {
-	// Reserve the half-em "space above" up front so the inner Paragraph
+	// Reserve the "space above" (half the level's font size unless
+	// overridden by SetSpaceBefore) up front so the inner Paragraph
 	// packs into the available height minus the spacing. Without this
 	// reservation, a heading that exactly fills the remaining area
 	// would report Consumed = area.Height + spacing and over-advance
@@ -195,13 +223,8 @@ func (h *Heading) PlanLayout(area LayoutArea) LayoutPlan {
 	// was previously masked by the multi-line overlap fixed in #132
 	// and is now exposed.
 	//
-	// Continuation headings inherit no space above: the spacing belongs
-	// to the original heading on the starting page, not to the wrapped
-	// lines on subsequent pages.
-	spacing := 0.0
-	if !h.continuation {
-		spacing = headingSize(h.level) * 0.5
-	}
+	// Continuation headings get no space above (see spaceAbove).
+	spacing := h.spaceAbove()
 
 	// Note: the Consumed <= area.Height bound is only tight for
 	// multi-line headings. For a single-line heading whose line height
