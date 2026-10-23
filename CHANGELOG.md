@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Changed
+
+- **Go 1.26 is now the minimum version** — the `golang.org/x/image` (v0.47.0), `x/net` (v0.61.0) and `x/text` (v0.43.0) upgrades require it. Go 1.25 is out of upstream support since the Go 1.27 release.
+
 ### Fixed
 
 - **Non-ASCII text strings are now encoded so PDF viewers display them correctly** — bookmark (outline) titles, document Info entries (`/Title`, `/Author`, `/Subject`, `/Keywords`, `/Creator`, `/Producer`), annotation `/Contents`, structure `/Alt` text, attachment `/UF` and `/Desc`, page-label prefixes, form field names, values and options, and signature `/Name`, `/Reason`, `/Location` and `/ContactInfo` were written as the Go string's raw UTF-8 bytes. A PDF text string (ISO 32000-1 §7.9.2.2) without a byte-order mark is read as PDFDocEncoding, so "Información" showed as "InformaciÃ³n" in every viewer. These values are now written with the new `core.NewPdfTextString`: pure-ASCII text stays a plain literal string, anything else is UTF-16BE with the `FE FF` byte-order mark. `reader.PdfReader.Info`, the form filler and signature verification decode such strings back to UTF-8, and `PdfString.TextString` / `core.DecodeTextString` expose the decoding. Byte strings such as `/URI`, named destinations, dates and `/F` file names are unchanged.
