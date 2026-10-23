@@ -5,14 +5,34 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## Unreleased
+## [0.11.0] - 2026-10-22
+
+Correctness release: non-ASCII text strings (bookmarks, metadata, form
+fields, signature fields) now display correctly in every viewer, RTL text
+is laid out in true visual order, `line-height` follows CSS inheritance,
+tall content fragments across pages instead of being clipped, and text
+extraction handles Form XObjects faithfully and safely. Note two behavior
+changes: Go 1.26 is now the minimum version, and Symbol/ZapfDingbats text
+is encoded through the fonts' built-in encodings (Unicode `α`/`✔` now work;
+raw codes such as `"4"` for ✔ keep working).
+
+### Added
+
+- **`core.NewPdfTextString`, `core.DecodeTextString`, `core.IsPDFDocASCII` and `PdfString.TextString`** — encode and decode PDF text strings (PDFDocEncoding or UTF-16BE with BOM, ISO 32000-1 §7.9.2.2).
+- **`font.Standard.Encode`, `CanEncode`, `CanEncodeRune` and `font.StandardFontBuiltinEncoding`** — font-aware encoding for the standard 14 fonts, including the built-in encodings of Symbol and ZapfDingbats.
+- **`reader.ErrFormBudgetExceeded` and `ContentProcessor.Err`** — text and path extraction stop with an error instead of running for exponential time on forms that draw each other repeatedly.
+- **`WriteOptions.CompressionLevel`** — configurable Flate level for written streams (default stays `BestCompression`).
+- **`layout.LayoutArea.AtFragmentTop`** — tells an element it is being laid out at the top of a page, so containers place oversized children instead of deferring them.
 
 ### Changed
 
 - **Go 1.26 is now the minimum version** — the `golang.org/x/image` (v0.47.0), `x/net` (v0.61.0) and `x/text` (v0.43.0) upgrades require it. Go 1.25 is out of upstream support since the Go 1.27 release.
+- **Smaller, faster output for image-heavy documents** — an image used on several pages is embedded once, PNG data is passed through without re-encoding when possible, object deduplication hashes streams without compressing them, and the deterministic `/ID` is derived from the written bytes in a single pass (its value differs from v0.10.x; determinism is preserved) (#442).
+- **`font.StandardFontByteWidths` for Symbol and ZapfDingbats** is indexed by the fonts' built-in codes instead of WinAnsi.
 
 ### Fixed
 
+- **`text-align` is inherited by child blocks** — a paragraph inside a centered container is centered without restating `text-align`.
 - **An empty element is now a flex item** — a flex container dropped a child that converted to no content (an empty `<div></div>` or `<span></span>`), so with `justify-content: space-between` an empty first item no longer pushed the next item to the end of the line (#447). Such a child is now kept as a zero-size item, so `space-between`, `space-around` and `space-evenly` distribute space as in a browser, on both the row and column axis. Whitespace-only text, `display: none` and absolutely positioned children still generate no item.
 - **Non-ASCII text strings are now encoded so PDF viewers display them correctly** — bookmark (outline) titles, document Info entries (`/Title`, `/Author`, `/Subject`, `/Keywords`, `/Creator`, `/Producer`), annotation `/Contents`, structure `/Alt` text, attachment `/UF` and `/Desc`, page-label prefixes, form field names, values and options, and signature `/Name`, `/Reason`, `/Location` and `/ContactInfo` were written as the Go string's raw UTF-8 bytes. A PDF text string (ISO 32000-1 §7.9.2.2) without a byte-order mark is read as PDFDocEncoding, so "Información" showed as "InformaciÃ³n" in every viewer. These values are now written with the new `core.NewPdfTextString`: pure-ASCII text stays a plain literal string, anything else is UTF-16BE with the `FE FF` byte-order mark. `reader.PdfReader.Info`, the form filler and signature verification decode such strings back to UTF-8, and `PdfString.TextString` / `core.DecodeTextString` expose the decoding. Byte strings such as `/URI`, named destinations, dates and `/F` file names are unchanged.
 - **Text-string decoding handles PDFDocEncoding and UTF-16 language escapes** — `core.DecodeTextString` maps bytes through the PDFDocEncoding table (Annex D.2) instead of returning invalid UTF-8, strips `ESC … ESC` language tags from UTF-16 strings, and keeps raw UTF-8 written by earlier folio versions readable. Bytes 0x18–0x1F and 0x7F no longer pass as plain ASCII when encoding.
@@ -24,7 +44,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **`line-height`** — `normal` uses the font's own vertical metrics; a length or percentage is inherited as an absolute value rather than a factor; literal negative values are ignored and a negative `calc()` result clamps to 0; `initial`/`revert` mean `normal`. `white-space: nowrap` and `pre` suppress soft wrapping, including per list item.
 - **Internal links** — `<a href="#id">` in inline flow emits a destination instead of a dead `/URI`, and ids on elements inside table cells are registered as named destinations.
 - **A float stays with its block across a page break, and a container holding a float plus a block taller than the page now paginates the content after that block** instead of drawing it past the page bottom.
-- **The wasm build compiles again** — duplicate render-settings handling that no longer matched the `cmd/wasm/settings` package was removed.
 - **A container whose fixed-height children overflow the page is now fragmented instead of clipped** — a `Div` laid out an unsplittable child that reported `LayoutFull` without checking it fit the remaining height, so a stack of fixed-height boxes taller than the page placed every child and let the tail spill past the page bottom to be silently dropped. It now breaks between children and carries the remainder to the next page (a lone child taller than a whole page is still drawn, clipping, so pagination cannot loop).
 - **A `flex-direction: row` line taller than the page is now fragmented across pages instead of clipped** — a single (non-wrapping or first) flex line whose content exceeded the remaining page height was laid out whole and everything past the page bottom was silently dropped; `planRow` only broke a line to the next page once a prior line had already fit. It now continues each overflowing column onto the following page, pinned to the width it occupied, while columns that already finished reserve their slot so the continuing columns keep their positions — matching how a browser fragments the line and preserving the content. Fragmentation applies only to auto-height flex containers; one with a definite height (its own or imposed by a constraining parent) still contains/clips its content, and a line that does not fit is deferred whole to the next page rather than left straddling the boundary.
 - **A flex row no longer drops a column that could not start in the space left on the page** — when a flex item reported `LayoutNothing` (it placed nothing at all, e.g. a column whose first table needs to move its header and first body row to the next page as a group, or a nested auto-height box that could not place its first child) `planRow` ignored the status: the item contributed no blocks and no overflow, so the line was laid out with the other columns and reported as complete, and that column's entire content was silently dropped. The rendered PDF stayed well-formed and every page looked complete while the tail content was gone — and the document came out *shorter*, because the dropped content never asked for pages of its own. Such a line is now deferred whole to the next page (or, when nothing has been placed yet, reported as `LayoutNothing` so the renderer relocates the container to a fresh page where the column can make progress). Scoped to auto-height flex containers, matching the existing fragmentation carve-out for definite-height ones.
