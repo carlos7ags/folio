@@ -9,6 +9,7 @@ import (
 	"github.com/carlos7ags/folio/layout"
 
 	"golang.org/x/net/html"
+	"golang.org/x/net/html/atom"
 )
 
 // splitLinkTarget classifies an href into an external URI and an internal
@@ -80,4 +81,26 @@ func (c *converter) convertEmptyTextLink(n *html.Node, style computedStyle, uri,
 		runs[i].LinkDest = destName
 	}
 	return []layout.Element{layout.NewStyledParagraph(runs...)}
+}
+
+// linkBox makes el, the box an <a> element generated, clickable over its
+// whole area. An <a> whose display gives it a box of its own (flex, grid,
+// inline-block) is converted by the container converters, which know
+// nothing about href; without this wrap its content renders but no link
+// annotation is emitted. For any other node, or an <a> whose href
+// navigates nowhere, el is returned unchanged.
+func linkBox(n *html.Node, el layout.Element) layout.Element {
+	if n.DataAtom != atom.A {
+		return el
+	}
+	uri, destName := splitLinkTarget(getAttr(n, "href"))
+	return layout.NewLinkBox(el, uri, destName)
+}
+
+// linkBoxes applies linkBox to every element produced for n.
+func linkBoxes(n *html.Node, elems []layout.Element) []layout.Element {
+	for i, el := range elems {
+		elems[i] = linkBox(n, el)
+	}
+	return elems
 }

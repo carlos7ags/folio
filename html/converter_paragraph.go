@@ -415,7 +415,7 @@ func (c *converter) convertInlineBlockElement(n *html.Node, style computedStyle)
 	if div, ok := el.(*layout.Div); ok {
 		div.SetShrinkToFit(true)
 	}
-	return el
+	return linkBox(n, el)
 }
 
 // collectListItemRuns collects styled TextRuns from a <li> element,
