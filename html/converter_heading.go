@@ -36,6 +36,11 @@ func (c *converter) convertHeading(n *html.Node, style computedStyle, level layo
 	// Replace the default run with the fully styled runs from collectRuns.
 	h.SetRuns(runs)
 	h.SetAlign(resolveTextAlign(style))
+	// The space above a heading is its CSS margin-top, which the
+	// wrapper Div below applies when the heading has a margin (UA
+	// defaults included). Drop the layout package's built-in spacing so
+	// it is not added on top.
+	h.SetSpaceBefore(0)
 	if style.BookmarkLevelSet {
 		h.SetBookmarkLevel(style.BookmarkLevel)
 	}
