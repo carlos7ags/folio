@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -323,8 +324,10 @@ func (d *Document) Add(e layout.Element) {
 }
 
 // AddAbsolute places a layout element at fixed (x, y) coordinates on the
-// last page produced by the layout engine. The element does not participate
-// in normal vertical flow. Coordinates are in PDF points from the bottom-left.
+// last page of the document: the last page produced by the layout engine
+// when there is flow content (see Add), otherwise the last page added with
+// AddPage. The element does not participate in normal vertical flow.
+// Coordinates are in PDF points from the bottom-left.
 // Width sets the layout width for word-wrapping; 0 uses full content width.
 func (d *Document) AddAbsolute(e layout.Element, x, y, width float64) {
 	d.absolutes = append(d.absolutes, absoluteElement{
@@ -333,8 +336,9 @@ func (d *Document) AddAbsolute(e layout.Element, x, y, width float64) {
 }
 
 // AddAbsoluteRight places a layout element whose right edge is at
-// (pageWidth - rightOffset) on the last page. The X coordinate is adjusted
-// after layout to account for the element's actual width.
+// (pageWidth - rightOffset) on the last page, chosen as for AddAbsolute.
+// The X coordinate is adjusted after layout to account for the element's
+// actual width.
 func (d *Document) AddAbsoluteRight(e layout.Element, rightOffset, y, width float64) {
 	d.absolutes = append(d.absolutes, absoluteElement{
 		elem: e, x: rightOffset, y: y, width: width, pageIndex: -1, rightAligned: true,
@@ -342,6 +346,8 @@ func (d *Document) AddAbsoluteRight(e layout.Element, rightOffset, y, width floa
 }
 
 // AddAbsoluteWithOpts places an element with full positioning control.
+// A negative opts.PageIndex selects the last page as for AddAbsolute; a
+// non-negative one is interpreted as for AddAbsoluteOnPage.
 func (d *Document) AddAbsoluteWithOpts(e layout.Element, x, y, width float64, opts layout.AbsoluteOpts) {
 	d.absolutes = append(d.absolutes, absoluteElement{
 		elem: e, x: x, y: y, width: width,
@@ -351,7 +357,9 @@ func (d *Document) AddAbsoluteWithOpts(e layout.Element, x, y, width float64, op
 }
 
 // AddAbsoluteOnPage places a layout element at (x, y) on a specific
-// layout page (0-indexed). If the page doesn't exist, the element is ignored.
+// layout page (0-indexed). The index counts only pages produced by the
+// layout engine, not pages added with AddPage, which precede them in the
+// output. If the page doesn't exist, the element is ignored.
 func (d *Document) AddAbsoluteOnPage(e layout.Element, x, y, width float64, pageIndex int) {
 	d.absolutes = append(d.absolutes, absoluteElement{
 		elem: e, x: x, y: y, width: width, pageIndex: pageIndex,
@@ -411,8 +419,17 @@ func (d *Document) buildAllPages(ctx context.Context) (all []*Page, structTags [
 		margins.Bottom += footerHeight
 	}
 
+	// With no flow content, the layout engine produces no pages of its own,
+	// so an absolute targeting "the last page" belongs on the last manual
+	// page rather than on a fresh layout page appended after it.
+	absolutes := d.absolutes
+	var onLastManual []absoluteElement
+	if len(d.elements) == 0 && manualPageCount > 0 {
+		absolutes, onLastManual = splitLastPageAbsolutes(d.absolutes)
+	}
+
 	// Run layout engine if there are elements.
-	if len(d.elements) > 0 || len(d.absolutes) > 0 {
+	if len(d.elements) > 0 || len(absolutes) > 0 {
 		r := layout.NewRenderer(d.pageSize.Width, d.pageSize.Height, margins)
 		if d.firstMargins != nil {
 			r.SetFirstMargins(*d.firstMargins)
@@ -442,7 +459,7 @@ func (d *Document) buildAllPages(ctx context.Context) (all []*Page, structTags [
 		for _, e := range d.elements {
 			r.Add(e)
 		}
-		for _, a := range d.absolutes {
+		for _, a := range absolutes {
 			r.AddAbsoluteWithOpts(a.elem, a.x, a.y, a.width, layout.AbsoluteOpts{
 				RightAligned: a.rightAligned,
 				ZIndex:       a.zIndex,
@@ -523,6 +540,20 @@ func (d *Document) buildAllPages(ctx context.Context) (all []*Page, structTags [
 		// Auto-generate bookmarks from layout headings.
 		if d.autoBookmarks && len(d.outlines) == 0 {
 			d.outlines = buildAutoBookmarks(results, manualPageCount)
+		}
+	}
+
+	if len(onLastManual) > 0 {
+		tags, aerr := d.drawAbsolutesOnPage(ctx, onLastManual, all[manualPageCount-1], manualPageCount-1)
+		if aerr != nil {
+			return nil, nil, aerr
+		}
+		offset := len(structTags)
+		for _, tag := range tags {
+			if tag.ParentIndex >= 0 {
+				tag.ParentIndex += offset
+			}
+			structTags = append(structTags, tag)
 		}
 	}
 
@@ -1233,6 +1264,136 @@ func (d *Document) renderElementDecorator(fn ElementDecorator, ctx PageContext, 
 	// The renderer draws from top-left of its area; we offset with cm.
 	translated := fmt.Sprintf("q 1 0 0 1 %s %s cm\n%s\nQ\n", formatPt(x), formatPt(y-height), streamStr)
 	p.stream.AppendBytes([]byte(translated))
+}
+
+// splitLastPageAbsolutes separates the absolutes that target the last page
+// (pageIndex -1, not fixed) from the rest, preserving insertion order.
+func splitLastPageAbsolutes(all []absoluteElement) (rest, last []absoluteElement) {
+	for _, a := range all {
+		if a.pageIndex < 0 && !a.fixed {
+			last = append(last, a)
+		} else {
+			rest = append(rest, a)
+		}
+	}
+	return rest, last
+}
+
+// drawAbsolutesOnPage lays out absolutes on a single page sized like p and
+// merges the result into p, which is the document page at pageIdx. It
+// returns the structure tags produced (already pointing at pageIdx) when the
+// document is tagged.
+func (d *Document) drawAbsolutesOnPage(ctx context.Context, items []absoluteElement, p *Page, pageIdx int) ([]layout.StructTagInfo, error) {
+	ps := p.effectiveSize()
+	r := layout.NewRenderer(ps.Width, ps.Height, d.margins)
+	if d.tagged {
+		r.SetTagged(true)
+	}
+	r.SetActualText(d.actualText)
+	for _, a := range items {
+		r.AddAbsoluteWithOpts(a.elem, a.x, a.y, a.width, layout.AbsoluteOpts{
+			RightAligned: a.rightAligned,
+			ZIndex:       a.zIndex,
+			PageIndex:    0,
+		})
+	}
+	results, err := r.RenderContext(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if len(results) == 0 {
+		return nil, nil
+	}
+	d.mergeLayoutPage(p, results[0], pageIdx)
+
+	var tags []layout.StructTagInfo
+	if d.tagged {
+		tags = r.StructTags()
+		for i := range tags {
+			tags[i].PageIndex = pageIdx
+		}
+	}
+	return tags, nil
+}
+
+// layoutResourceName matches a resource name operand in a layout-generated
+// content stream (fonts F<n>, images Im<n>, graphics states GS<n>).
+var layoutResourceName = regexp.MustCompile(`/((?:F|Im|GS)\d+)\b`)
+
+// mergeLayoutPage draws a layout-rendered page on top of p, which is the
+// document page at pageIdx. The layout's resources are re-registered on p
+// under fresh names so they cannot collide with p's own resources, and the
+// layout content is wrapped in q/Q so it does not leak graphics state.
+func (d *Document) mergeLayoutPage(p *Page, res layout.PageResult, pageIdx int) {
+	used := make(map[string]bool)
+	for _, f := range p.fonts {
+		used[f.name] = true
+	}
+	for _, im := range p.images {
+		used[im.name] = true
+	}
+	for _, gs := range p.extGStates {
+		used[gs.name] = true
+	}
+	for _, fx := range p.formXObjects {
+		used[fx.name] = true
+	}
+	fresh := func(prefix string) string {
+		for n := 1; ; n++ {
+			name := prefix + strconv.Itoa(n)
+			if !used[name] {
+				used[name] = true
+				return name
+			}
+		}
+	}
+
+	rename := make(map[string]string)
+	for _, f := range res.Fonts {
+		name := fresh("AF")
+		rename[f.Name] = name
+		p.fonts = append(p.fonts, fontResource{name: name, standard: f.Standard, embedded: f.Embedded})
+	}
+	for _, im := range res.Images {
+		name := fresh("AIm")
+		rename[im.Name] = name
+		p.images = append(p.images, imageResource{name: name, image: im.Image})
+	}
+	for _, gs := range res.ExtGStates {
+		name := fresh("AGS")
+		rename[gs.Name] = name
+		gsDict := core.NewPdfDictionary()
+		gsDict.Set("Type", core.NewPdfName("ExtGState"))
+		gsDict.Set("ca", core.NewPdfReal(gs.Opacity))
+		gsDict.Set("CA", core.NewPdfReal(gs.Opacity))
+		p.extGStates = append(p.extGStates, extGStateResource{name: name, dict: gsDict})
+	}
+
+	body := layoutResourceName.ReplaceAllFunc(res.Stream.Bytes(), func(m []byte) []byte {
+		if name, ok := rename[string(m[1:])]; ok {
+			return []byte("/" + name)
+		}
+		return m
+	})
+	p.ensureStream()
+	var buf bytes.Buffer
+	buf.WriteString("q\n")
+	buf.Write(body)
+	buf.WriteString("\nQ\n")
+	p.stream.AppendBytes(buf.Bytes())
+
+	for _, link := range res.Links {
+		p.annotations = append(p.annotations, Annotation{
+			subtype:  "Link",
+			rect:     [4]float64{link.X, link.Y, link.X + link.W, link.Y + link.H},
+			uri:      link.URI,
+			dest:     link.DestName,
+			destPage: -1,
+		})
+	}
+	for _, a := range res.Anchors {
+		d.AddNamedDest(NamedDest{Name: a.Name, PageIndex: pageIdx, FitType: "XYZ", Top: a.Y})
+	}
 }
 
 // formatPt formats a float for PDF (no trailing zeros, max 4 decimal places).
