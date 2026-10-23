@@ -119,10 +119,20 @@ func (c *converter) computeElementStyle(n *html.Node, parent computedStyle) comp
 	}
 	// Pass 2: regular declarations. var() references are now resolved
 	// against the fully-cascaded custom properties.
+	// CSS-wide keywords (inherit/initial/unset) are resolved against the
+	// parent here, since property parsers have no parent in scope.
 	for _, d := range decls {
-		if !strings.HasPrefix(d.property, "--") {
-			c.applyProperty(d.property, d.value, &style)
+		if strings.HasPrefix(d.property, "--") {
+			continue
 		}
+		val := d.value
+		if strings.Contains(val, "var(") {
+			val = resolveVars(val, &style)
+		}
+		if c.applyCSSWideKeyword(d.property, val, &style, &parent) {
+			continue
+		}
+		c.applyProperty(d.property, val, &style)
 	}
 
 	// Re-resolve a standalone `line-height` against the element's FINAL
@@ -334,7 +344,9 @@ func resolveVars(value string, style *computedStyle) string {
 	}
 }
 
-// applyProperty applies a single CSS property to a computed style.
+// applyProperty applies a single CSS property to a computed style. For
+// non-custom properties val must already have its var() references
+// resolved; computeElementStyle does that before calling it.
 func (c *converter) applyProperty(prop, val string, style *computedStyle) {
 	// Custom properties (CSS variables) are stored as raw token
 	// values. Their var() references are resolved lazily when read
@@ -352,12 +364,6 @@ func (c *converter) applyProperty(prop, val string, style *computedStyle) {
 		}
 		style.CustomProperties[prop] = val
 		return
-	}
-
-	// Resolve var() references on non-custom properties against the
-	// fully-cascaded CustomProperties map.
-	if strings.Contains(val, "var(") {
-		val = resolveVars(val, style)
 	}
 
 	// All CSS properties are now handled via the registry. Unknown
