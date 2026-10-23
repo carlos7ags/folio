@@ -63,7 +63,13 @@ func colorStr(c layout.Color) string {
 // Convert would give it.
 func newGoldenConverter(t *testing.T, htmlStr string) (*converter, *html.Node, computedStyle) {
 	t.Helper()
-	var opts *Options
+	return newGoldenConverterWithOptions(t, htmlStr, nil)
+}
+
+// newGoldenConverterWithOptions is newGoldenConverter with caller-supplied
+// Options, defaulted the same way Convert defaults them.
+func newGoldenConverterWithOptions(t *testing.T, htmlStr string, opts *Options) (*converter, *html.Node, computedStyle) {
+	t.Helper()
 	o := opts.defaults()
 
 	doc, err := html.Parse(strings.NewReader(htmlStr))
