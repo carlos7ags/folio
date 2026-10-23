@@ -361,7 +361,7 @@ func (c *converter) convertElement(n *html.Node, parentStyle computedStyle) []la
 			side = layout.FloatRight
 		}
 		var floated []layout.Element
-		for _, e := range elems {
+		for _, e := range coalesceBox(elems) {
 			floated = append(floated, layout.NewFloat(side, e))
 		}
 		elems = floated
@@ -381,7 +381,7 @@ func (c *converter) convertElement(n *html.Node, parentStyle computedStyle) []la
 			}
 		}
 
-		for _, e := range elems {
+		for _, e := range coalesceBox(elems) {
 			if hasContainingBlock {
 				// Add as overlay on the nearest positioned ancestor.
 				ov := pendingOverlay{elem: e, zIndex: style.ZIndex}
@@ -511,6 +511,27 @@ func (c *converter) convertElement(n *html.Node, parentStyle computedStyle) []la
 		elems = append(before, elems...)
 	}
 	return elems
+}
+
+// coalesceBox merges the elements produced for a single HTML element into one
+// box when there is more than one. convertBlock returns a bare block's
+// children as a flat list (it skips the Div wrapper when the element has no
+// box-model properties), which is correct for normal flow but wrong for
+// wrappers that must treat the element as one box: a float or an absolutely
+// positioned element wrapped per child would split into independent floats or
+// overlapping positioned boxes. The merged Div is shrink-to-fit, matching the
+// CSS width of a float or absolutely positioned box with width:auto. A single
+// element is returned unchanged.
+func coalesceBox(elems []layout.Element) []layout.Element {
+	if len(elems) <= 1 {
+		return elems
+	}
+	div := layout.NewDiv()
+	for _, e := range elems {
+		div.Add(e)
+	}
+	div.SetShrinkToFit(true)
+	return []layout.Element{div}
 }
 
 // convertElementInner handles the actual element dispatch after page break handling.
