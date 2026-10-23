@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## Unreleased
+
+### Fixed
+
+- **`AddAbsolute` on a document with only manually added pages now draws on the last of them instead of appending a blank page** — absolutes targeting "the last page" were always handed to the layout engine, which, with no flow content, created a page of its own after the `AddPage` pages, so stamping a barcode onto an imported template (`folio_document_add_absolute` in the C API) put it on a new page 2. With no flow content they are now laid out against the last manual page and merged into it (resources renamed to avoid collisions, links, named destinations and structure tags preserved); documents with flow content are unchanged ([#448](https://github.com/carlos7ags/folio/issues/448)).
+
 ## [0.11.0] - 2026-10-22
 
 Correctness release: non-ASCII text strings (bookmarks, metadata, form
