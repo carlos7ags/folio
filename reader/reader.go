@@ -817,6 +817,9 @@ func (p *PageInfo) processContent() (*ContentProcessor, error) {
 		proc.lookup, proc.resources = p.formLookup(res, fonts), res
 	}
 	proc.Process(ParseContentStream(data))
+	if err := proc.Err(); err != nil {
+		return nil, err
+	}
 	return proc, nil
 }
 

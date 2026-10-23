@@ -4,6 +4,7 @@
 package reader
 
 import (
+	"errors"
 	"math"
 
 	"github.com/carlos7ags/folio/core"
@@ -136,12 +137,23 @@ type ContentProcessor struct {
 	// Set via SetFormResolver to enable recursive Form XObject processing.
 	formResolver func(name string) []ContentOp
 	depth        int // recursion depth (0 = top-level call)
+	formOps      int // operators executed inside Form XObjects
+	err          error
 
 	// lookup and resources resolve Do names in the resources of the
 	// content being processed; they take precedence over formResolver.
 	lookup    formLookup
 	resources *core.PdfDictionary
 }
+
+// ErrFormBudgetExceeded is returned when Form XObjects drawn from one content
+// stream execute more than maxFormOps operators. Forms that draw each other
+// repeatedly cost exponential time in their nesting depth.
+var ErrFormBudgetExceeded = errors.New("reader: form XObjects exceed the operator budget")
+
+// maxFormOps bounds the operators executed inside Form XObjects per top-level
+// Process call; real pages stay far below it. A variable so tests can lower it.
+var maxFormOps = 10_000_000
 
 // formLookup resolves a Do name within res to a Form XObject: its parsed
 // content, the resources its own names resolve in, its fonts, and its
@@ -202,6 +214,8 @@ func (p *ContentProcessor) Process(ops []ContentOp) []TextSpan {
 		p.images = nil
 		p.glyphs = nil
 		p.curPath = nil
+		p.formOps = 0
+		p.err = nil
 	}
 	// Guard against excessive recursion from circular Form XObject references.
 	const maxFormDepth = 50
@@ -212,6 +226,15 @@ func (p *ContentProcessor) Process(ops []ContentOp) []TextSpan {
 	defer func() { p.depth-- }()
 
 	for _, op := range ops {
+		if p.err != nil {
+			return p.spans
+		}
+		if p.depth > 1 {
+			if p.formOps++; p.formOps > maxFormOps {
+				p.err = ErrFormBudgetExceeded
+				return p.spans
+			}
+		}
 		switch op.Operator {
 
 		// --- Graphics state ---
@@ -516,6 +539,11 @@ func (p *ContentProcessor) processForm(name string) {
 	p.resources, p.fonts = res, fonts
 	p.Process(ops)
 	p.state, p.stack, p.resources, p.fonts = state, stack, callerRes, callerFonts
+}
+
+// Err reports why the last Process call stopped early, or nil.
+func (p *ContentProcessor) Err() error {
+	return p.err
 }
 
 // Spans returns the collected text spans from the last Process call.

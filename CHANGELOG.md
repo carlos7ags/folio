@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Changed
+
+- **Go 1.26 is now the minimum version** — the `golang.org/x/image` (v0.47.0), `x/net` (v0.61.0) and `x/text` (v0.43.0) upgrades require it. Go 1.25 is out of upstream support since the Go 1.27 release.
+
 ### Fixed
 
 - **An empty element is now a flex item** — a flex container dropped a child that converted to no content (an empty `<div></div>` or `<span></span>`), so with `justify-content: space-between` an empty first item no longer pushed the next item to the end of the line (#447). Such a child is now kept as a zero-size item, so `space-between`, `space-around` and `space-evenly` distribute space as in a browser, on both the row and column axis. Whitespace-only text, `display: none` and absolutely positioned children still generate no item.
@@ -14,6 +18,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Text-string decoding handles PDFDocEncoding and UTF-16 language escapes** — `core.DecodeTextString` maps bytes through the PDFDocEncoding table (Annex D.2) instead of returning invalid UTF-8, strips `ESC … ESC` language tags from UTF-16 strings, and keeps raw UTF-8 written by earlier folio versions readable. Bytes 0x18–0x1F and 0x7F no longer pass as plain ASCII when encoding.
 - **Signature text fields can no longer hijack the `/ByteRange` placeholder** — the signature dictionary now writes `/ByteRange` and `/Contents` before any user-supplied string, non-ASCII `/Name`, `/Reason`, `/Location` and `/ContactInfo` are written as hex strings, and the verifier's fallback scanner walks the dictionary instead of matching the first `/ByteRange` byte sequence. Literal strings with balanced parentheses are read whole.
 - **Symbol and ZapfDingbats text is encoded with the fonts' built-in encodings** — these fonts are written without `/Encoding` (their built-in encoding applies), and text is now encoded, measured and read back through that encoding instead of WinAnsi, so `α` and `✔` render as themselves with the right widths.
+- **Text extraction no longer hangs on Form XObjects that draw each other repeatedly** — forms executed from one content stream are capped at 10M operators; past that, `TextSpans`, `PathOps` and the extraction strategies return `reader.ErrFormBudgetExceeded` instead of running for exponential time (#457).
 - **Form XObjects in text extraction** — a form's content is resolved in its own `/Resources` (inheriting the caller's when absent), parsed once per page however often it is drawn, placed through its `/Matrix`, and run with its own `q`/`Q` stack so unbalanced operators cannot disturb the caller. Simple-font text is decoded one byte per code.
 - **RTL text** — table cells with unequal column widths, list items, words mixing RTL letters and digits (`ב-2026`), paragraphs split across pages, and kashida justification are laid out in correct visual order; the base direction of an explicit `dir=rtl` paragraph is honored; spanning cells include the cell spacing they cross.
 - **`line-height`** — `normal` uses the font's own vertical metrics; a length or percentage is inherited as an absolute value rather than a factor; literal negative values are ignored and a negative `calc()` result clamps to 0; `initial`/`revert` mean `normal`. `white-space: nowrap` and `pre` suppress soft wrapping, including per list item.

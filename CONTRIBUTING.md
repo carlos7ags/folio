@@ -15,7 +15,7 @@ Releases are cut by tagging `main` (e.g., `v0.5.0`).
 
 ## Prerequisites
 
-- Go 1.25+
+- Go 1.26+
 - `qpdf` (used in tests): `brew install qpdf` (macOS) or `apt-get install qpdf` (Linux)
 
 ## Building and Testing
