@@ -10,6 +10,7 @@ import (
 	"github.com/carlos7ags/folio/layout"
 
 	"golang.org/x/net/html"
+	"golang.org/x/net/html/atom"
 )
 
 // convertFlex converts a display:flex container into a layout.Flex.
@@ -156,7 +157,15 @@ func (c *converter) convertFlex(n *html.Node, style computedStyle) []layout.Elem
 			childElems = c.convertNode(child, style)
 		}
 		if len(childElems) == 0 {
-			continue
+			// An in-flow element child is a flex item even when it has
+			// no content (CSS Flexbox §4): an empty <div></div> is a
+			// zero-size item that still takes part in justify-content
+			// distribution, so space-between with an empty first item
+			// pushes the next item to the end. Keep it as an empty Div.
+			if !generatesEmptyFlexItem(child, childStyle) {
+				continue
+			}
+			childElems = []layout.Element{layout.NewDiv()}
 		}
 
 		// Wrap multiple elements from a single HTML child into a Div
@@ -300,4 +309,29 @@ func (c *converter) convertFlex(n *html.Node, style computedStyle) []layout.Elem
 	}
 
 	return []layout.Element{flex}
+}
+
+// generatesEmptyFlexItem reports whether a flex-container child that
+// converted to no layout elements still generates a flex item. Element
+// children are flex items unless they generate no box (display:none,
+// non-rendered elements such as <style> or <script>) or are taken out
+// of flow by absolute/fixed positioning (CSS Flexbox §4, §4.1). Text
+// children never reach this point with content; whitespace-only text
+// is skipped before conversion.
+func generatesEmptyFlexItem(n *html.Node, style computedStyle) bool {
+	if n.Type != html.ElementNode {
+		return false
+	}
+	switch n.DataAtom {
+	case atom.Style, atom.Script, atom.Link, atom.Meta, atom.Title,
+		atom.Head, atom.Base, atom.Template, atom.Noscript:
+		return false
+	}
+	if style.Display == "none" {
+		return false
+	}
+	if style.Position == "absolute" || style.Position == "fixed" {
+		return false
+	}
+	return true
 }
