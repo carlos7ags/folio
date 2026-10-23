@@ -20,7 +20,7 @@ digital signatures, barcodes, page import, and PDF/A compliance.
 go get github.com/carlos7ags/folio
 ```
 
-Requires Go 1.25+. Three external dependencies, all from the Go
+Requires Go 1.26+. Three external dependencies, all from the Go
 `x/` extended standard library: `golang.org/x/image` (font parsing,
 TIFF decoding), `golang.org/x/net` (HTML parsing), and
 `golang.org/x/text` (Unicode bidirectional algorithm for RTL text).
