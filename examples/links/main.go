@@ -53,7 +53,7 @@ func buildDocument() *document.Document {
 body { font-family: Helvetica; font-size: 10px; margin: 0; }
 h1 { font-size: 18px; color: #1a1a2e; margin-bottom: 3px; }
 h2 { font-size: 11px; color: #2c3e50; margin-top: 8px; margin-bottom: 2px; }
-p { margin-bottom: 3px; line-height: 1.3; }
+p { margin-top: 0; margin-bottom: 3px; line-height: 1.3; }
 a { color: #2563eb; }
 .subtle a { color: #6b7280; text-decoration: none; }
 hr { margin: 6px 0; }

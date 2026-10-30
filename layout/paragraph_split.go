@@ -204,17 +204,37 @@ func (p *Paragraph) PlanLayout(area LayoutArea) LayoutPlan {
 	}
 	totalH := 0.0
 	splitIdx := len(infos)
-	for i, info := range infos {
+	for i := range infos {
+		info := &infos[i]
 		h := lineHeights[i]
 		if i == 0 {
 			h += info.spaceBefore
 		}
+		if i == len(infos)-1 && info.spaceAfter > 0 && totalH+h+info.spaceAfter > area.Height {
+			// The last line fits but its trailing space does not: a
+			// margin at a fragmentation break is truncated (CSS
+			// Fragmentation §5.2), so the space is cut to what is left
+			// rather than carrying the line to the next page.
+			if totalH+h <= area.Height {
+				info.spaceAfter = max(area.Height-totalH-h, 0)
+			}
+		}
 		if i == len(infos)-1 {
 			h += info.spaceAfter
 		}
-		if totalH+h > area.Height && i > 0 {
-			splitIdx = i
-			break
+		if totalH+h > area.Height {
+			if i == 0 && !area.AtFragmentTop {
+				// Not even the first line fits. Lower on a page the
+				// line would be drawn past the area's bottom edge (into
+				// the margin or over a footer), so defer the whole
+				// paragraph to the next fragment. Only at a fragment's
+				// top is the first line forced, to guarantee progress.
+				return LayoutPlan{Status: LayoutNothing}
+			}
+			if i > 0 {
+				splitIdx = i
+				break
+			}
 		}
 		totalH += h
 	}
