@@ -148,3 +148,51 @@ func TestIssue479OrphansWidows(t *testing.T) {
 		})
 	}
 }
+
+// TestIssue480HeadingKeptWithNext reproduces issue #480: a heading at the
+// foot of a page moves to the next page with the element after it when
+// that element cannot start on the same page.
+func TestIssue480HeadingKeptWithNext(t *testing.T) {
+	cases := []struct {
+		name   string
+		before int
+		next   func() layout.Element
+	}{
+		{"keep-together div", 920, func() layout.Element {
+			return layout.NewDiv().SetKeepTogether(true).
+				Add(layout.NewParagraph(numberedWords("b", 100), font.Helvetica, 10))
+		}},
+		{"paragraph", 1000, func() layout.Element {
+			return layout.NewParagraph(numberedWords("b", 100), font.Helvetica, 10)
+		}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			d := newPaginationDoc()
+			d.Add(layout.NewParagraph(numberedWords("a", tc.before), font.Helvetica, 10))
+			d.Add(layout.NewHeading("Next section", layout.H2))
+			d.Add(tc.next())
+			r := writeAndParse(t, d)
+			heading, start := 0, 0
+			for i := range r.PageCount() {
+				for _, s := range pageSpans(t, r, i) {
+					if s.Text == "section" && heading == 0 {
+						heading = i + 1
+					}
+					if s.Text == "b1" && start == 0 {
+						start = i + 1
+					}
+				}
+			}
+			if heading == 0 || start == 0 {
+				t.Fatalf("heading on page %d, next element on page %d: text not found", heading, start)
+			}
+			if heading != start {
+				t.Errorf("heading on page %d but the element after it starts on page %d", heading, start)
+			}
+			if heading < 2 {
+				t.Errorf("heading on page %d; the scenario expects it pushed to page 2", heading)
+			}
+		})
+	}
+}

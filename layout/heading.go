@@ -175,6 +175,13 @@ func (h *Heading) text() string {
 	return strings.Join(parts, " ")
 }
 
+// KeepWithNext reports that the heading must not end a page on its own:
+// when the element after it cannot start on the same page, the renderer
+// moves the heading with it (CSS break-after: avoid, which browsers apply
+// to headings by default). A continuation heading (the wrapped tail of a
+// split heading) makes no such claim.
+func (h *Heading) KeepWithNext() bool { return !h.continuation }
+
 // MinWidth implements Measurable by delegating to the inner Paragraph.
 func (h *Heading) MinWidth() float64 { return h.para.MinWidth() }
 

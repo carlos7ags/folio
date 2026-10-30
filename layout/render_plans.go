@@ -75,6 +75,30 @@ func (r *Renderer) renderWithPlans() []PageResult {
 		})
 	}
 
+	// Float tracking: active floats reduce available width for subsequent elements.
+	type activeFloat struct {
+		side         FloatSide
+		width        float64 // width consumed by the float (including margin)
+		remainHeight float64 // how much vertical space the float still occupies
+	}
+	var floats []activeFloat
+
+	// keepMark snapshots the page state just before an element that asks
+	// to be kept with the next one (a Heading) was placed, together with
+	// that element. If the in-flow element after it cannot start on this
+	// page, the kept element is un-placed and moved with it, so a page
+	// never ends on a heading with nothing under it. A run of such
+	// elements (an h1 followed by an h2) keeps the earliest mark, so the
+	// whole run moves together.
+	type keepWithNextMark struct {
+		elems           []Element
+		blocks          int
+		curY, remaining float64
+		floats          []activeFloat
+		active          bool
+	}
+	var keepMark keepWithNextMark
+
 	startNewPage := func() {
 		if len(curBlocks) > 0 {
 			flushPage()
@@ -87,15 +111,8 @@ func (r *Renderer) renderWithPlans() []PageResult {
 		curY = 0
 		atPageTop = true
 		bodyPending = nil
+		keepMark = keepWithNextMark{}
 	}
-
-	// Float tracking: active floats reduce available width for subsequent elements.
-	type activeFloat struct {
-		side         FloatSide
-		width        float64 // width consumed by the float (including margin)
-		remainHeight float64 // how much vertical space the float still occupies
-	}
-	var floats []activeFloat
 
 	// effectiveWidth returns the available width accounting for active floats.
 	effectiveWidth := func() (width, leftOffset float64) {
@@ -155,6 +172,23 @@ func (r *Renderer) renderWithPlans() []PageResult {
 		return moved
 	}
 
+	// rollbackKeepWithNext un-places the kept elements and returns them to
+	// re-queue ahead of the element being deferred. Elements kept at the
+	// top of the page stay: moving them would only repeat the same layout
+	// on the next page.
+	rollbackKeepWithNext := func() []Element {
+		if !keepMark.active {
+			return nil
+		}
+		moved := keepMark.elems
+		curBlocks = curBlocks[:keepMark.blocks]
+		curY, remainingHeight = keepMark.curY, keepMark.remaining
+		floats = keepMark.floats
+		keepMark = keepWithNextMark{}
+		bodyPending = nil
+		return moved
+	}
+
 	// Initialize first page.
 	_ = pageIdx // used in flushPage closure
 
@@ -186,6 +220,7 @@ func (r *Renderer) renderWithPlans() []PageResult {
 			floats = nil
 			atPageTop = true
 			bodyPending = nil
+			keepMark = keepWithNextMark{}
 			continue
 		}
 
@@ -256,6 +291,16 @@ func (r *Renderer) renderWithPlans() []PageResult {
 			AtFragmentTop: atPageTop,
 		}
 
+		// State before this element is placed, for a keep-with-next mark.
+		// Taken now because placing the element consumes float height.
+		keepsNext := false
+		var markFloats []activeFloat
+		if kn, ok := baseElement(elem).(interface{ KeepWithNext() bool }); ok && kn.KeepWithNext() {
+			keepsNext = true
+			markFloats = append([]activeFloat(nil), floats...)
+		}
+		markBlocks, markY, markRemaining := len(curBlocks), curY, remainingHeight
+
 		plan := elem.PlanLayout(area)
 
 		// If this element is a float, place it beside any floats already
@@ -309,6 +354,21 @@ func (r *Renderer) renderWithPlans() []PageResult {
 			} else {
 				consumeFloatHeight(plan.Consumed)
 				bodyPending = nil
+				switch {
+				case !keepsNext:
+					keepMark = keepWithNextMark{}
+				case keepMark.active:
+					keepMark.elems = append(keepMark.elems, elem)
+				case !atPageTop:
+					keepMark = keepWithNextMark{
+						elems:     []Element{elem},
+						blocks:    markBlocks,
+						curY:      markY,
+						remaining: markRemaining,
+						floats:    markFloats,
+						active:    true,
+					}
+				}
 			}
 			atPageTop = false
 
@@ -318,6 +378,7 @@ func (r *Renderer) renderWithPlans() []PageResult {
 			// the whole element to the next page instead of splitting.
 			if kt, ok := baseElement(elem).(interface{ KeepTogether() bool }); ok && kt.KeepTogether() && !atPageTop {
 				moved := rollbackFloats()
+				moved = append(rollbackKeepWithNext(), moved...)
 				startNewPage()
 				floats = nil
 				queue = append(append(moved, elem), queue...)
@@ -343,6 +404,7 @@ func (r *Renderer) renderWithPlans() []PageResult {
 				var moved []Element
 				if !isFloatElem {
 					moved = rollbackFloats()
+					moved = append(rollbackKeepWithNext(), moved...)
 				}
 				startNewPage()
 				floats = nil
