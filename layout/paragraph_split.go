@@ -239,6 +239,28 @@ func (p *Paragraph) PlanLayout(area LayoutArea) LayoutPlan {
 		totalH += h
 	}
 
+	// Orphans and widows (CSS Fragmentation §4.3): when the paragraph
+	// splits, keep at least p.orphans lines on this fragment and carry
+	// at least p.widows lines to the next one. Widows take lines from
+	// this fragment; orphans then decide whether what remains here is
+	// worth keeping, or the whole paragraph moves on. At a fragment's
+	// top the rules give way, or a paragraph taller than the fragment
+	// could never be placed.
+	if splitIdx < len(infos) {
+		if tail := len(infos) - splitIdx; p.widows > 0 && tail < p.widows {
+			splitIdx -= p.widows - tail
+		}
+		if p.orphans > 0 && splitIdx < p.orphans {
+			splitIdx = 0
+		}
+		if splitIdx < 1 {
+			if !area.AtFragmentTop {
+				return LayoutPlan{Status: LayoutNothing}
+			}
+			splitIdx = 1
+		}
+	}
+
 	// Build placed blocks for fitted lines.
 	blocks := make([]PlacedBlock, 0, splitIdx)
 	curY := 0.0

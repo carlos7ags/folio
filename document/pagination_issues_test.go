@@ -99,3 +99,52 @@ func TestIssue478FirstLineStaysAboveBottomMargin(t *testing.T) {
 		}
 	}
 }
+
+// TestIssue479OrphansWidows reproduces issue #479: SetOrphans and SetWidows
+// must bound how a paragraph splits across pages.
+func TestIssue479OrphansWidows(t *testing.T) {
+	for _, lead := range []int{0, 40} {
+		t.Run(fmt.Sprintf("lead%d", lead), func(t *testing.T) {
+			d := newPaginationDoc()
+			if lead > 0 {
+				d.Add(layout.NewParagraph(strings.TrimSpace(strings.Repeat("lead ", lead)), font.Helvetica, 10))
+			}
+			for i := range 40 {
+				var w []string
+				for j := range 30 + (i*37)%90 {
+					w = append(w, fmt.Sprintf("p%02d.%d", i+1, j+1))
+				}
+				d.Add(layout.NewParagraph(strings.Join(w, " "), font.Helvetica, 10).SetOrphans(2).SetWidows(2))
+			}
+			pages := pageLines(t, writeAndParse(t, d))
+			splits := 0
+			for i := 0; i+1 < len(pages); i++ {
+				cur, next := pages[i], pages[i+1]
+				if len(cur) == 0 || len(next) == 0 {
+					continue
+				}
+				id := cur[len(cur)-1]
+				if !strings.HasPrefix(id, "p") || next[0] != id {
+					continue // the break falls between paragraphs
+				}
+				splits++
+				foot, head := 0, 0
+				for j := len(cur) - 1; j >= 0 && cur[j] == id; j-- {
+					foot++
+				}
+				for j := 0; j < len(next) && next[j] == id; j++ {
+					head++
+				}
+				if foot < 2 {
+					t.Errorf("pages %d-%d: paragraph %s leaves %d line(s) at the foot, want >= 2 (orphans)", i+1, i+2, id, foot)
+				}
+				if head < 2 {
+					t.Errorf("pages %d-%d: paragraph %s carries %d line(s) to the head, want >= 2 (widows)", i+1, i+2, id, head)
+				}
+			}
+			if splits == 0 {
+				t.Fatal("no paragraph split across a page; the test exercises nothing")
+			}
+		})
+	}
+}
