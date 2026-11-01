@@ -22,9 +22,9 @@ jobs:
           go-version: '1.26'
           cache: true
 
-      - name: Install qpdf
+      - name: Install qpdf and OpenSSL
         if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y qpdf
+        run: sudo apt-get update && sudo apt-get install -y qpdf openssl
 
       - name: Install libxml2-utils
         if: runner.os == 'Linux'

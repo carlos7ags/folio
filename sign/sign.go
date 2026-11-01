@@ -168,17 +168,14 @@ func SignPDF(pdfBytes []byte, opts Options) ([]byte, error) {
 		return nil, fmt.Errorf("sign: %w", err)
 	}
 
-	// Get TSA token if needed (B-T and above).
-	var tsaToken []byte
-	if opts.Level >= LevelBT && opts.TSAClient != nil {
-		tsaToken, err = opts.TSAClient.Timestamp(digest, opts.Signer.Algorithm().HashFunc())
-		if err != nil {
-			return nil, fmt.Errorf("sign: TSA timestamp: %w", err)
-		}
+	// B-T and above timestamp the signature created inside buildCMS.
+	var tsaClient *TSAClient
+	if opts.Level >= LevelBT {
+		tsaClient = opts.TSAClient
 	}
 
 	// Build the CMS detached signature.
-	cmsSig, err := buildCMS(digest, opts.Signer, signingTime, tsaToken)
+	cmsSig, err := buildCMS(digest, opts.Signer, signingTime, tsaClient)
 	if err != nil {
 		return nil, fmt.Errorf("sign: build CMS: %w", err)
 	}

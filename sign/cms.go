@@ -8,6 +8,7 @@ import (
 	"crypto/x509"
 	"encoding/asn1"
 	"errors"
+	"fmt"
 	"time"
 )
 
@@ -17,11 +18,11 @@ import (
 //   - digest: hash of the data being signed (the PDF byte ranges)
 //   - signer: provides the signing operation, algorithm, and certificates
 //   - signingTime: timestamp for the signed attributes
-//   - tsaToken: optional RFC 3161 timestamp token (DER); nil to omit
+//   - tsaClient: optional RFC 3161 client; nil to omit the signature timestamp
 //
 // The result is a detached CMS signature suitable for embedding in a PDF
 // signature dictionary's /Contents field.
-func buildCMS(digest []byte, signer Signer, signingTime time.Time, tsaToken []byte) ([]byte, error) {
+func buildCMS(digest []byte, signer Signer, signingTime time.Time, tsaClient *TSAClient) ([]byte, error) {
 	certs := signer.CertificateChain()
 	if len(certs) == 0 {
 		return nil, errors.New("sign: no certificates")
@@ -50,6 +51,16 @@ func buildCMS(digest []byte, signer Signer, signingTime time.Time, tsaToken []by
 	sig, err := signer.Sign(attrDigest)
 	if err != nil {
 		return nil, err
+	}
+
+	// RFC 3161 Appendix A binds the timestamp to the SignerInfo signature
+	// value. Request it after signing, and embed that same signature below.
+	var tsaToken []byte
+	if tsaClient != nil {
+		tsaToken, err = tsaClient.Timestamp(hashBytes(algo.HashFunc(), sig), algo.HashFunc())
+		if err != nil {
+			return nil, fmt.Errorf("sign: TSA timestamp: %w", err)
+		}
 	}
 
 	// Encode certificates.
