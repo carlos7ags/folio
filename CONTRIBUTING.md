@@ -17,6 +17,7 @@ Releases are cut by tagging `main` (e.g., `v0.5.0`).
 
 - Go 1.26+
 - `qpdf` (used in tests): `brew install qpdf` (macOS) or `apt-get install qpdf` (Linux)
+- OpenSSL with the `ts` and `cms` commands for independent signature timestamp tests. These tests skip when OpenSSL is absent. Linux CI installs it.
 
 ## Building and Testing
 

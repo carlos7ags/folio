@@ -15,7 +15,7 @@
 #define ASSERT(cond, msg) do { \
     if (!(cond)) { \
         fprintf(stderr, "FAIL: %s (line %d)\n", msg, __LINE__); \
-        const char* err = folio_last_error(); \
+        char* err = folio_last_error(); \
         if (err) { fprintf(stderr, "  last_error: %s\n", err); folio_string_free(err); } \
         failures++; \
     } else { \
@@ -104,7 +104,7 @@ int main(void) {
     /* Test 4: Invalid handle */
     rc = folio_document_set_title(99999, "bad");
     ASSERT(rc != 0, "invalid handle returns error");
-    const char* e0 = folio_last_error();
+    char* e0 = folio_last_error();
     ASSERT(e0 != NULL, "last_error set for invalid handle");
     folio_string_free(e0);
 
@@ -539,8 +539,8 @@ int main(void) {
     /* ===== Stage 18: SVG ===== */
     printf("Testing SVG...\n");
 
-    const char* svgXml = "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"100\" height=\"100\">"
-                         "<circle cx=\"50\" cy=\"50\" r=\"40\" fill=\"red\"/></svg>";
+    char svgXml[] = "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"100\" height=\"100\">"
+                    "<circle cx=\"50\" cy=\"50\" r=\"40\" fill=\"red\"/></svg>";
     uint64_t svg = folio_svg_parse(svgXml);
     ASSERT(svg != 0, "svg_parse returns handle");
 
@@ -781,7 +781,7 @@ int main(void) {
     uint64_t tl = folio_tabbed_line_new(helv, 12.0, positions, aligns, leaders, 1);
     ASSERT(tl != 0, "tabbed_line_new returns handle");
 
-    const char* segments[] = {"Chapter 1", "15"};
+    char* segments[] = {"Chapter 1", "15"};
     rc = folio_tabbed_line_set_segments(tl, segments, 2);
     ASSERT(rc == 0, "tabbed_line_set_segments succeeds");
 
@@ -866,7 +866,7 @@ int main(void) {
     ASSERT(rc == 0, "document_add_html_with_options succeeds");
 
     /* File attachment */
-    const char* xmlData = "<?xml version=\"1.0\"?><invoice><total>100.00</total></invoice>";
+    char xmlData[] = "<?xml version=\"1.0\"?><invoice><total>100.00</total></invoice>";
     rc = folio_document_attach_file(doc, xmlData, (int32_t)strlen(xmlData),
         "invoice.xml", "application/xml", "Invoice data", "Alternative");
     ASSERT(rc == 0, "document_attach_file succeeds");
@@ -952,12 +952,12 @@ int main(void) {
     rc = folio_form_add_password_field(form, "pwd", 72, 560, 300, 580, 0);
     ASSERT(rc == 0, "form_add_password_field succeeds");
 
-    const char* listOpts[] = {"Option A", "Option B", "Option C"};
+    char* listOpts[] = {"Option A", "Option B", "Option C"};
     rc = folio_form_add_listbox(form, "choices", 72, 400, 200, 540, 0, listOpts, 3);
     ASSERT(rc == 0, "form_add_listbox succeeds");
 
     /* Radio group */
-    const char* radioVals[] = {"yes", "no"};
+    char* radioVals[] = {"yes", "no"};
     double radioRects[] = {72, 350, 90, 368,  120, 350, 138, 368};
     int32_t radioPages[] = {0, 0};
     rc = folio_form_add_radio_group(form, "confirm", radioVals, radioRects, radioPages, 2);
@@ -1164,7 +1164,7 @@ int main(void) {
     printf("Testing digital signatures...\n");
 
     /* Embedded test key and cert (self-signed RSA 2048, CN=Folio Test) */
-    static const char test_key_pem[] =
+    static char test_key_pem[] =
         "-----BEGIN PRIVATE KEY-----\n"
         "MIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQCNHIB8Wg853Ty1\n"
         "TpY3vizEquniPCvZo4+Tu8z0RwsUcADbI/n1v8RVA20GkXZTw1odQ4S6hrjU05Z3\n"
@@ -1194,7 +1194,7 @@ int main(void) {
         "VhUNHIavjT9GTx1xkW9wzVg=\n"
         "-----END PRIVATE KEY-----\n";
 
-    static const char test_cert_pem[] =
+    static char test_cert_pem[] =
         "-----BEGIN CERTIFICATE-----\n"
         "MIIDKTCCAhGgAwIBAgIUO1af5HyjPhg326gfYL84I/tEMbwwDQYJKoZIhvcNAQEL\n"
         "BQAwJDETMBEGA1UEAwwKRm9saW8gVGVzdDENMAsGA1UECgwEVGVzdDAeFw0yNjAz\n"
@@ -1575,7 +1575,7 @@ int main(void) {
     rc = folio_grid_set_borders(gr,
         1,0,0,0, 1,0,0,0, 1,0,0,0, 1,0,0,0);
     ASSERT(rc == 0, "grid_set_borders succeeds");
-    const char* gAreas[] = {"a a", "b c"};
+    char* gAreas[] = {"a a", "b c"};
     int32_t gAreaCols[] = {2, 2};
     rc = folio_grid_set_template_areas(gr, gAreas, gAreaCols, 2);
     ASSERT(rc == 0, "grid_set_template_areas succeeds");
@@ -1824,7 +1824,7 @@ int main(void) {
     /* count above the 1<<20 cap: rejected, not a crash */
     rc = folio_table_set_column_widths(tblBounds, widthsBounds, (1 << 20) + 1);
     ASSERT(rc != 0, "oversized count rejected");
-    const char* eBounds = folio_last_error();
+    char* eBounds = folio_last_error();
     ASSERT(eBounds != NULL, "last_error set for oversized count");
     folio_string_free(eBounds);
 
@@ -1850,14 +1850,14 @@ int main(void) {
     {
         /* trigger error 1: invalid handle */
         folio_document_set_title(0xDEAD, "x");
-        const char* e1 = folio_last_error();
+        char* e1 = folio_last_error();
         ASSERT(e1 != NULL, "first error captured");
         char first[256];
         snprintf(first, sizeof first, "%s", e1 ? e1 : "");
 
         /* trigger error 2: another invalid handle call replaces the stored message */
         folio_document_add_page(0xBEEF);
-        const char* e2 = folio_last_error();
+        char* e2 = folio_last_error();
         ASSERT(e2 != NULL, "second error captured");
 
         /* e1 must still be a valid, unchanged C string (was freed under the
@@ -1904,7 +1904,7 @@ int main(void) {
 
     /* last_error is populated after a failing call; caller owns the copy */
     folio_document_set_title(99999, "x");
-    const char* errPath = folio_last_error();
+    char* errPath = folio_last_error();
     ASSERT(errPath != NULL, "last_error non-NULL after failure");
     folio_string_free(errPath);
 
