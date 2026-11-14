@@ -74,6 +74,9 @@ func TestFormFanOutExceedsBudget(t *testing.T) {
 	if _, err := page.ExtractTextWithStrategy(&SimpleStrategy{}); !errors.Is(err, ErrFormBudgetExceeded) {
 		t.Errorf("ExtractTextWithStrategy: got %v, want ErrFormBudgetExceeded", err)
 	}
+	if _, err := page.ExtractText(); !errors.Is(err, ErrFormBudgetExceeded) {
+		t.Errorf("ExtractText: got %v, want ErrFormBudgetExceeded", err)
+	}
 }
 
 func TestFormFanOutWithinBudget(t *testing.T) {

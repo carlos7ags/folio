@@ -3,6 +3,8 @@
 
 package reader
 
+import "github.com/carlos7ags/folio/core"
+
 // ContentOp is a single PDF content stream operator with its operands.
 type ContentOp struct {
 	Operator string  // e.g. "BT", "Tf", "Tj", "cm", "re", "f"
@@ -145,11 +147,27 @@ const tjKernThreshold = -200
 // ExtractTextWithFonts extracts text from a content stream using font encoding
 // information and text positioning to produce properly spaced Unicode text.
 func ExtractTextWithFonts(data []byte, fonts FontCache) string {
-	ops := ParseContentStream(data)
-	var result []byte
 	ts := textState{fonts: fonts, fontSize: 12}
+	return string(ts.extract(ParseContentStream(data), nil, nil))
+}
 
+// formText lets the extractor follow Do into Form XObjects.
+type formText struct {
+	lookup formLookup
+	res    *core.PdfDictionary
+	depth  int
+	ops    *int // ops run inside forms, shared across the whole page
+}
+
+// extract appends the text shown by ops to result. With forms set, a Do
+// that names a Form XObject extracts the form's content with its fonts.
+func (ts *textState) extract(ops []ContentOp, result []byte, forms *formText) []byte {
 	for _, op := range ops {
+		if forms != nil && forms.depth > 0 {
+			if *forms.ops++; *forms.ops > maxFormOps {
+				return result
+			}
+		}
 		switch op.Operator {
 		case "BT":
 			// Begin text object — reset text matrix.
@@ -164,8 +182,8 @@ func ExtractTextWithFonts(data []byte, fonts FontCache) string {
 		case "Tf":
 			// Set font and size: /FontName size Tf
 			if len(op.Operands) > 1 {
-				if op.Operands[0].Type == TokenName && fonts != nil {
-					ts.currentFont = fonts[op.Operands[0].Value]
+				if op.Operands[0].Type == TokenName && ts.fonts != nil {
+					ts.currentFont = ts.fonts[op.Operands[0].Value]
 				}
 				if op.Operands[1].Type == TokenNumber {
 					ts.fontSize = op.Operands[1].Real
@@ -275,10 +293,28 @@ func ExtractTextWithFonts(data []byte, fonts FontCache) string {
 					}
 				}
 			}
+
+		case "Do":
+			const maxFormDepth = 50
+			if forms == nil || forms.depth >= maxFormDepth || len(op.Operands) < 1 || op.Operands[0].Type != TokenName {
+				break
+			}
+			formOps, formRes, formFonts, _ := forms.lookup(forms.res, op.Operands[0].Value)
+			if formOps == nil {
+				break
+			}
+			// The form runs inside an implicit q/Q: its text state does not
+			// carry over, only where the extracted text has got to.
+			saved := *ts
+			ts.fonts = formFonts
+			result = ts.extract(formOps, result, &formText{lookup: forms.lookup, res: formRes, depth: forms.depth + 1, ops: forms.ops})
+			prevEndX, prevY, hadText := ts.prevEndX, ts.prevY, ts.hadText
+			*ts = saved
+			ts.prevEndX, ts.prevY, ts.hadText = prevEndX, prevY, hadText
 		}
 	}
 
-	return string(result)
+	return result
 }
 
 // emitPositionChange decides whether to insert a space or newline based on

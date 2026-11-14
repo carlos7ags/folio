@@ -736,15 +736,21 @@ func (p *PageInfo) ExtractText() (string, error) {
 	}
 
 	// Build font cache from page resources for proper text decoding.
-	var fonts FontCache
+	ts := textState{fontSize: 12}
+	var forms *formText
 	if p.reader != nil {
 		res, resErr := p.Resources()
 		if resErr == nil && res != nil {
-			fonts = buildFontCacheWithShared(res, p.reader.resolver, p.reader.getFontCache())
+			ts.fonts = buildFontCacheWithShared(res, p.reader.resolver, p.reader.getFontCache())
 		}
+		forms = &formText{lookup: p.formLookup(res, ts.fonts), res: res, ops: new(int)}
 	}
 
-	return ExtractTextWithFonts(data, fonts), nil
+	text := string(ts.extract(ParseContentStream(data), nil, forms))
+	if forms != nil && *forms.ops > maxFormOps {
+		return "", ErrFormBudgetExceeded
+	}
+	return text, nil
 }
 
 // ContentOps parses the page's content stream into a sequence of operators.
