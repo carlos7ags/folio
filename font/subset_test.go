@@ -4,6 +4,7 @@
 package font
 
 import (
+	"bytes"
 	"encoding/binary"
 	"os"
 	"slices"
@@ -631,5 +632,76 @@ func TestResolveCompositesIgnoresOutOfRangeComponents(t *testing.T) {
 	}
 	if len(glyphSet) != 2 {
 		t.Errorf("glyphSet size = %d, want 2", len(glyphSet))
+	}
+}
+
+// hintingTables are minimal TrueType hinting tables: fpgm defines
+// function 0, prep calls it, cvt holds two values and gasp has a single
+// range.
+var hintingTables = map[string][]byte{
+	"cvt ": {0x00, 0x10, 0x00, 0x20},
+	"fpgm": {0xB0, 0x00, 0x2C, 0x2D}, // PUSHB[0] 0, FDEF, ENDF
+	"prep": {0xB0, 0x00, 0x2B},       // PUSHB[0] 0, CALL
+	"gasp": {0x00, 0x01, 0x00, 0x01, 0xFF, 0xFF, 0x00, 0x0F},
+}
+
+// TestSubsetKeepsHintingTables checks that a hinted font keeps its
+// hinting tables. Glyph IDs are preserved and the glyph programs in glyf
+// are copied as-is, so they still call the functions defined in fpgm and
+// read the values in cvt; without those tables they refer to data the
+// font no longer has.
+func TestSubsetKeepsHintingTables(t *testing.T) {
+	raw, err := os.ReadFile("testdata/synthetic_metrics_hhea.ttf")
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
+	}
+	tables, err := parseTTFTables(raw)
+	if err != nil {
+		t.Fatalf("parseTTFTables: %v", err)
+	}
+	for tag, data := range hintingTables {
+		tables[tag] = data
+	}
+	hinted := assembleTTF(tables)
+
+	subset, err := Subset(hinted, map[uint16]rune{1: 'A'})
+	if err != nil {
+		t.Fatalf("Subset: %v", err)
+	}
+	got, err := parseTTFTables(subset)
+	if err != nil {
+		t.Fatalf("parseTTFTables(subset): %v", err)
+	}
+	for tag, want := range hintingTables {
+		data, ok := got[tag]
+		if !ok {
+			t.Errorf("subset dropped the %q table", tag)
+			continue
+		}
+		if !bytes.Equal(data, want) {
+			t.Errorf("%q table = % x, want % x", tag, data, want)
+		}
+	}
+}
+
+// TestSubsetAddsNoHintingTables checks that an unhinted font stays
+// unhinted.
+func TestSubsetAddsNoHintingTables(t *testing.T) {
+	raw, err := os.ReadFile("testdata/synthetic_metrics_hhea.ttf")
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
+	}
+	subset, err := Subset(raw, map[uint16]rune{1: 'A'})
+	if err != nil {
+		t.Fatalf("Subset: %v", err)
+	}
+	got, err := parseTTFTables(subset)
+	if err != nil {
+		t.Fatalf("parseTTFTables(subset): %v", err)
+	}
+	for tag := range hintingTables {
+		if _, ok := got[tag]; ok {
+			t.Errorf("subset of an unhinted font has a %q table", tag)
+		}
 	}
 }

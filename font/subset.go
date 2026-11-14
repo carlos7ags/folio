@@ -14,7 +14,8 @@ import (
 // unused glyph slots are zeroed out so /CIDToGIDMap /Identity remains valid.
 //
 // The subset includes tables: head, hhea, maxp, OS/2, name, cmap, post,
-// loca, glyf, hmtx. All other tables are omitted.
+// loca, glyf, hmtx, and the hinting tables cvt, fpgm, prep and gasp when
+// the font has them. All other tables are omitted.
 //
 // Errors returned by this function wrap one of the sentinel errors
 // [ErrMissingTable], [ErrTruncated], or [ErrCorruptTable] so callers
@@ -118,6 +119,14 @@ func Subset(raw []byte, usedGlyphs map[uint16]rune) ([]byte, error) {
 	}
 	if d, ok := tables["name"]; ok {
 		outTables["name"] = copyTable(d)
+	}
+	// Keep the hinting tables. The glyph programs copied with glyf call
+	// the functions defined in fpgm and read the values in cvt; since
+	// glyph IDs are preserved, these tables stay valid as they are.
+	for _, tag := range []string{"cvt ", "fpgm", "prep", "gasp"} {
+		if d, ok := tables[tag]; ok {
+			outTables[tag] = copyTable(d)
+		}
 	}
 
 	result := assembleTTF(outTables)
