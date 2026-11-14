@@ -133,6 +133,32 @@ func TestSweepOrphans_RenumbersTransitiveReferences(t *testing.T) {
 	}
 }
 
+func TestSweepOrphans_RenumbersSharedReferenceOnce(t *testing.T) {
+	// One *PdfIndirectReference held by two bodies (as reader.Copier
+	// hands out) must be renumbered once, not once per body.
+	w := NewWriter("1.7")
+	catalog := core.NewPdfDictionary()
+	catalog.Set("Type", core.NewPdfName("Catalog"))
+	catalogRef := w.AddObject(catalog) // 1
+
+	w.AddObject(core.NewPdfDictionary()) // 2 — orphan, dropped
+
+	a := core.NewPdfDictionary()
+	aRef := w.AddObject(a) // 3 → 2
+	b := core.NewPdfDictionary()
+	bRef := w.AddObject(b) // 4 → 3
+	catalog.Set("A", aRef)
+	catalog.Set("B", bRef)
+	a.Set("B", bRef)
+	w.SetRoot(catalogRef)
+
+	w.sweepOrphans()
+
+	if got := bRef.Num(); got != 3 {
+		t.Errorf("shared reference renumbered to %d, want 3", got)
+	}
+}
+
 func TestSweepOrphans_RewritesReferencesInsideArrays(t *testing.T) {
 	// Pages' /Kids array holds references to page dicts. An orphan
 	// inserted between catalog and the first page must trigger
