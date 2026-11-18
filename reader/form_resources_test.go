@@ -145,3 +145,56 @@ func TestTextSpansFormUnbalancedRestore(t *testing.T) {
 		t.Fatalf("spans = %+v, want one span at (0, 0)", spans)
 	}
 }
+
+// ExtractText follows Do into forms, decoding with the form's own fonts.
+func TestExtractTextFormOwnResources(t *testing.T) {
+	r, err := Parse(buildPDFFromObjects([]string{
+		"<< /Type /Catalog /Pages 2 0 R >>",
+		"<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+		"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] /Contents 4 0 R /Resources << /XObject << /Fm1 5 0 R >> >> >>",
+		formStream("", "q /Fm1 Do Q"),
+		formStream("/Type /XObject /Subtype /Form /BBox [0 0 200 200] /Resources << /Font << /F1 6 0 R >> >>",
+			"BT /F1 12 Tf 10 100 Td <0102> Tj ET"),
+		"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /ToUnicode 7 0 R >>",
+		formStream("", toUnicodeHi),
+	}))
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	page, err := r.Page(0)
+	if err != nil {
+		t.Fatalf("Page: %v", err)
+	}
+	got, err := page.ExtractText()
+	if err != nil {
+		t.Fatalf("ExtractText: %v", err)
+	}
+	if got != "Hi" {
+		t.Errorf("got %q, want %q", got, "Hi")
+	}
+}
+
+// A form's text state (here its leading) does not leak into the page's text.
+func TestExtractTextFormKeepsPageTextState(t *testing.T) {
+	r, err := Parse(buildPDFFromObjects([]string{
+		"<< /Type /Catalog /Pages 2 0 R >>",
+		"<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+		"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] /Contents 4 0 R /Resources << /XObject << /Fm1 5 0 R >> >> >>",
+		formStream("", "12 TL BT 10 100 Td (Line1) Tj ET /Fm1 Do BT 10 80 Td (Line2) Tj T* (Line3) Tj ET"),
+		formStream("/Type /XObject /Subtype /Form /BBox [0 0 200 200]", "BT 0 TL ET"),
+	}))
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	page, err := r.Page(0)
+	if err != nil {
+		t.Fatalf("Page: %v", err)
+	}
+	got, err := page.ExtractText()
+	if err != nil {
+		t.Fatalf("ExtractText: %v", err)
+	}
+	if got != "Line1\nLine2\nLine3" {
+		t.Errorf("got %q, want %q", got, "Line1\nLine2\nLine3")
+	}
+}
