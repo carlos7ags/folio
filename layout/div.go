@@ -1175,7 +1175,11 @@ func (d *Div) PlanLayout(area LayoutArea) LayoutPlan {
 		if ovWidth <= 0 {
 			ovWidth = innerWidth
 		}
-		ovPlan := ov.elem.PlanLayout(LayoutArea{Width: ovWidth, Height: totalH})
+		// An overlay is out of flow and never fragments, so its height is
+		// not bounded by the containing block's: bounding it dropped the
+		// overlay's content whenever it was taller than its host (or merely
+		// a rounding error away from fitting).
+		ovPlan := ov.elem.PlanLayout(LayoutArea{Width: ovWidth, Height: 1e9})
 		for _, block := range ovPlan.Blocks {
 			if ov.rightAligned {
 				// CSS right: position from the right edge of the containing block.

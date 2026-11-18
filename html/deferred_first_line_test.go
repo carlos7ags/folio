@@ -38,6 +38,11 @@ func TestContentSurvivesFirstLineDeferral(t *testing.T) {
 		{name: "inline-block with explicit height", body: `<p>TOP <span style="display:inline-block;height:14px;padding:2px 6px;font-size:12px">ALPHA</span> OMEGA</p>`, want: []string{"TOP", "ALPHA", "OMEGA"}},
 		{name: "block shorter than its line", body: `<p>TOP</p><div style="height:12px;font-size:12px">ALPHA</div><p>OMEGA</p>`, want: []string{"TOP", "ALPHA", "OMEGA"}},
 		{name: "short block in a table cell", body: `<table><tr><td><div style="height:8px">ALPHA</div></td></tr></table>`, want: []string{"ALPHA"}},
+		// Absolutely positioned content is out of flow and never
+		// fragments, so it is not bounded by its containing block's
+		// height.
+		{name: "absolute box with padding and border", body: `<div style="position:relative">HOST<div style="position:absolute;top:0;right:0;padding:3px;border:1px solid">ALPHA</div></div>`, want: []string{"HOST", "ALPHA"}},
+		{name: "absolute text in a short host", body: `<div style="position:relative;height:5px"><div style="position:absolute;top:0;left:0">ALPHA</div></div>`, want: []string{"ALPHA"}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
