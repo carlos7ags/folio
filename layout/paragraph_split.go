@@ -320,8 +320,15 @@ func (p *Paragraph) PlanLayout(area LayoutArea) LayoutPlan {
 		inlineX := 0.0
 		for _, w := range info.words {
 			if w.InlineBlock != nil {
+				// An inline-block is monolithic: it was measured with
+				// unbounded height and never fragments, so re-plan it the
+				// same way. Bounding it by the measured height lets float
+				// rounding in the box's padding and border arithmetic
+				// leave the content a hair short of its own height, and a
+				// paragraph that is not at a fragment top then defers
+				// instead of placing its first line, emptying the box.
 				ibPlan := w.InlineBlock.PlanLayout(LayoutArea{
-					Width: w.InlineWidth, Height: w.InlineHeight,
+					Width: w.InlineWidth, Height: 1e6,
 				})
 				for _, ib := range ibPlan.Blocks {
 					ib.X += inlineX
