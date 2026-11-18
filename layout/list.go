@@ -952,7 +952,10 @@ func (l *List) cloneWithItems(items []listItem) *List {
 // the height consumed, and the element's own LayoutPlan status and overflow so
 // the caller can split the item across pages.
 func (l *List) planElementItem(item listItem, index int, area LayoutArea, totalIndent, itemWidth, curY float64) (blocks []PlacedBlock, consumed float64, status LayoutStatus, overflow Element) {
-	plan := item.element.PlanLayout(LayoutArea{Width: itemWidth, Height: area.Height - curY})
+	// The item is at the fragment's top only if nothing of the list has
+	// been placed above it; otherwise a first line that does not fit is
+	// deferred rather than forced.
+	plan := item.element.PlanLayout(LayoutArea{Width: itemWidth, Height: area.Height - curY, AtFragmentTop: area.AtFragmentTop && curY == 0})
 	if plan.Status == LayoutNothing {
 		return nil, 0, LayoutNothing, nil
 	}

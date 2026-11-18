@@ -386,6 +386,12 @@ func (f *Flex) planRow(area LayoutArea) LayoutPlan {
 		lineHeight := 0.0
 		for j, item := range line.items {
 			plan := item.element.PlanLayout(LayoutArea{Width: resolvedWidths[j], Height: remainingCross})
+			if plan.Status == LayoutNothing && !paginateOverflow {
+				// A definite-height container does not fragment its items:
+				// one taller than the container is placed whole and
+				// overflows it, rather than placing nothing.
+				plan = item.element.PlanLayout(LayoutArea{Width: resolvedWidths[j], Height: 1e9})
+			}
 			itemPlans[j] = plan
 			if plan.Consumed > lineHeight {
 				lineHeight = plan.Consumed
