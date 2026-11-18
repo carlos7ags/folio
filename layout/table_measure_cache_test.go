@@ -4,6 +4,7 @@
 package layout
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/carlos7ags/folio/font"
@@ -157,5 +158,116 @@ func TestParagraphMeasureCacheStable(t *testing.T) {
 	}
 	if max1 != max2 {
 		t.Errorf("MaxWidth not stable across cached calls: %v vs %v", max1, max2)
+	}
+}
+
+// countingElement counts the PlanLayout calls made on the element it wraps.
+type countingElement struct {
+	inner Element
+	calls *int
+}
+
+func (c countingElement) PlanLayout(area LayoutArea) LayoutPlan {
+	*c.calls++
+	return c.inner.PlanLayout(area)
+}
+
+// TestTablePaginationMeasuresEachCellOnce paginates a table spanning many
+// pages and asserts each element cell is laid out once, however many
+// continuation tables re-plan the rows around it. Every page used to
+// re-measure every remaining row, which made pagination quadratic.
+func TestTablePaginationMeasuresEachCellOnce(t *testing.T) {
+	const rows = 120
+	calls := make([]int, rows)
+	tbl := NewTable()
+	tbl.SetColumnWidths([]float64{200, 200})
+	tbl.AddHeaderRow().AddCell("Header", font.Helvetica, 10)
+	for i := range rows {
+		r := tbl.AddRow()
+		r.AddCellElement(countingElement{
+			inner: NewParagraph("Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor.", font.Helvetica, 10),
+			calls: &calls[i],
+		})
+		r.AddCell("text", font.Helvetica, 10)
+	}
+	tbl.AddFooterRow().AddCell("Footer", font.Helvetica, 10)
+
+	var el Element = tbl
+	pages := 0
+	for el != nil {
+		plan := el.PlanLayout(LayoutArea{Width: 400, Height: 300})
+		if plan.Status == LayoutNothing {
+			t.Fatalf("page %d: table placed nothing", pages)
+		}
+		pages++
+		el = plan.Overflow
+	}
+	if pages < 5 {
+		t.Fatalf("table spans %d pages, want a long multi-page table", pages)
+	}
+	for i, n := range calls {
+		if n != 1 {
+			t.Errorf("row %d: cell laid out %d times while paginating %d pages, want 1", i, n, pages)
+		}
+	}
+}
+
+// TestTextCellHeightRoundsOnce checks a text cell's height is computed
+// from its line count as a single expression with the padding, as before
+// line counts were memoized: adding the padding to a stored product
+// rounds twice where the compiler fuses the multiply and add (arm64),
+// which moved a page split when rows summed exactly to the page height.
+func TestTextCellHeightRoundsOnce(t *testing.T) {
+	tbl := NewTable()
+	tbl.SetColumnWidths([]float64{200})
+	tbl.AddRow().AddCell("one line", font.Helvetica, 9)
+	tbl.measures = &tableMeasureCache{}
+	grid := tbl.buildGrid(tbl.resolveColWidths(200))
+	cell := grid[0].cells[0].cell
+	lines, fontSize, padH := 1, cell.fontSize, cell.padTop()+cell.padBottom()
+	want := float64(lines)*fontSize*1.2 + padH
+	if got := grid[0].height; got != want {
+		t.Errorf("row height %v, want %v", got, want)
+	}
+}
+
+// TestTableRelayoutAfterMutation lays a table out, mutates a cell, and
+// lays it out again: the second layout must measure the table as it now
+// is, exactly as a table mutated before its first layout.
+func TestTableRelayoutAfterMutation(t *testing.T) {
+	build := func() (*Table, *Cell, *Paragraph) {
+		tbl := NewTable()
+		tbl.SetColumnWidths([]float64{200, 200})
+		var cell *Cell
+		var para *Paragraph
+		for i := range 40 {
+			r := tbl.AddRow()
+			p := NewParagraph("Lorem ipsum dolor sit amet, consectetur adipiscing elit.", font.Helvetica, 10)
+			c := r.AddCellElement(p)
+			r.AddCell(fmt.Sprint(i), font.Helvetica, 10)
+			if i == 0 {
+				cell, para = c, p
+			}
+		}
+		return tbl, cell, para
+	}
+	mutate := func(c *Cell, p *Paragraph) {
+		c.SetPadding(20)
+		p.AddRun(NewRun(" More text that wraps onto further lines of the cell.", font.Helvetica, 10))
+	}
+	area := LayoutArea{Width: 400, Height: 300}
+
+	relaid, cell, para := build()
+	relaid.PlanLayout(area)
+	mutate(cell, para)
+	got := relaid.PlanLayout(area)
+
+	fresh, cell, para := build()
+	mutate(cell, para)
+	want := fresh.PlanLayout(area)
+
+	if got.Consumed != want.Consumed || len(got.Blocks[0].Children) != len(want.Blocks[0].Children) {
+		t.Errorf("relaid out: consumed %v with %d rows, want %v with %d rows",
+			got.Consumed, len(got.Blocks[0].Children), want.Consumed, len(want.Blocks[0].Children))
 	}
 }

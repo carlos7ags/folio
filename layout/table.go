@@ -317,6 +317,19 @@ type Table struct {
 	cachedColWidths   []float64
 	cachedColWidthsAt float64
 	colWidthsValid    bool
+
+	// Pagination state shared, by pointer, with the continuation tables
+	// cloneForOverflow copies from this one. measures memoizes each cell's
+	// measurement per inner width, so a cell is laid out once however many
+	// pages re-plan the rows around it; paging holds the master grids the
+	// continuations view, from body row masterStart on (see tableMaster).
+	// Both last for one pagination chain: a top-level PlanLayout (a table
+	// that is not a continuation) starts afresh, so a table mutated since
+	// an earlier layout is laid out as it now is.
+	measures     *tableMeasureCache
+	paging       *tablePaging
+	masterStart  int
+	continuation bool
 }
 
 // NewTable creates a new empty table.
@@ -410,7 +423,20 @@ func (t *Table) effectiveSpacingV() float64 {
 func (t *Table) cloneForOverflow() *Table {
 	clone := *t
 	clone.rows = nil
+	clone.continuation = true
 	return &clone
+}
+
+// drawCopy returns a copy of t holding what drawing a row reads (spacing,
+// direction, border-collapse), for the row Draw closures to capture.
+// Capturing t itself would keep its rows, master grids and measure cache
+// alive until the document is written, for every page.
+func (t *Table) drawCopy() *Table {
+	c := *t
+	c.rows = nil
+	c.paging = nil
+	c.measures = nil
+	return &c
 }
 
 // totalSpacingH returns the total horizontal space consumed by cell spacing.
@@ -792,16 +818,33 @@ type gridRow struct {
 
 // buildGrid converts the builder rows into a flat grid with computed sizes.
 func (t *Table) buildGrid(colWidths []float64) []gridRow {
+	grid, _ := t.buildGridGeometry(t.rows, colWidths)
+	for r := range grid {
+		t.measureGridRow(&grid[r])
+	}
+	t.resolveRowspanHeights(grid)
+	return grid
+}
+
+// buildGridGeometry places rows' cells in the flat grid (columns, spans
+// and widths) without measuring them: every row's height is left zero for
+// measureGridRow and resolveRowspanHeights to fill in. carried[r] reports
+// that row r was entered with a column still marked occupied from above.
+func (t *Table) buildGridGeometry(rows []*Row, colWidths []float64) (grid []gridRow, carried []bool) {
 	nCols := len(colWidths)
 	// Track which cells in the grid are occupied (by rowspan from above).
 	// occupied[row][col] = true if occupied by a spanning cell from a previous row.
 	// We build this dynamically as we process rows.
 	// colOccupied tracks how many more rows each column is occupied for.
 	colOccupied := make([]int, nCols)
+	carried = make([]bool, len(rows))
 
-	var grid []gridRow
-
-	for rIdx, row := range t.rows {
+	for rIdx, row := range rows {
+		for _, o := range colOccupied {
+			if o > 0 {
+				carried[rIdx] = true
+			}
+		}
 		gr := gridRow{isHeader: row.isHeader, isFooter: row.isFooter}
 		cellIdx := 0
 		col := 0
@@ -829,7 +872,7 @@ func (t *Table) buildGrid(colWidths []float64) []gridRow {
 			if rowspan < 1 {
 				rowspan = 1
 			}
-			rowSpanCount := min(rowspan, len(t.rows)-rIdx)
+			rowSpanCount := min(rowspan, len(rows)-rIdx)
 
 			// Compute span width. A spanning cell also covers the
 			// border-spacing gaps between the columns it spans (CSS 2.1
@@ -871,25 +914,26 @@ func (t *Table) buildGrid(colWidths []float64) []gridRow {
 			col++
 		}
 
-		// Compute row height: tallest cell content + padding. Rowspanning
-		// cells are excluded here so they don't inflate their starting row;
-		// their height is distributed across the spanned rows below.
-		maxH := 0.0
-		for i := range gr.cells {
-			h := t.cellContentHeight(&gr.cells[i])
-			if gr.cells[i].cell.rowspan > 1 {
-				continue
-			}
-			if h > maxH {
-				maxH = h
-			}
-		}
-		gr.height = maxH
 		grid = append(grid, gr)
 	}
+	return grid, carried
+}
 
-	t.resolveRowspanHeights(grid)
-	return grid
+// measureGridRow sets a grid row's natural height: its tallest cell's
+// content plus padding. Rowspanning cells are excluded so they don't
+// inflate their starting row; resolveRowspanHeights distributes their
+// height across the rows they span.
+func (t *Table) measureGridRow(gr *gridRow) {
+	maxH := 0.0
+	for i := range gr.cells {
+		if gr.cells[i].cell.rowspan > 1 {
+			continue
+		}
+		if h := t.cellContentHeight(&gr.cells[i]); h > maxH {
+			maxH = h
+		}
+	}
+	gr.height = maxH
 }
 
 // resolveRowspanHeights computes spanHeight for every rowspanning cell once
@@ -968,8 +1012,12 @@ func spanGroupStarts(grid []gridRow) []int {
 	return starts
 }
 
-// cellContentHeight computes the height needed for a cell's content.
-// For Element cells, it also caches the laid-out lines in gc.
+// cellContentHeight computes the height needed for a cell's content,
+// padding included. The measurement is memoized per cell and inner width
+// (see Table.measures): an element cell's laid-out height, a text cell's
+// line count. The height is then computed from it as one expression, so it
+// rounds exactly as it always has (the compiler may fuse the multiply and
+// add, and adding the padding to a stored product would round twice).
 func (t *Table) cellContentHeight(gc *gridCell) float64 {
 	cell := gc.cell
 	padH := cell.padTop() + cell.padBottom()
@@ -977,21 +1025,38 @@ func (t *Table) cellContentHeight(gc *gridCell) float64 {
 	if innerWidth <= 0 {
 		return padH
 	}
+	if t.measures == nil {
+		t.measures = &tableMeasureCache{}
+	}
 
 	// Element-based cell: delegate to the Element's PlanLayout.
 	if cell.content != nil {
-		return measureConsumed(cell.content, innerWidth) + padH
+		return t.measures.elementHeight(cell, innerWidth) + padH
 	}
 
+	lines := t.measures.textLines(cell, innerWidth)
+	switch {
+	case lines < 0: // no font to measure with
+		return padH
+	case lines == 0: // no words
+		return cell.fontSize*1.2 + padH
+	}
+	return float64(lines)*cell.fontSize*1.2 + padH
+}
+
+// countCellTextLines returns the number of lines a text cell's words wrap
+// to at innerWidth: 0 when it has no words, -1 when it has no font to
+// measure them with.
+func countCellTextLines(cell *Cell, innerWidth float64) int {
 	measurer := cellTextMeasurer(cell)
 	if measurer == nil {
-		return padH
+		return -1
 	}
 
 	// Count wrapped lines.
 	words := strings.Fields(cell.text)
 	if len(words) == 0 {
-		return cell.fontSize*1.2 + padH
+		return 0
 	}
 
 	lines := 1
@@ -1008,7 +1073,7 @@ func (t *Table) cellContentHeight(gc *gridCell) float64 {
 		}
 	}
 
-	return float64(lines)*cell.fontSize*1.2 + padH
+	return lines
 }
 
 // Layout implements the Element interface.
@@ -1019,6 +1084,9 @@ func (t *Table) Layout(maxWidth float64) []Line {
 	// vertical space is consumed.
 	//
 	// The actual rendering happens in RenderTable, called by the renderer.
+	if !t.continuation {
+		t.measures = nil // measure the table as it now is (see Table.paging)
+	}
 	colWidths := t.resolveColWidths(maxWidth)
 	grid := t.buildGrid(colWidths)
 	if t.borderCollapse {
@@ -1059,26 +1127,39 @@ func (t *Table) PlanLayout(area LayoutArea) LayoutPlan {
 		return LayoutPlan{Status: LayoutNothing}
 	}
 
+	if !t.continuation {
+		// A top-level layout starts a fresh pagination chain (see
+		// Table.paging), measuring the table as it now is.
+		t.measures = nil
+		t.paging = nil
+	}
 	colWidths := t.resolveColWidths(area.Width)
-	grid := t.buildGrid(colWidths)
-	if len(grid) == 0 {
+
+	// rows is this table's grid: header rows, remaining body rows, footer
+	// rows. A table with a regular layout views the master grid it shares
+	// with its continuations, measuring rows only as pagination reaches
+	// them; any other table builds and measures its whole grid here.
+	var rows pageRows
+	var grid []gridRow
+	m, mStart := t.pagingMaster(area.Width, colWidths)
+	if m != nil {
+		rows = masterPageRows{t: t, m: m, start: mStart}
+	} else {
+		grid = t.buildGrid(colWidths)
+		// groupStarts[i] is the first row of the rowspan group containing
+		// row i; a split must never land strictly inside a group (#362).
+		rows = gridPageRows{grid: grid, starts: spanGroupStarts(grid)}
+	}
+	nRows := rows.len()
+	if nRows == 0 {
 		return LayoutPlan{Status: LayoutFull}
 	}
-
-	// Apply border-collapse: resolve competing borders on shared cell edges.
-	if t.borderCollapse {
-		resolveBorders(grid, len(colWidths))
-	}
-
-	// groupStarts[i] is the first row of the rowspan group containing row
-	// i; a split must never land strictly inside a group (issue #362).
-	groupStarts := spanGroupStarts(grid)
 
 	// Identify header rows (at start) and footer rows (at end).
 	var headerHeight float64
 	var headerRowCount int
-	for _, gr := range grid {
-		if gr.isHeader {
+	for i := range nRows {
+		if gr := rows.row(i); gr.isHeader {
 			headerHeight += gr.height
 			headerRowCount++
 		} else {
@@ -1088,23 +1169,30 @@ func (t *Table) PlanLayout(area LayoutArea) LayoutPlan {
 
 	var footerHeight float64
 	var footerRowCount int
-	for i := len(grid) - 1; i >= 0; i-- {
-		if grid[i].isFooter {
-			footerHeight += grid[i].height
+	for i := nRows - 1; i >= 0; i-- {
+		if gr := rows.row(i); gr.isFooter {
+			footerHeight += gr.height
 			footerRowCount++
 		} else {
 			break
 		}
 	}
 
-	bodyEnd := len(grid) - footerRowCount // index where body rows end
+	bodyEnd := nRows - footerRowCount // index where body rows end
 
 	sv := t.effectiveSpacingV()
 
 	// Build blocks row by row, checking height.
 	var blocks []PlacedBlock
 	curY := 0.0
-	splitIdx := len(grid)
+	splitIdx := nRows
+
+	// pageGrid is the grid the row Draw closures read, assigned once the
+	// split is known (see pageGridFor). Header and placed body rows have
+	// the same index in rows and in pageGrid. drawTable is the table they
+	// read the rest from.
+	var pageGrid []gridRow
+	drawTable := t.drawCopy()
 
 	// oversizeGroupEnd tracks the (exclusive) grid end index of a rowspan
 	// group that cannot fit even on a fresh, otherwise-empty page. While a
@@ -1117,7 +1205,8 @@ func (t *Table) PlanLayout(area LayoutArea) LayoutPlan {
 	oversizeGroupEnd := -1
 	oversizeGroupLeader := -1
 
-	for i, gr := range grid {
+	for i := range nRows {
+		gr := rows.row(i)
 		// Skip footer rows in the main loop; they'll be appended at the end.
 		if gr.isFooter {
 			continue
@@ -1141,11 +1230,11 @@ func (t *Table) PlanLayout(area LayoutArea) LayoutPlan {
 		// split — the group's space was reserved when the leader was
 		// checked. For a span-free row the group is just the row itself,
 		// so this reduces to the plain per-row check.
-		if groupStarts[i] == i {
+		if rows.groupStart(i) == i {
 			groupH := gr.height
 			groupEnd := i + 1
-			for k := i + 1; k < len(grid) && groupStarts[k] == i; k++ {
-				groupH += sv + grid[k].height
+			for k := i + 1; k < nRows && rows.groupStart(k) == i; k++ {
+				groupH += sv + rows.row(k).height
 				groupEnd = k + 1
 			}
 			groupOverflows := curY+groupH+reserveH > area.Height && area.Height > 0
@@ -1187,11 +1276,10 @@ func (t *Table) PlanLayout(area LayoutArea) LayoutPlan {
 			}
 		}
 
-		capturedGrid := grid
 		capturedRowIdx := i
 		capturedColWidths := colWidths
 		capturedMaxW := area.Width
-		capturedTable := t
+		capturedTable := drawTable
 		capturedCapRows := 0
 		if i == oversizeGroupLeader {
 			// This leader's group will be split before oversizeGroupEnd
@@ -1212,7 +1300,7 @@ func (t *Table) PlanLayout(area LayoutArea) LayoutPlan {
 				if capturedCapRows == -1 {
 					capRows = splitIdx - capturedRowIdx
 				}
-				drawTableRowDirect(ctx, capturedTable, capturedGrid, capturedRowIdx, capturedColWidths, capturedMaxW, absX, absTopY, capRows)
+				drawTableRowDirect(ctx, capturedTable, pageGrid, capturedRowIdx, capturedColWidths, capturedMaxW, absX, absTopY, capRows)
 			},
 		})
 		curY += gr.height
@@ -1221,15 +1309,27 @@ func (t *Table) PlanLayout(area LayoutArea) LayoutPlan {
 	// Bottom edge spacing after last body row.
 	curY += sv
 
+	// Build the grid this page draws from, and apply border-collapse to
+	// it: resolve competing borders on shared cell edges.
+	footerIdx := func(i int) int { return i }
+	if m != nil {
+		pageGrid, footerIdx = m.pageGridFor(t, mStart, splitIdx, bodyEnd, footerRowCount > 0)
+	} else {
+		pageGrid = grid
+	}
+	if t.borderCollapse {
+		resolveBorders(pageGrid, len(colWidths))
+	}
+
 	// Append footer rows at the bottom (whether splitting or not).
 	if footerRowCount > 0 {
-		for i := bodyEnd; i < len(grid); i++ {
-			gr := grid[i]
-			capturedGrid := grid
-			capturedRowIdx := i
+		for i := bodyEnd; i < nRows; i++ {
+			gr := rows.row(i)
+			capturedGrid := pageGrid
+			capturedRowIdx := footerIdx(i)
 			capturedColWidths := colWidths
 			capturedMaxW := area.Width
-			capturedTable := t
+			capturedTable := drawTable
 
 			blocks = append(blocks, PlacedBlock{
 				X: 0, Y: curY, Width: area.Width, Height: gr.height,
@@ -1295,7 +1395,7 @@ func (t *Table) PlanLayout(area LayoutArea) LayoutPlan {
 		}
 		renderedDataRows := splitIdx - headerRowCount
 		if dataRowIdx == renderedDataRows && splitInsideOversizeGroup {
-			overflowTable.rows = append(overflowTable.rows, buildContinuationRow(grid, len(colWidths), splitIdx, row))
+			overflowTable.rows = append(overflowTable.rows, buildContinuationRow(pageGrid, len(colWidths), splitIdx, row))
 		} else if dataRowIdx >= renderedDataRows {
 			overflowTable.rows = append(overflowTable.rows, row)
 		}
@@ -1306,6 +1406,15 @@ func (t *Table) PlanLayout(area LayoutArea) LayoutPlan {
 		if row.isFooter {
 			overflowTable.rows = append(overflowTable.rows, row)
 		}
+	}
+	// The continuation keeps viewing the shared master grid from the first
+	// row it holds, unless its first row is a rebuilt continuation of a
+	// split rowspan group, which the master does not contain: it then
+	// builds a master of its own when planned.
+	if next := mStart + splitIdx - headerRowCount; m != nil && !splitInsideOversizeGroup && m.groupStarts[next] == next {
+		overflowTable.masterStart = next
+	} else {
+		overflowTable.paging = nil
 	}
 
 	return LayoutPlan{
