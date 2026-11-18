@@ -183,10 +183,13 @@ func (w *Writer) deduplicateObjects() {
 		}
 	}
 	if len(renumber) > 0 {
+		// Shared reference pointers must be renumbered once.
+		rewritten := make(map[*core.PdfIndirectReference]bool)
 		rewriteForRenumber := func(ref *core.PdfIndirectReference) {
-			if ref == nil {
+			if ref == nil || rewritten[ref] {
 				return
 			}
+			rewritten[ref] = true
 			if newNum, ok := renumber[ref.Num()]; ok {
 				ref.SetNum(newNum)
 			}

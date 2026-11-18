@@ -746,3 +746,38 @@ func TestDeduplicateObjects_EqualCompressedStreamsMerge(t *testing.T) {
 		t.Errorf("equal compressed streams not merged: A=%d B=%d", r1.Num(), r2.Num())
 	}
 }
+
+func TestDedup_RenumbersSharedReferenceOnce(t *testing.T) {
+	// One *PdfIndirectReference held by two bodies must be renumbered
+	// once, not once per body.
+	w := NewWriter("1.7")
+	catalog := core.NewPdfDictionary()
+	catalog.Set("Type", core.NewPdfName("Catalog"))
+	catalogRef := w.AddObject(catalog) // 1
+
+	dup := func() *core.PdfDictionary {
+		d := core.NewPdfDictionary()
+		d.Set("Type", core.NewPdfName("Same"))
+		return d
+	}
+	firstRef := w.AddObject(dup())  // 2
+	secondRef := w.AddObject(dup()) // 3 — merged into 2
+
+	a := core.NewPdfDictionary()
+	aRef := w.AddObject(a) // 4 → 3
+	b := core.NewPdfDictionary()
+	b.Set("Type", core.NewPdfName("B"))
+	bRef := w.AddObject(b) // 5 → 4
+	catalog.Set("First", firstRef)
+	catalog.Set("Second", secondRef)
+	catalog.Set("A", aRef)
+	catalog.Set("B", bRef)
+	a.Set("B", bRef)
+	w.SetRoot(catalogRef)
+
+	w.deduplicateObjects()
+
+	if got := bRef.Num(); got != 4 {
+		t.Errorf("shared reference renumbered to %d, want 4", got)
+	}
+}

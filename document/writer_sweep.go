@@ -125,10 +125,14 @@ func (w *Writer) sweepOrphans() {
 	// a kept object's value graph (e.g., catalog → /Pages), so the
 	// trailer-slot rewrites below are belt-and-braces for refs that
 	// were never embedded.
+	// A reference pointer can be shared by several bodies (reader.Copier
+	// hands out one per source object); renumber each pointer once.
+	rewritten := make(map[*core.PdfIndirectReference]bool)
 	rewrite := func(ref *core.PdfIndirectReference) {
-		if ref == nil {
+		if ref == nil || rewritten[ref] {
 			return
 		}
+		rewritten[ref] = true
 		if newNum, ok := renumber[ref.Num()]; ok {
 			ref.SetNum(newNum)
 		}
