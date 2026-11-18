@@ -897,10 +897,14 @@ func (d *Div) PlanLayout(area LayoutArea) LayoutPlan {
 		}
 
 		plan := elem.PlanLayout(LayoutArea{Width: innerWidth, Height: remaining, AtFragmentTop: atTop()})
-		if plan.Status == LayoutNothing && paginateOverflow && atTop() {
+		if plan.Status == LayoutNothing && (!paginateOverflow || atTop()) {
 			// Nothing fits even at the top of a page: force-place this child
 			// and paginate its siblings, rather than relocate (and then
 			// force-place) the whole container with everything after it.
+			// A definite-height or clipping box never fragments its content,
+			// so a child that does not fit is placed whole and overflows (or
+			// is clipped by) the box, as for floats above; deferring it
+			// would drop it, since the box itself is not carried over.
 			plan = elem.PlanLayout(LayoutArea{Width: innerWidth, Height: 1e9})
 		}
 

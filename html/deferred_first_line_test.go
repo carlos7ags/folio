@@ -31,6 +31,13 @@ func TestContentSurvivesFirstLineDeferral(t *testing.T) {
 		{name: "inline-block anchor", body: `<p>See <a href="https://example.com" style="display:inline-block;padding:10px">ALPHA BETA</a> end</p>`, want: []string{"ALPHA BETA", "end"}},
 		{name: "nested inline-block", body: `<p>See <span style="display:inline-block;padding:7px"><span style="display:inline-block;padding:10px">ALPHA</span> BETA</span> end</p>`, want: []string{"ALPHA", "BETA", "end"}},
 		{name: "inline-block in a table cell", body: `<table><tr><td>See <span style="display:inline-block;padding:10px">ALPHA</span> end</td></tr></table>`, want: []string{"ALPHA", "end"}},
+		// A definite-height box contains its content instead of
+		// fragmenting it: a child taller than the box overflows it rather
+		// than being deferred (and dropped, since the box is not carried
+		// to the next page).
+		{name: "inline-block with explicit height", body: `<p>TOP <span style="display:inline-block;height:14px;padding:2px 6px;font-size:12px">ALPHA</span> OMEGA</p>`, want: []string{"TOP", "ALPHA", "OMEGA"}},
+		{name: "block shorter than its line", body: `<p>TOP</p><div style="height:12px;font-size:12px">ALPHA</div><p>OMEGA</p>`, want: []string{"TOP", "ALPHA", "OMEGA"}},
+		{name: "short block in a table cell", body: `<table><tr><td><div style="height:8px">ALPHA</div></td></tr></table>`, want: []string{"ALPHA"}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
