@@ -47,6 +47,9 @@ func TestContentSurvivesFirstLineDeferral(t *testing.T) {
 		// container whole, overflowing it.
 		{name: "short flex row at page top", body: `<div style="display:flex;height:5px"><div>ALPHA</div><div>BETA</div></div>`, want: []string{"ALPHA", "BETA"}},
 		{name: "short flex row below content", body: `<p>TOP</p><div style="display:flex;height:10px"><div>ALPHA</div><div>BETA</div></div>`, want: []string{"TOP", "ALPHA", "BETA"}},
+		// A list's first element item sits at the fragment's top when
+		// the list does, so its first line is forced instead of deferred.
+		{name: "list item in a short box", body: `<div style="height:5px"><ul><li><div>ALPHA</div></li></ul></div>`, want: []string{"ALPHA"}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
