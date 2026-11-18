@@ -18,7 +18,13 @@ import (
 // the element whose id attribute equals id.
 func styleByID(t *testing.T, htmlStr, id string) computedStyle {
 	t.Helper()
-	c, doc, root := newGoldenConverter(t, htmlStr)
+	return styleByIDWithOptions(t, htmlStr, id, nil)
+}
+
+// styleByIDWithOptions is styleByID with caller-supplied Options.
+func styleByIDWithOptions(t *testing.T, htmlStr, id string, opts *Options) computedStyle {
+	t.Helper()
+	c, doc, root := newGoldenConverterWithOptions(t, htmlStr, opts)
 	var found *computedStyle
 	var walk func(n *html.Node, parent computedStyle)
 	walk = func(n *html.Node, parent computedStyle) {
