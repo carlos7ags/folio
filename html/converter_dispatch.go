@@ -450,7 +450,10 @@ func (c *converter) convertElement(n *html.Node, parentStyle computedStyle) []la
 	if len(pendingOverlays) > 0 {
 		var targetDiv *layout.Div
 		if len(elems) == 1 {
-			targetDiv, _ = elems[0].(*layout.Div)
+			// Unwrap so a box that carries an anchor or link decorator
+			// still serves as its own containing block; the overlays go
+			// on the inner Div and the decorated element stays in elems.
+			targetDiv, _ = layout.Unwrap(elems[0]).(*layout.Div)
 		}
 		if targetDiv == nil {
 			// Wrap in a new Div to serve as the containing block.
@@ -538,12 +541,12 @@ func coalesceBox(elems []layout.Element) []layout.Element {
 func (c *converter) convertElementInner(n *html.Node, style computedStyle) []layout.Element {
 	// Flex containers.
 	if style.Display == "flex" {
-		return c.convertFlex(n, style)
+		return linkBoxes(n, c.convertFlex(n, style))
 	}
 
 	// Grid containers.
 	if style.Display == "grid" {
-		return c.convertGrid(n, style)
+		return linkBoxes(n, c.convertGrid(n, style))
 	}
 
 	// CSS table layout: elements with display:table are rendered as tables.
@@ -570,7 +573,7 @@ func (c *converter) convertElementInner(n *html.Node, style computedStyle) []lay
 	// handles them as inline element runs. At the top level (here), they
 	// still render as blocks since there is no inline flow context.
 	if style.Display == "inline-block" {
-		return c.convertBlock(n, style)
+		return linkBoxes(n, c.convertBlock(n, style))
 	}
 
 	switch n.DataAtom {

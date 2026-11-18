@@ -115,3 +115,19 @@ func TestBaseElementSeesThroughWrappers(t *testing.T) {
 		t.Errorf("baseElement through measurable anchor = %p, want inner %p", got, m)
 	}
 }
+
+// Unwrap must see through the link-box decorator, alone and nested inside
+// an anchor, so callers outside the package can configure the real element.
+func TestUnwrapSeesThroughLinkBox(t *testing.T) {
+	inner := NewDiv()
+	if got := Unwrap(NewLinkBox(inner, "https://example.com", "")); got != Element(inner) {
+		t.Errorf("Unwrap through link box = %p, want inner %p", got, inner)
+	}
+	nested := NewAnchor(NewLinkBox(inner, "", "dest"), "x")
+	if got := Unwrap(nested); got != Element(inner) {
+		t.Errorf("Unwrap through anchor and link box = %p, want inner %p", got, inner)
+	}
+	if got := Unwrap(inner); got != Element(inner) {
+		t.Errorf("Unwrap of an undecorated element = %p, want itself %p", got, inner)
+	}
+}

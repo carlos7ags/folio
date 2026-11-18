@@ -194,7 +194,10 @@ func (c *converter) convertFlex(n *html.Node, style computedStyle) []layout.Elem
 		// the correct width, so the Div should fill its flex-allocated area
 		// rather than re-resolving the percentage against that area.
 		if widthUsedAsBasis {
-			if d, ok := elem.(*layout.Div); ok {
+			// Assert through Unwrap: an <a> or an element with an id
+			// arrives wrapped in a link or anchor decorator, which would
+			// otherwise mask the Div and leave its width resolved twice.
+			if d, ok := layout.Unwrap(elem).(*layout.Div); ok {
 				d.ClearWidthUnit()
 			}
 		}
@@ -245,15 +248,18 @@ func (c *converter) convertFlex(n *html.Node, style computedStyle) []layout.Elem
 				item.SetMargins(childMT, childMR, childMB, childML)
 				// Clear SpaceBefore/SpaceAfter on the element since the FlexItem's
 				// margins handle vertical spacing — otherwise margins are doubled.
-				if f, ok := elem.(*layout.Flex); ok {
-					f.SetSpaceBefore(0)
-					f.SetSpaceAfter(0)
-				} else if d, ok := elem.(*layout.Div); ok {
-					d.SetSpaceBefore(0)
-					d.SetSpaceAfter(0)
-				} else if p, ok := elem.(*layout.Paragraph); ok {
-					p.SetSpaceBefore(0)
-					p.SetSpaceAfter(0)
+				// Unwrap so a decorated element (an <a> box, an element
+				// with an id) is cleared too; the wrapper stays the item.
+				switch inner := layout.Unwrap(elem).(type) {
+				case *layout.Flex:
+					inner.SetSpaceBefore(0)
+					inner.SetSpaceAfter(0)
+				case *layout.Div:
+					inner.SetSpaceBefore(0)
+					inner.SetSpaceAfter(0)
+				case *layout.Paragraph:
+					inner.SetSpaceBefore(0)
+					inner.SetSpaceAfter(0)
 				}
 			}
 			pending = append(pending, pendingChild{order: childStyle.Order, item: item})

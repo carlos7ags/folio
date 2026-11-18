@@ -174,8 +174,8 @@ type Clearable interface {
 	ClearValue() string // "left", "right", "both", or ""
 }
 
-// elementWrapper is implemented by decorator elements (the anchor and
-// bookmark markers) that wrap an inner element but cannot reproduce its
+// elementWrapper is implemented by decorator elements (the anchor,
+// bookmark and link-box markers) that wrap an inner element but cannot reproduce its
 // optional layout interfaces (Clearable, HeightSettable, KeepTogether,
 // layoutable, ...). Layout code that type-asserts an optional interface must
 // do so against baseElement(e) so a decorated element still participates in
@@ -196,6 +196,14 @@ func baseElement(e Element) Element {
 		e = w.unwrap()
 	}
 }
+
+// Unwrap returns the innermost element of e, seeing through the decorators
+// that NewAnchor, NewBookmarkAnchor and NewLinkBox add. Code outside this
+// package that type-asserts a concrete element type (*Div, *Flex, ...) to
+// configure it must assert against Unwrap(e): the decorator otherwise masks
+// the element and the assertion silently fails. Mutate the returned element
+// but keep e itself in the element tree, so the decoration is preserved.
+func Unwrap(e Element) Element { return baseElement(e) }
 
 // HeightSettable is implemented by elements that can have their height
 // forced before layout (used by flex cross-axis stretching).
