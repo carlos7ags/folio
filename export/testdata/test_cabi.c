@@ -781,7 +781,9 @@ int main(void) {
     uint64_t tl = folio_tabbed_line_new(helv, 12.0, positions, aligns, leaders, 1);
     ASSERT(tl != 0, "tabbed_line_new returns handle");
 
-    const char* segments[] = {"Chapter 1", "15"};
+    /* The C ABI takes string arrays as char** (cgo exports no const), and
+     * C does not convert const char** to char** implicitly. */
+    char* segments[] = {"Chapter 1", "15"};
     rc = folio_tabbed_line_set_segments(tl, segments, 2);
     ASSERT(rc == 0, "tabbed_line_set_segments succeeds");
 
@@ -952,12 +954,12 @@ int main(void) {
     rc = folio_form_add_password_field(form, "pwd", 72, 560, 300, 580, 0);
     ASSERT(rc == 0, "form_add_password_field succeeds");
 
-    const char* listOpts[] = {"Option A", "Option B", "Option C"};
+    char* listOpts[] = {"Option A", "Option B", "Option C"};
     rc = folio_form_add_listbox(form, "choices", 72, 400, 200, 540, 0, listOpts, 3);
     ASSERT(rc == 0, "form_add_listbox succeeds");
 
     /* Radio group */
-    const char* radioVals[] = {"yes", "no"};
+    char* radioVals[] = {"yes", "no"};
     double radioRects[] = {72, 350, 90, 368,  120, 350, 138, 368};
     int32_t radioPages[] = {0, 0};
     rc = folio_form_add_radio_group(form, "confirm", radioVals, radioRects, radioPages, 2);
@@ -1575,7 +1577,7 @@ int main(void) {
     rc = folio_grid_set_borders(gr,
         1,0,0,0, 1,0,0,0, 1,0,0,0, 1,0,0,0);
     ASSERT(rc == 0, "grid_set_borders succeeds");
-    const char* gAreas[] = {"a a", "b c"};
+    char* gAreas[] = {"a a", "b c"};
     int32_t gAreaCols[] = {2, 2};
     rc = folio_grid_set_template_areas(gr, gAreas, gAreaCols, 2);
     ASSERT(rc == 0, "grid_set_template_areas succeeds");
