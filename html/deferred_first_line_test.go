@@ -43,6 +43,10 @@ func TestContentSurvivesFirstLineDeferral(t *testing.T) {
 		// height.
 		{name: "absolute box with padding and border", body: `<div style="position:relative">HOST<div style="position:absolute;top:0;right:0;padding:3px;border:1px solid">ALPHA</div></div>`, want: []string{"HOST", "ALPHA"}},
 		{name: "absolute text in a short host", body: `<div style="position:relative;height:5px"><div style="position:absolute;top:0;left:0">ALPHA</div></div>`, want: []string{"ALPHA"}},
+		// A definite-height flex row places an item taller than the
+		// container whole, overflowing it.
+		{name: "short flex row at page top", body: `<div style="display:flex;height:5px"><div>ALPHA</div><div>BETA</div></div>`, want: []string{"ALPHA", "BETA"}},
+		{name: "short flex row below content", body: `<p>TOP</p><div style="display:flex;height:10px"><div>ALPHA</div><div>BETA</div></div>`, want: []string{"TOP", "ALPHA", "BETA"}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
