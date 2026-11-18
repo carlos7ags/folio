@@ -317,6 +317,16 @@ type Table struct {
 	cachedColWidths   []float64
 	cachedColWidthsAt float64
 	colWidthsValid    bool
+
+	// measures memoizes each cell's measurement per inner width, so a cell
+	// is laid out once however many pages re-plan the rows around it. It
+	// is a pointer so the whole-struct copy in cloneForOverflow shares it
+	// with the continuation tables split from this one. It lasts for one
+	// pagination chain: a top-level PlanLayout (a table that is not a
+	// continuation) starts afresh, so a table mutated since an earlier
+	// layout is laid out as it now is.
+	measures     *tableMeasureCache
+	continuation bool
 }
 
 // NewTable creates a new empty table.
@@ -410,6 +420,7 @@ func (t *Table) effectiveSpacingV() float64 {
 func (t *Table) cloneForOverflow() *Table {
 	clone := *t
 	clone.rows = nil
+	clone.continuation = true
 	return &clone
 }
 
@@ -968,8 +979,12 @@ func spanGroupStarts(grid []gridRow) []int {
 	return starts
 }
 
-// cellContentHeight computes the height needed for a cell's content.
-// For Element cells, it also caches the laid-out lines in gc.
+// cellContentHeight computes the height needed for a cell's content,
+// padding included. The measurement is memoized per cell and inner width
+// (see Table.measures): an element cell's laid-out height, a text cell's
+// line count. The height is then computed from it as one expression, so it
+// rounds exactly as it always has (the compiler may fuse the multiply and
+// add, and adding the padding to a stored product would round twice).
 func (t *Table) cellContentHeight(gc *gridCell) float64 {
 	cell := gc.cell
 	padH := cell.padTop() + cell.padBottom()
@@ -977,21 +992,38 @@ func (t *Table) cellContentHeight(gc *gridCell) float64 {
 	if innerWidth <= 0 {
 		return padH
 	}
+	if t.measures == nil {
+		t.measures = &tableMeasureCache{}
+	}
 
 	// Element-based cell: delegate to the Element's PlanLayout.
 	if cell.content != nil {
-		return measureConsumed(cell.content, innerWidth) + padH
+		return t.measures.elementHeight(cell, innerWidth) + padH
 	}
 
+	lines := t.measures.textLines(cell, innerWidth)
+	switch {
+	case lines < 0: // no font to measure with
+		return padH
+	case lines == 0: // no words
+		return cell.fontSize*1.2 + padH
+	}
+	return float64(lines)*cell.fontSize*1.2 + padH
+}
+
+// countCellTextLines returns the number of lines a text cell's words wrap
+// to at innerWidth: 0 when it has no words, -1 when it has no font to
+// measure them with.
+func countCellTextLines(cell *Cell, innerWidth float64) int {
 	measurer := cellTextMeasurer(cell)
 	if measurer == nil {
-		return padH
+		return -1
 	}
 
 	// Count wrapped lines.
 	words := strings.Fields(cell.text)
 	if len(words) == 0 {
-		return cell.fontSize*1.2 + padH
+		return 0
 	}
 
 	lines := 1
@@ -1008,7 +1040,7 @@ func (t *Table) cellContentHeight(gc *gridCell) float64 {
 		}
 	}
 
-	return float64(lines)*cell.fontSize*1.2 + padH
+	return lines
 }
 
 // Layout implements the Element interface.
@@ -1019,6 +1051,9 @@ func (t *Table) Layout(maxWidth float64) []Line {
 	// vertical space is consumed.
 	//
 	// The actual rendering happens in RenderTable, called by the renderer.
+	if !t.continuation {
+		t.measures = nil // measure the table as it now is (see Table.measures)
+	}
 	colWidths := t.resolveColWidths(maxWidth)
 	grid := t.buildGrid(colWidths)
 	if t.borderCollapse {
@@ -1059,6 +1094,11 @@ func (t *Table) PlanLayout(area LayoutArea) LayoutPlan {
 		return LayoutPlan{Status: LayoutNothing}
 	}
 
+	if !t.continuation {
+		// A top-level layout starts a fresh pagination chain (see
+		// Table.measures), measuring the table as it now is.
+		t.measures = nil
+	}
 	colWidths := t.resolveColWidths(area.Width)
 	grid := t.buildGrid(colWidths)
 	if len(grid) == 0 {
