@@ -3,8 +3,8 @@ module github.com/carlos7ags/folio
 go 1.26.0
 
 require (
-	golang.org/x/image v0.47.0
+	golang.org/x/image v0.48.0
 	golang.org/x/net v0.61.0
 )
 
-require golang.org/x/text v0.43.0
+require golang.org/x/text v0.44.0
