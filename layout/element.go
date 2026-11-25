@@ -336,6 +336,13 @@ type Word struct {
 	// Used to honor explicit \n characters in paragraph text.
 	LineBreak bool
 
+	// HyphenatedBoundary marks this word as one half of a hyphenated word
+	// pair produced by hyphenateWord. Set on both the prefix (with trailing
+	// hyphen) and suffix. When cloneWithWords encounters two consecutive
+	// words that both carry HyphenatedBoundary, it recombines them back to
+	// the original unhyphenated word. Not propagated to TextRun.
+	HyphenatedBoundary bool
+
 	// OriginalText holds the pre-shaping Unicode text for this word when a
 	// shaper (currently ShapeArabic) substituted glyph-form codepoints. The
 	// renderer wraps such words in an ISO 32000-2 §14.9.4 /Span /ActualText

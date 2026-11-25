@@ -485,18 +485,24 @@ func TestSplitAfterLineHyphenationInternalToHead(t *testing.T) {
 	// recombined "-" artifact (e.g. "linguis-tic"). When this test
 	// changes shape, the recombination logic in cloneWithWords will
 	// have been improved.
-	long := strings.Repeat("antidisestablishmentarianism ", 6)
-	p := NewParagraph(long, font.Helvetica, 12).SetHyphens("auto")
-	total := p.MeasureLines(60)
-	if total < 4 {
-		t.Skipf("setup needs ≥4 lines, got %d", total)
+	// Multi-line paragraph with hyphens enabled. "linguistic" fits within
+	// lineWidth (70pt) but does not fit after "hello ", so it hyphenates
+	// across lines to "linguis-" and "tic". When split after line 2, both
+	// halves of the hyphenated pair land in head.
+	//
+	// Pre-fix, cloneWithWords left a literal hyphen artifact in the head's
+	// run text ("linguis-tic"). With Word.HyphenatedBoundary tracking, the
+	// original word "linguistic" is recovered cleanly without "-" artifact.
+	source := "hello linguistic world of typography"
+	p := NewParagraph(source, font.Helvetica, 12).SetHyphens("auto")
+	total := p.MeasureLines(70)
+	if total < 3 {
+		t.Skipf("setup needs ≥3 lines, got %d", total)
 	}
 
-	// Setup precondition: at least one line must end with a hyphen,
-	// so we know hyphenation actually fired. Otherwise the test isn't
-	// exercising the path it claims to document.
+	// Setup precondition: at least one line must end with a hyphen.
 	hyphenated := false
-	for _, line := range p.Layout(60) {
+	for _, line := range p.Layout(70) {
 		if len(line.Words) == 0 {
 			continue
 		}
@@ -510,19 +516,42 @@ func TestSplitAfterLineHyphenationInternalToHead(t *testing.T) {
 		t.Skip("hyphenation did not fire on this input — pattern dictionary may have changed")
 	}
 
-	head, tail := p.SplitAfterLine(total, 60)
+	// Split after the hyphenated pair (line 2) so both halves land in head.
+	head, tail := p.SplitAfterLine(2, 70)
 	if head == nil {
-		t.Fatal("head should be non-nil at exact-boundary split")
+		t.Fatal("head should be non-nil")
 	}
-	if tail != nil {
-		t.Fatalf("tail should be nil at exact-boundary, got %d lines", tail.MeasureLines(60))
+	if tail == nil {
+		t.Fatal("tail should be non-nil")
 	}
 
-	// Document current behavior: head re-laid at the same width should
-	// still produce the same line count (the hyphen-recombination
-	// artifact, if any, doesn't break wrap stability at the same width).
-	if got := head.MeasureLines(60); got != total {
-		t.Errorf("head re-lay line count drifted: was %d, now %d", total, got)
+	// Assert the hyphen artifact is gone from the head's run text:
+	// "linguistic" should appear whole, not "linguis-tic" or "linguis-".
+	for i, r := range head.Runs() {
+		if strings.Contains(r.Text, "linguis-") {
+			t.Errorf("head run %d contains un-recombined hyphen artifact: %q", i, r.Text)
+		}
+		if !strings.Contains(r.Text, "linguistic") {
+			t.Errorf("head run %d missing recombined original word: %q", i, r.Text)
+		}
+	}
+
+	// Head re-laid at the same width should produce the same line count (2).
+	if got := head.MeasureLines(70); got != 2 {
+		t.Errorf("head re-lay line count drifted: was 2, now %d", got)
+	}
+
+	// Split across the hyphenation boundary (line 1): head ends with "linguis-",
+	// tail starts with "tic". Neither recombines.
+	head1, tail1 := p.SplitAfterLine(1, 70)
+	if head1 == nil || tail1 == nil {
+		t.Fatal("head1 and tail1 must be non-nil")
+	}
+	if !strings.Contains(head1.Runs()[0].Text, "linguis-") {
+		t.Errorf("cross-split head should retain hyphenated prefix, got %q", head1.Runs()[0].Text)
+	}
+	if !strings.HasPrefix(strings.TrimSpace(tail1.Runs()[0].Text), "tic") {
+		t.Errorf("cross-split tail should start with hyphenated suffix, got %q", tail1.Runs()[0].Text)
 	}
 }
 
