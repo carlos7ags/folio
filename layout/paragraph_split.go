@@ -3,7 +3,10 @@
 
 package layout
 
-import "slices"
+import (
+	"slices"
+	"strings"
+)
 
 // SplitAfterLine wraps the paragraph at maxWidth and splits it after
 // the first n rendered lines. Returns:
@@ -462,6 +465,7 @@ func (p *Paragraph) cloneWithWords(words []Word) *Paragraph {
 		// space width for the destination font/size, so we only need
 		// to faithfully encode "was there a space here" as a bool.
 		prevSpaceAfter := words[0].SpaceAfter
+		prevHyphenated := words[0].HyphenatedBoundary && strings.HasSuffix(words[0].Text, "-")
 		for _, w := range words[1:] {
 			// Blank words (from consecutive \n\n) represent empty lines.
 			// Serialize as "\n" so splitWords regenerates lineBreakMarkers.
@@ -478,6 +482,7 @@ func (p *Paragraph) cloneWithWords(words []Word) *Paragraph {
 				// follows starts a fresh visual line and should not
 				// inherit the pre-blank-line word's SpaceAfter.
 				prevSpaceAfter = 0
+				prevHyphenated = false
 				continue
 			}
 			// Inline elements never merge with text or with another inline
@@ -492,6 +497,19 @@ func (p *Paragraph) cloneWithWords(words []Word) *Paragraph {
 				w.LetterSpacing == cur.LetterSpacing && w.WordSpacing == cur.WordSpacing &&
 				w.LinkURI == cur.LinkURI && w.LinkDest == cur.LinkDest &&
 				w.BackgroundColor == cur.BackgroundColor
+
+			// When two consecutive words both carry HyphenatedBoundary,
+			// they represent the prefix (ending with "-") and suffix of a
+			// single word that hyphenateWord split across lines. If both
+			// land in the same half of a SplitAfterLine split, recombine
+			// them into the original unhyphenated word without space or newline.
+			if sameRun && prevHyphenated && w.HyphenatedBoundary {
+				cur.Text = strings.TrimSuffix(cur.Text, "-") + w.Text
+				prevSpaceAfter = w.SpaceAfter
+				prevHyphenated = w.HyphenatedBoundary && strings.HasSuffix(w.Text, "-")
+				continue
+			}
+
 			// A word with LineBreak=true had a forced \n before it.
 			if w.LineBreak {
 				if sameRun {
@@ -504,6 +522,7 @@ func (p *Paragraph) cloneWithWords(words []Word) *Paragraph {
 					cur = wordToRun(w)
 				}
 				prevSpaceAfter = w.SpaceAfter
+				prevHyphenated = w.HyphenatedBoundary && strings.HasSuffix(w.Text, "-")
 				continue
 			}
 			if sameRun {
@@ -517,6 +536,7 @@ func (p *Paragraph) cloneWithWords(words []Word) *Paragraph {
 				cur = wordToRun(w)
 			}
 			prevSpaceAfter = w.SpaceAfter
+			prevHyphenated = w.HyphenatedBoundary && strings.HasSuffix(w.Text, "-")
 		}
 		runs = append(runs, cur)
 	}

@@ -419,10 +419,12 @@ func hyphenateWord(w Word, available float64) (part, rest Word, ok bool) {
 	part.Text = prefixText
 	part.Width = measure(prefixText)
 	part.SpaceAfter = 0
+	part.HyphenatedBoundary = true
 
 	rest = w
 	rest.Text = suffixText
 	rest.Width = measure(suffixText)
+	rest.HyphenatedBoundary = true
 
 	return part, rest, true
 }
