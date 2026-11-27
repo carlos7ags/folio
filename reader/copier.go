@@ -40,7 +40,7 @@ func (c *Copier) CopyPage(pageIndex int) (*core.PdfIndirectReference, error) {
 
 	// Deep-copy the page dictionary, which recursively copies all
 	// referenced objects (resources, content streams, fonts, images).
-	copied, err := c.copyDeep(page.pageDict)
+	copied, err := c.copyDeep(standalonePageDict(page))
 	if err != nil {
 		return nil, err
 	}
@@ -50,10 +50,39 @@ func (c *Copier) CopyPage(pageIndex int) (*core.PdfIndirectReference, error) {
 		return nil, err
 	}
 
-	// Remove /Parent — it will be set by the target document's page tree.
-	removeEntry(copiedDict, "Parent")
-
 	return c.addObj(copiedDict), nil
+}
+
+// standalonePageDict returns the page dictionary without /Parent and with
+// the attributes it inherits from ancestor Pages nodes set on it
+// (ISO 32000-1 §7.7.3.4), so it keeps its size, rotation and resources
+// when copied into another page tree.
+func standalonePageDict(page *PageInfo) *core.PdfDictionary {
+	dict := core.NewPdfDictionary()
+	for key, value := range page.pageDict.All() {
+		if key != "Parent" {
+			dict.Set(key, value)
+		}
+	}
+	setIfMissing := func(key string, value core.PdfObject) {
+		if dict.Get(key) == nil {
+			dict.Set(key, value)
+		}
+	}
+	inh := page.inherited
+	if inh.mediaBox != nil {
+		setIfMissing("MediaBox", inh.mediaBox)
+	}
+	if inh.cropBox != nil {
+		setIfMissing("CropBox", inh.cropBox)
+	}
+	if inh.rotate != nil {
+		setIfMissing("Rotate", inh.rotate)
+	}
+	if inh.resources != nil {
+		setIfMissing("Resources", inh.resources)
+	}
+	return dict
 }
 
 // copyDeep recursively copies a PDF object, remapping all indirect references.

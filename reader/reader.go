@@ -108,9 +108,9 @@ type PageInfo struct {
 	TrimBox  Box // intended finished page dimensions (default = CropBox)
 	ArtBox   Box // meaningful content area (default = CropBox)
 
-	pageDict           *core.PdfDictionary
-	reader             *PdfReader
-	inheritedResources core.PdfObject // /Resources inherited from ancestor Pages node
+	pageDict  *core.PdfDictionary
+	reader    *PdfReader
+	inherited inherited // attributes inherited from ancestor Pages nodes
 }
 
 // VisibleBox returns the effective visible area of the page.
@@ -513,13 +513,20 @@ func (r *PdfReader) collectPages(node *core.PdfDictionary, inh inherited, visite
 		return nil
 	}
 
-	// Update inheritable attributes from this node.
-	if mb := node.Get("MediaBox"); mb != nil {
+	// Update inheritable attributes from this node; values may be indirect.
+	resolve := func(obj core.PdfObject) core.PdfObject {
+		resolved, err := r.resolver.ResolveDeep(obj)
+		if err != nil {
+			return nil
+		}
+		return resolved
+	}
+	if mb := resolve(node.Get("MediaBox")); mb != nil {
 		if arr, ok := mb.(*core.PdfArray); ok {
 			inh.mediaBox = arr
 		}
 	}
-	if cb := node.Get("CropBox"); cb != nil {
+	if cb := resolve(node.Get("CropBox")); cb != nil {
 		if arr, ok := cb.(*core.PdfArray); ok {
 			inh.cropBox = arr
 		}
@@ -527,7 +534,7 @@ func (r *PdfReader) collectPages(node *core.PdfDictionary, inh inherited, visite
 	if res := node.Get("Resources"); res != nil {
 		inh.resources = res
 	}
-	if rot := node.Get("Rotate"); rot != nil {
+	if rot := resolve(node.Get("Rotate")); rot != nil {
 		if num, ok := rot.(*core.PdfNumber); ok {
 			inh.rotate = num
 		}
@@ -628,10 +635,8 @@ func (r *PdfReader) buildPageInfo(pageDict *core.PdfDictionary, inh inherited) *
 		}
 	}
 
-	// Resources: store inherited value for fallback in Resources().
-	if inh.resources != nil {
-		page.inheritedResources = inh.resources
-	}
+	// Keep inherited values for Resources() and for copying the page.
+	page.inherited = inh
 
 	return page
 }
@@ -673,7 +678,7 @@ func (p *PageInfo) Resources() (*core.PdfDictionary, error) {
 	res := p.pageDict.Get("Resources")
 	if res == nil {
 		// Fall back to inherited resources from parent Pages node.
-		res = p.inheritedResources
+		res = p.inherited.resources
 	}
 	if res == nil {
 		return core.NewPdfDictionary(), nil

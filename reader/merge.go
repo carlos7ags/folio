@@ -89,7 +89,7 @@ func (m *Modifier) appendReader(r *PdfReader) error {
 		}
 
 		// Deep-copy the page dictionary.
-		copied, err := copier.CopyObject(page.pageDict)
+		copied, err := copier.CopyObject(standalonePageDict(page))
 		if err != nil {
 			return fmt.Errorf("reader: merge page %d: %w", i, err)
 		}
@@ -99,8 +99,6 @@ func (m *Modifier) appendReader(r *PdfReader) error {
 			return fmt.Errorf("reader: merge page %d: copied object is not a dictionary", i)
 		}
 
-		// Remove /Parent from source, set our own.
-		removeEntry(copiedDict, "Parent")
 		copiedDict.Set("Parent", m.pagesRef)
 
 		pageRef := m.writer.AddObject(copiedDict)
