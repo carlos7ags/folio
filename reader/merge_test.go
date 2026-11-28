@@ -270,3 +270,77 @@ func TestMergeExtractText(t *testing.T) {
 func writeFile(path string, data []byte) error {
 	return os.WriteFile(path, data, 0644)
 }
+
+// Merged pages keep the MediaBox, Rotate and Resources they inherit from
+// their source page tree (ISO 32000-1 §7.7.3.4); XeLaTeX output relies on it.
+func TestMergeKeepsInheritedPageAttributes(t *testing.T) {
+	src, err := Parse(buildPDFFromObjects([]string{
+		"<< /Type /Catalog /Pages 2 0 R >>",
+		"<< /Type /Pages /Kids [3 0 R] /Count 1 /MediaBox [0 0 300 200] /Rotate 90 /Resources << /Font << /F1 5 0 R >> >> >>",
+		"<< /Type /Page /Parent 2 0 R /Contents 4 0 R >>",
+		formStream("", "BT /F1 12 Tf 10 100 Td (Hi) Tj ET"),
+		"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
+	}))
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	m, err := Merge(src)
+	if err != nil {
+		t.Fatalf("Merge: %v", err)
+	}
+	var buf bytes.Buffer
+	if _, err := m.WriteTo(&buf); err != nil {
+		t.Fatalf("WriteTo: %v", err)
+	}
+	merged, err := Parse(buf.Bytes())
+	if err != nil {
+		t.Fatalf("Parse merged: %v", err)
+	}
+	page, err := merged.Page(0)
+	if err != nil {
+		t.Fatalf("Page: %v", err)
+	}
+	if page.Width != 300 || page.Height != 200 || page.Rotate != 90 {
+		t.Errorf("page = %vx%v rotate %d, want 300x200 rotate 90", page.Width, page.Height, page.Rotate)
+	}
+	text, err := page.ExtractText()
+	if err != nil {
+		t.Fatalf("ExtractText: %v", err)
+	}
+	if !strings.Contains(text, "Hi") {
+		t.Errorf("text = %q, want it to contain %q", text, "Hi")
+	}
+}
+
+// Inherited values may be indirect references.
+func TestMergeKeepsIndirectInheritedMediaBox(t *testing.T) {
+	src, err := Parse(buildPDFFromObjects([]string{
+		"<< /Type /Catalog /Pages 2 0 R >>",
+		"<< /Type /Pages /Kids [3 0 R] /Count 1 /MediaBox 5 0 R >>",
+		"<< /Type /Page /Parent 2 0 R /Contents 4 0 R >>",
+		formStream("", ""),
+		"[0 0 300 200]",
+	}))
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	m, err := Merge(src)
+	if err != nil {
+		t.Fatalf("Merge: %v", err)
+	}
+	var buf bytes.Buffer
+	if _, err := m.WriteTo(&buf); err != nil {
+		t.Fatalf("WriteTo: %v", err)
+	}
+	merged, err := Parse(buf.Bytes())
+	if err != nil {
+		t.Fatalf("Parse merged: %v", err)
+	}
+	page, err := merged.Page(0)
+	if err != nil {
+		t.Fatalf("Page: %v", err)
+	}
+	if page.Width != 300 || page.Height != 200 {
+		t.Errorf("page = %vx%v, want 300x200", page.Width, page.Height)
+	}
+}
